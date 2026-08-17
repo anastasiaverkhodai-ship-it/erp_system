@@ -1,90 +1,85 @@
-# Role-Based Access Control (RBAC)
+# RBAC Architecture
 
 ## 1. Overview
 
-The ERP System uses Role-Based Access Control (RBAC) to determine what authenticated users are allowed to do.
+The ERP System uses Role-Based Access Control (RBAC).
 
-Authentication and authorization are separate:
+Authorization is enforced by the backend.
 
-```text
-Authentication
-     │
-     ▼
-Who is the user?
-     │
-     ▼
-Authorization / RBAC
-     │
-     ▼
-What can the user do?
-```
+The client application must never be treated as the security boundary.
 
-The ERP supports company-specific authorization.
-
-A user may have different roles in different companies.
-
----
-
-## 2. Authorization Model
-
-The main authorization structure is:
+The system supports:
 
 ```text
-User
- │
- ▼
-UserCompanyRole
- │
- ├── Company
- │
- └── Role
-      │
-      ▼
-RolePermission
-      │
-      ▼
-Permission
-```
-
-A permission check therefore depends on:
-
-```text
-user_id
-+
-company_id
-+
-role
-+
-permission
+Global Roles
+Company-Specific Roles
+Permissions
 ```
 
 ---
 
-## 3. Company-Specific Roles
+## 2. Main Tables
 
-A user may work with multiple companies.
+```text
+users
+roles
+permissions
+
+user_roles
+role_permissions
+
+user_companies
+user_company_roles
+```
+
+---
+
+## 3. Global Roles
+
+Table:
+
+```text
+user_roles
+```
+
+Global roles are used for system-level permissions.
 
 Example:
 
 ```text
-User: test@example.com
-
-Company A
-└── accountant
-
-Company B
-└── manager
+companies.create
 ```
 
-The user's permissions in Company A do not automatically apply to Company B.
-
-This provides isolation between companies.
+A global administrator may create a new company.
 
 ---
 
-## 4. Roles
+## 4. Company Roles
 
-Current system roles:
+Table:
+
+```text
+user_company_roles
+```
+
+Company roles apply inside one specific company.
+
+Example:
+
+```text
+User
+│
+├── Company A → accountant
+└── Company B → manager
+```
+
+The same user can therefore have different permissions in different companies.
+
+---
+
+## 5. Standard Roles
+
+Current standard roles:
 
 ```text
 admin
@@ -94,289 +89,91 @@ manager
 seller
 ```
 
-### Admin
+These roles are an initial ERP configuration.
 
-System/company administrator with broad access.
+Additional roles can be added later without redesigning the core business tables.
 
-Typical responsibilities:
+Possible future roles include:
 
-- user management
-- company configuration
-- product management
-- warehouse management
-- document management
-- accounting configuration
-- reporting
-
-### Director
-
-Management-level role with broad visibility and control.
-
-Typical responsibilities:
-
-- company information
-- reports
-- documents
-- operational oversight
-- selected accounting information
-
-### Accountant
-
-Responsible for accounting-related operations.
-
-Typical responsibilities:
-
-- accounting periods
-- Chart of Accounts
-- accounting documents
-- reports
-- future journal entries
-- future tax accounting
-
-### Manager
-
-Responsible primarily for operational processes.
-
-Typical responsibilities:
-
-- products
-- warehouses
-- business documents
-- selected accounting information
-
-### Seller
-
-Limited operational role.
-
-Typical responsibilities:
-
-- viewing products
-- reading documents
-- creating permitted sales-related documents
+```text
+warehouse_operator
+cashier
+auditor
+senior_accountant
+procurement_manager
+```
 
 ---
 
-## 5. Permissions
+## 6. Current Permissions
 
-Permissions use a resource/action naming convention:
-
-```text
-resource.action
-```
-
-Examples:
+### Users
 
 ```text
 users.read
 users.create
 users.update
+```
 
+### Companies
+
+```text
 companies.create
 companies.read
 companies.update
+```
 
+### Products
+
+```text
 products.read
 products.create
 products.update
+```
 
+### Warehouses
+
+```text
 warehouse.read
 warehouse.create
+warehouse.update
+```
 
+### Documents
+
+```text
 documents.read
 documents.create
+documents.update
+documents.delete
 documents.approve
+documents.reverse
+```
 
+### Reports
+
+```text
 reports.read
+```
 
+### Accounting Periods
+
+```text
 accounting.periods.read
 accounting.periods.manage
+```
 
+### Chart of Accounts
+
+```text
 accounts.read
 accounts.create
 accounts.update
 ```
 
-This convention makes permissions explicit and extensible.
-
-Future examples may include:
-
-```text
-journal.read
-journal.create
-journal.post
-journal.reverse
-
-sales.read
-sales.create
-sales.post
-
-purchases.read
-purchases.create
-purchases.post
-
-bank.read
-bank.import
-
-vat.read
-vat.manage
-```
-
 ---
 
-## 6. Role-Permission Relationship
-
-Roles and permissions have a many-to-many relationship.
-
-Database structure:
-
-```text
-roles
-  │
-  ▼
-role_permissions
-  │
-  ▼
-permissions
-```
-
-One role can contain many permissions.
-
-One permission can belong to multiple roles.
-
----
-
-## 7. Company Role Assignment
-
-Company-specific role assignments are stored in:
-
-```text
-user_company_roles
-```
-
-Important fields:
-
-```text
-user_id
-company_id
-role_id
-is_active
-assigned_at
-```
-
-The combination identifies which role a user has in a particular company.
-
----
-
-## 8. Active Role Check
-
-A role assignment can be deactivated using:
-
-```text
-is_active = false
-```
-
-This allows access to be removed without deleting historical role information.
-
-Permission checks must only use active company-role assignments.
-
-Conceptually:
-
-```text
-User
- │
- ▼
-Company Role
- │
- ├── is_active = true  → continue
- │
- └── is_active = false → deny
-```
-
----
-
-## 9. Company Permission Check
-
-Company resources use a permission dependency such as:
-
-```python
-Depends(
-    require_company_permission("accounts.read")
-)
-```
-
-The permission checker verifies that:
-
-```text
-current user
-     │
-     ▼
-has active role
-     │
-     ▼
-inside requested company
-     │
-     ▼
-role contains requested permission
-```
-
-If the permission exists:
-
-```text
-Request allowed
-```
-
-If it does not:
-
-```text
-HTTP 403 Forbidden
-```
-
----
-
-## 10. Authentication Failure vs Permission Failure
-
-These cases are intentionally different.
-
-### 401 Unauthorized
-
-Example:
-
-```json
-{
-  "detail": "Not authenticated"
-}
-```
-
-Meaning:
-
-```text
-No valid authentication credentials were provided.
-```
-
-### 403 Forbidden
-
-Example:
-
-```json
-{
-  "detail": "Permission denied for this company"
-}
-```
-
-Meaning:
-
-```text
-The user is authenticated,
-but does not have the required permission.
-```
-
-This distinction is important for API behavior.
-
----
-
-## 11. Current Role Matrix
-
-The current permission model can be summarized approximately as:
+## 7. Current Role Matrix
 
 | Permission | Admin | Director | Accountant | Manager | Seller |
 |---|---|---|---|---|---|
@@ -391,9 +188,13 @@ The current permission model can be summarized approximately as:
 | products.update | ✅ | ✅ | — | ✅ | — |
 | warehouse.read | ✅ | ✅ | — | ✅ | — |
 | warehouse.create | ✅ | ✅ | — | ✅ | — |
+| warehouse.update | ✅ | ✅ | — | ✅ | — |
 | documents.read | ✅ | ✅ | ✅ | ✅ | ✅ |
 | documents.create | ✅ | ✅ | ✅ | ✅ | ✅ |
+| documents.update | ✅ | ✅ | ✅ | ✅ | ✅ |
+| documents.delete | ✅ | ✅ | ✅ | ✅ | ✅ |
 | documents.approve | ✅ | ✅ | ✅ | — | — |
+| documents.reverse | ✅ | ✅ | ✅ | — | — |
 | reports.read | ✅ | ✅ | ✅ | — | — |
 | accounting.periods.read | ✅ | ✅ | ✅ | — | — |
 | accounting.periods.manage | ✅ | — | ✅ | — | — |
@@ -401,143 +202,180 @@ The current permission model can be summarized approximately as:
 | accounts.create | ✅ | — | ✅ | — | — |
 | accounts.update | ✅ | — | ✅ | — | — |
 
-This table reflects the current permission assignments defined in:
+This matrix reflects the current seeded configuration.
+
+The source of truth for seeded role permissions is:
 
 ```text
 scripts/seed_role_permissions.py
+```
 
 ---
 
-## 12. RBAC Seed Scripts
+## 8. Document Permissions
 
-RBAC initialization is handled through scripts.
-
-Examples:
+Document permissions are separated by operation:
 
 ```text
-scripts/seed_rbac.py
-scripts/seed_role_permissions.py
-scripts/check_rbac.py
-scripts/check_role_permissions.py
+documents.read
+documents.create
+documents.update
+documents.delete
+documents.approve
+documents.reverse
 ```
 
-Typical workflow:
+This allows the ERP to distinguish between:
 
-```bash
-python -m scripts.seed_rbac
-python -m scripts.seed_role_permissions
-python -m scripts.check_role_permissions
+```text
+reading documents
+creating a draft
+editing a draft
+deleting a draft
+posting a document
+reversing a posted document
 ```
 
-Seed scripts should be designed to be safe to run more than once where possible.
+Posting uses:
+
+```text
+documents.approve
+```
+
+Reversal uses:
+
+```text
+documents.reverse
+```
 
 ---
 
-## 13. Backend Enforcement
+## 9. Document Lifecycle Security
 
-Permissions must always be enforced by the backend.
+### DRAFT
 
-The frontend may hide unavailable buttons for usability, but this is not considered security.
-
-Incorrect:
+A user with appropriate permissions may:
 
 ```text
-Frontend hides "Delete"
-→ therefore user cannot delete
+read
+update
+delete
+post
 ```
 
-Correct:
+### POSTED
+
+A posted document cannot be edited or physically deleted.
+
+A user with:
 
 ```text
-Frontend
-   │
-   ▼
-API Request
-   │
-   ▼
-JWT Authentication
-   │
-   ▼
-Company Permission Check
-   │
-   ▼
-Business Operation
+documents.reverse
 ```
 
-The API remains the authoritative security boundary.
+may reverse it.
+
+### REVERSED
+
+A reversed document remains historical and cannot be reversed again.
 
 ---
 
-## 14. Company Isolation
+## 10. Company Permission Enforcement
 
-A permission in one company must not grant access to another company.
+Company-scoped authorization uses:
+
+```text
+require_company_permission(...)
+```
+
+Conceptually:
+
+```text
+Request
+   │
+   ▼
+Authenticated User
+   │
+   ▼
+UserCompanyRole
+   │
+   ▼
+Role
+   │
+   ▼
+RolePermission
+   │
+   ▼
+Permission
+```
+
+The check includes:
+
+```text
+user_id
+company_id
+role
+is_active
+permission
+```
+
+---
+
+## 11. Global Permission Enforcement
+
+Global permissions use:
+
+```text
+require_global_permission(...)
+```
 
 For example:
 
 ```text
-User 10
-│
-├── Company 1 → accountant
-│
-└── Company 2 → seller
+companies.create
 ```
 
-A request for:
-
-```text
-Company 1 / accounts
-```
-
-is evaluated using the role for Company 1.
-
-The seller role from Company 2 must not affect that decision.
+This is separate from company-specific authorization.
 
 ---
 
-## 15. Future RBAC Development
+## 12. Security Principle
 
-As additional ERP modules are introduced, new permissions will be added.
+The frontend may hide controls based on permissions for usability.
 
-Expected permission groups include:
+However, the backend always remains the final authorization authority.
 
-```text
-journal.*
-ledger.*
-sales.*
-purchases.*
-inventory.*
-bank.*
-cash.*
-vat.*
-tax.*
-reports.*
-settings.*
-```
-
-Sensitive actions should use more specific permissions.
-
-For example, creating a journal entry and posting it should eventually be separate capabilities:
+For example:
 
 ```text
-journal.create
-journal.post
+Frontend hides "Reverse"
 ```
 
-This allows workflows where one employee prepares a transaction and another employee approves or posts it.
+is not sufficient.
+
+The API must still enforce:
+
+```text
+documents.reverse
+```
 
 ---
 
-## 16. Security Principles
+## 13. Future RBAC Development
 
-The RBAC architecture follows these rules:
+Future ERP versions may support:
 
-1. Authentication does not automatically imply authorization.
-2. Company resources require company-scoped permission checks.
-3. Users may have different roles in different companies.
-4. Inactive company roles must not grant permissions.
-5. Permission checks must be performed on the backend.
-6. The client application must never be treated as a security boundary.
-7. Sensitive actions should have dedicated permissions.
-8. Role changes should eventually be auditable.
-9. Permission changes should eventually be auditable.
-10. Financial approval and posting permissions should be separable.
+```text
+custom roles
+role management UI
+permission management UI
+company-specific role templates
+more granular accounting permissions
+warehouse-specific restrictions
+approval limits
+document amount limits
+department-level access
+```
+
+The current RBAC architecture is designed so these additions do not require redesigning the main ERP business tables.

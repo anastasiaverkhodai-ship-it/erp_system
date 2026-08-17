@@ -1,26 +1,37 @@
+from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Numeric
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Numeric,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
-if TYPE_CHECKING:
-    from app.models.document import Document
 
+class StockBalance(Base):
+    __tablename__ = "stock_balances"
 
-class DocumentLine(Base):
-    __tablename__ = "document_lines"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "product_id",
+            "warehouse_id",
+            name="uq_stock_balance_company_product_warehouse",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         primary_key=True,
     )
 
-    document_id: Mapped[int] = mapped_column(
+    company_id: Mapped[int] = mapped_column(
         ForeignKey(
-            "documents.id",
-            ondelete="CASCADE",
+            "companies.id",
+            ondelete="RESTRICT",
         ),
         nullable=False,
         index=True,
@@ -46,16 +57,12 @@ class DocumentLine(Base):
 
     quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4),
-        nullable=False,
-    )
-
-    price: Mapped[Decimal] = mapped_column(
-        Numeric(18, 4),
         default=Decimal("0"),
         nullable=False,
     )
 
-    document: Mapped["Document"] = relationship(
-        "Document",
-        back_populates="lines",
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
     )

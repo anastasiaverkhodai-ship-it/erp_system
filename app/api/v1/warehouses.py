@@ -11,46 +11,46 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.permissions import require_company_permission
 from app.core.database import get_db
 from app.models.company import Company
-from app.models.product import Product
-from app.schemas.product import (
-    ProductCreate,
-    ProductResponse,
-    ProductUpdate,
+from app.models.warehouse import Warehouse
+from app.schemas.warehouse import (
+    WarehouseCreate,
+    WarehouseResponse,
+    WarehouseUpdate,
 )
 
 
 router = APIRouter(
-    prefix="/companies/{company_id}/products",
-    tags=["Products"],
+    prefix="/companies/{company_id}/warehouses",
+    tags=["Warehouses"],
 )
 
 
 # ---------------------------------------------------------
-# GET PRODUCT LIST
+# GET WAREHOUSE LIST
 # ---------------------------------------------------------
 
 
 @router.get(
     "",
-    response_model=list[ProductResponse],
+    response_model=list[WarehouseResponse],
 )
-async def get_products(
+async def get_warehouses(
     company_id: int,
     _=Depends(
         require_company_permission(
-            "products.read"
+            "warehouse.read"
         )
     ),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Product)
+        select(Warehouse)
         .where(
-            Product.company_id == company_id,
+            Warehouse.company_id == company_id,
         )
         .order_by(
-            Product.name.asc(),
-            Product.id.asc(),
+            Warehouse.name.asc(),
+            Warehouse.id.asc(),
         )
     )
 
@@ -58,58 +58,58 @@ async def get_products(
 
 
 # ---------------------------------------------------------
-# GET ONE PRODUCT
+# GET ONE WAREHOUSE
 # ---------------------------------------------------------
 
 
 @router.get(
-    "/{product_id}",
-    response_model=ProductResponse,
+    "/{warehouse_id}",
+    response_model=WarehouseResponse,
 )
-async def get_product(
+async def get_warehouse(
     company_id: int,
-    product_id: int,
+    warehouse_id: int,
     _=Depends(
         require_company_permission(
-            "products.read"
+            "warehouse.read"
         )
     ),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Product).where(
-            Product.id == product_id,
-            Product.company_id == company_id,
+        select(Warehouse).where(
+            Warehouse.id == warehouse_id,
+            Warehouse.company_id == company_id,
         )
     )
 
-    product = result.scalar_one_or_none()
+    warehouse = result.scalar_one_or_none()
 
-    if product is None:
+    if warehouse is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Product not found",
+            detail="Warehouse not found",
         )
 
-    return product
+    return warehouse
 
 
 # ---------------------------------------------------------
-# CREATE PRODUCT
+# CREATE WAREHOUSE
 # ---------------------------------------------------------
 
 
 @router.post(
     "",
-    response_model=ProductResponse,
+    response_model=WarehouseResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def create_product(
+async def create_warehouse(
     company_id: int,
-    data: ProductCreate,
+    data: WarehouseCreate,
     _=Depends(
         require_company_permission(
-            "products.create"
+            "warehouse.create"
         )
     ),
     db: AsyncSession = Depends(get_db),
@@ -131,9 +131,9 @@ async def create_product(
             )
 
         existing_result = await db.execute(
-            select(Product.id).where(
-                Product.company_id == company_id,
-                Product.sku == data.sku,
+            select(Warehouse.id).where(
+                Warehouse.company_id == company_id,
+                Warehouse.name == data.name,
             )
         )
 
@@ -144,24 +144,23 @@ async def create_product(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    "Product SKU already exists "
+                    "Warehouse name already exists "
                     "in this company"
                 ),
             )
 
-        product = Product(
+        warehouse = Warehouse(
             company_id=company_id,
             name=data.name,
-            sku=data.sku,
             is_active=True,
         )
 
-        db.add(product)
+        db.add(warehouse)
 
         await db.commit()
-        await db.refresh(product)
+        await db.refresh(warehouse)
 
-        return product
+        return warehouse
 
     except HTTPException:
         await db.rollback()
@@ -173,7 +172,7 @@ async def create_product(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "Product could not be created "
+                "Warehouse could not be created "
                 "because of a data conflict"
             ),
         ) from exc
@@ -184,41 +183,41 @@ async def create_product(
 
 
 # ---------------------------------------------------------
-# UPDATE PRODUCT
+# UPDATE WAREHOUSE
 # ---------------------------------------------------------
 
 
 @router.patch(
-    "/{product_id}",
-    response_model=ProductResponse,
+    "/{warehouse_id}",
+    response_model=WarehouseResponse,
 )
-async def update_product(
+async def update_warehouse(
     company_id: int,
-    product_id: int,
-    data: ProductUpdate,
+    warehouse_id: int,
+    data: WarehouseUpdate,
     _=Depends(
         require_company_permission(
-            "products.update"
+            "warehouse.update"
         )
     ),
     db: AsyncSession = Depends(get_db),
 ):
     try:
         result = await db.execute(
-            select(Product)
+            select(Warehouse)
             .where(
-                Product.id == product_id,
-                Product.company_id == company_id,
+                Warehouse.id == warehouse_id,
+                Warehouse.company_id == company_id,
             )
             .with_for_update()
         )
 
-        product = result.scalar_one_or_none()
+        warehouse = result.scalar_one_or_none()
 
-        if product is None:
+        if warehouse is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Product not found",
+                detail="Warehouse not found",
             )
 
         update_data = data.model_dump(
@@ -226,14 +225,14 @@ async def update_product(
         )
 
         if (
-            "sku" in update_data
-            and update_data["sku"] != product.sku
+            "name" in update_data
+            and update_data["name"] != warehouse.name
         ):
             existing_result = await db.execute(
-                select(Product.id).where(
-                    Product.company_id == company_id,
-                    Product.sku == update_data["sku"],
-                    Product.id != product.id,
+                select(Warehouse.id).where(
+                    Warehouse.company_id == company_id,
+                    Warehouse.name == update_data["name"],
+                    Warehouse.id != warehouse.id,
                 )
             )
 
@@ -244,22 +243,22 @@ async def update_product(
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(
-                        "Product SKU already exists "
+                        "Warehouse name already exists "
                         "in this company"
                     ),
                 )
 
         for field, value in update_data.items():
             setattr(
-                product,
+                warehouse,
                 field,
                 value,
             )
 
         await db.commit()
-        await db.refresh(product)
+        await db.refresh(warehouse)
 
-        return product
+        return warehouse
 
     except HTTPException:
         await db.rollback()
@@ -271,7 +270,7 @@ async def update_product(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "Product could not be updated "
+                "Warehouse could not be updated "
                 "because of a data conflict"
             ),
         ) from exc

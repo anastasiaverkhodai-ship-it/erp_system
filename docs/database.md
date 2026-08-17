@@ -8,11 +8,21 @@ Database access is implemented with SQLAlchemy 2.0 using asynchronous sessions a
 
 Database schema changes are managed through Alembic migrations.
 
+The database is designed around the following principles:
+
+- multi-company isolation
+- transactional document posting
+- auditable operational history
+- explicit current stock balances
+- company-scoped RBAC
+- accounting period control
+- reversal instead of destructive changes to posted documents
+
 ---
 
 ## 2. Current Database Tables
 
-The current database contains the following major tables:
+The current database contains:
 
 ```text
 users
@@ -31,41 +41,51 @@ accounts
 
 products
 warehouses
-stock_ledger
 
 documents
+document_lines
+
+stock_ledger
+stock_balances
+
 audit_logs
 ```
 
 ---
 
-## 3. High-Level Relationships
+## 3. High-Level Architecture
 
 ```text
-                        ┌─────────────┐
-                        │    users    │
-                        └──────┬──────┘
-                               │
-                    ┌──────────┴──────────┐
-                    │                     │
-                    ▼                     ▼
-             user_companies      user_company_roles
-                    │                     │
-                    ▼                     ▼
-              ┌───────────┐          ┌─────────┐
-              │ companies │          │  roles  │
-              └─────┬─────┘          └────┬────┘
-                    │                     │
-              ┌─────┴───────┐             ▼
-              │             │      role_permissions
-              ▼             ▼             │
-     accounting_periods   accounts        ▼
-                                      permissions
+Company
+│
+├── Users / Roles
+│
+├── Accounting Periods
+│
+├── Chart of Accounts
+│
+├── Products
+│
+├── Warehouses
+│
+└── Documents
+      │
+      └── Document Lines
+             │
+             ├── Product
+             ├── Warehouse
+             │
+             └── Stock Ledger
+
+Products + Warehouses
+          │
+          ▼
+     Stock Balances
 ```
 
-The company is one of the main boundaries of ERP data.
+A company is one of the primary data boundaries of the ERP.
 
-Business and accounting records should normally belong to a specific company.
+Operational and accounting data belonging to one company must not be mixed with data belonging to another company.
 
 ---
 
@@ -82,12 +102,12 @@ Represents ERP users.
 Important responsibilities:
 
 - authentication identity
-- user profile
+- profile information
 - account activation
-- participation in companies
+- company access
 - role assignment
 
-Passwords are not stored directly.
+Passwords are never stored directly.
 
 Only password hashes are stored.
 
@@ -101,33 +121,29 @@ Table:
 companies
 ```
 
-Represents legal entities or businesses managed inside the ERP.
+Represents legal entities or businesses managed by the ERP.
 
-A company acts as a data boundary for:
+Company-scoped entities currently include:
 
-- users
-- roles
-- accounting periods
-- accounting accounts
-- documents
-- warehouses
-- future journals and ledgers
+```text
+accounting_periods
+accounts
+products
+warehouses
+documents
+stock_ledger
+stock_balances
+```
+
+Future accounting journals and tax registers will also be company-scoped.
 
 ---
 
-## 6. User and Company Access
+## 6. User Company Access
 
 ### user_companies
 
-Table:
-
-```text
-user_companies
-```
-
-Represents basic access between users and companies.
-
-Conceptually:
+Represents access between users and companies.
 
 ```text
 User ↔ Company
@@ -135,34 +151,19 @@ User ↔ Company
 
 A user may have access to multiple companies.
 
----
-
 ### user_company_roles
 
-Table:
+Assigns roles inside a specific company.
 
-```text
-user_company_roles
-```
-
-Assigns roles to users inside specific companies.
-
-Main key structure:
+Important fields:
 
 ```text
 user_id
 company_id
 role_id
-```
-
-The table also contains:
-
-```text
 is_active
 assigned_at
 ```
-
-This allows the same user to have different roles in different companies.
 
 Example:
 
@@ -173,19 +174,23 @@ User 15
 └── Company 2 → manager
 ```
 
-Deactivating a company role does not require deleting historical user information.
+A user's role may therefore differ between companies.
 
 ---
 
-## 7. Roles
+## 7. Roles and Permissions
 
-Table:
+Tables:
 
 ```text
 roles
+permissions
+role_permissions
+user_roles
+user_company_roles
 ```
 
-Current roles include:
+Current standard roles:
 
 ```text
 admin
@@ -197,106 +202,17 @@ seller
 
 Roles group permissions together.
 
----
-
-## 8. Permissions
-
-Table:
-
-```text
-permissions
-```
-
-Permissions represent individual capabilities.
-
-Examples:
-
-```text
-users.read
-users.create
-users.update
-
-companies.create
-companies.read
-companies.update
-products.read
-products.create
-products.update
-
-warehouse.read
-warehouse.create
-
-documents.read
-documents.create
-documents.approve
-
-reports.read
-
-accounting.periods.read
-accounting.periods.manage
-
-accounts.read
-accounts.create
-accounts.update
-```
+The current role set is an initial ERP configuration. Additional roles may be added later.
 
 ---
 
-## 9. Role Permissions
-
-Table:
-
-```text
-role_permissions
-```
-
-Many-to-many relationship:
-
-```text
-Role ↔ Permission
-```
-
-Example:
-
-```text
-accountant
-│
-├── accounting.periods.read
-├── accounting.periods.manage
-├── accounts.read
-├── accounts.create
-└── accounts.update
-```
-
-Permissions are checked by the backend rather than trusted from the client application.
-
----
-
-## 10. Global User Roles
-
-Table:
-
-```text
-user_roles
-```
-
-Represents the earlier/global user-to-role relationship.
-
-The ERP also uses `user_company_roles` for company-specific authorization.
-
-As the architecture evolves, company-scoped authorization should be preferred for company-owned business resources.
-
----
-
-## 11. Accounting Periods
+## 8. Accounting Periods
 
 Table:
 
 ```text
 accounting_periods
 ```
-
-Each period belongs to one company.
 
 Important fields:
 
@@ -313,21 +229,13 @@ created_at
 closed_at
 ```
 
-Relationship:
+Each period belongs to one company.
 
-```text
-companies
-    │
-    └── accounting_periods
-```
-
-The combination:
+The following combination is unique:
 
 ```text
 company_id + year + month
 ```
-
-is unique.
 
 The database also enforces:
 
@@ -335,19 +243,17 @@ The database also enforces:
 1 <= month <= 12
 ```
 
-A period can be locked to prevent normal accounting modifications.
+Document posting and reversal validate that the relevant operation date belongs to an open accounting period.
 
 ---
 
-## 12. Chart of Accounts
+## 9. Chart of Accounts
 
 Table:
 
 ```text
 accounts
 ```
-
-Represents accounting accounts belonging to a company.
 
 Important fields:
 
@@ -362,31 +268,17 @@ is_active
 created_at
 ```
 
-Relationship:
-
-```text
-companies
-    │
-    └── accounts
-```
-
-Account codes are unique inside each company:
+Account codes are unique inside one company:
 
 ```text
 UNIQUE(company_id, code)
 ```
 
----
-
-## 13. Account Hierarchy
-
-`accounts.parent_id` references:
+Accounts support hierarchical structure through:
 
 ```text
-accounts.id
+parent_id → accounts.id
 ```
-
-This creates a self-referencing hierarchy.
 
 Example:
 
@@ -397,21 +289,13 @@ Example:
 └── 282 Товари в торгівлі
 ```
 
-Conceptually:
+The application validates that a parent account belongs to the same company.
 
-```text
-accounts
-   ▲
-   │ parent_id
-   │
-accounts
-```
-
-A parent account must belong to the same company. This rule is currently enforced by application logic.
+Deep circular hierarchy prevention is planned for a later stage.
 
 ---
 
-## 14. Products
+## 10. Products
 
 Table:
 
@@ -419,20 +303,43 @@ Table:
 products
 ```
 
-Represents products or inventory items.
+Important fields:
 
-Products will later participate in:
+```text
+id
+company_id
+name
+sku
+is_active
+```
 
-- purchases
-- sales
-- warehouse movements
-- FIFO costing
-- inventory valuation
-- accounting posting
+Each product belongs to one company.
+
+SKU is unique inside a company:
+
+```text
+UNIQUE(company_id, sku)
+```
+
+Therefore this is valid:
+
+```text
+Company 1 → ABC-001
+Company 2 → ABC-001
+```
+
+but this is not:
+
+```text
+Company 1 → ABC-001
+Company 1 → ABC-001
+```
+
+Products are normally deactivated instead of physically deleted because historical documents and stock movements may reference them.
 
 ---
 
-## 15. Warehouses
+## 11. Warehouses
 
 Table:
 
@@ -440,44 +347,28 @@ Table:
 warehouses
 ```
 
-Represents physical or logical storage locations.
-
-Future warehouse operations may include:
+Important fields:
 
 ```text
-receipts
-shipments
-transfers
-adjustments
-inventory counts
+id
+company_id
+name
+is_active
 ```
+
+Each warehouse belongs to one company.
+
+Warehouse names are unique inside one company:
+
+```text
+UNIQUE(company_id, name)
+```
+
+Warehouses are normally deactivated instead of physically deleted.
 
 ---
 
-## 16. Stock Ledger
-
-Table:
-
-```text
-stock_ledger
-```
-
-The stock ledger stores inventory movements.
-
-The intended architecture is movement-based:
-
-```text
-Receipt       +100
-Sale           -20
-Transfer       -10
-Adjustment      +5
-```
-
-Current inventory should ultimately be derived from ledger movements rather than manually maintained balances.
-
----
-
-## 17. Documents
+## 12. Documents
 
 Table:
 
@@ -485,26 +376,461 @@ Table:
 documents
 ```
 
-Represents the foundation for ERP business documents.
-
-Future document types may include:
+Important fields:
 
 ```text
-purchase invoice
-sales invoice
-goods receipt
-goods issue
-warehouse transfer
-bank transaction
-cash transaction
-inventory adjustment
+id
+company_id
+number
+document_type
+document_date
+status
+created_by
+created_at
+posted_at
+reversed_at
+reversed_by
 ```
 
-Documents will eventually integrate with the posting engine.
+Document numbers are unique inside a company:
+
+```text
+UNIQUE(company_id, number)
+```
+
+Current document types:
+
+```text
+receipt
+issue
+adjustment
+```
+
+Current statuses:
+
+```text
+draft
+posted
+reversed
+cancelled
+```
+
+`cancelled` is reserved for future lifecycle functionality.
+
+The current main lifecycle is:
+
+```text
+DRAFT
+  │
+  ▼
+POSTED
+  │
+  ▼
+REVERSED
+```
 
 ---
 
-## 18. Audit Logs
+## 13. Document Lines
+
+Table:
+
+```text
+document_lines
+```
+
+Important fields:
+
+```text
+id
+document_id
+product_id
+warehouse_id
+quantity
+price
+```
+
+Quantities and prices use:
+
+```text
+NUMERIC(18,4)
+```
+
+instead of floating-point values.
+
+Relationship:
+
+```text
+Document
+   │
+   └── DocumentLine
+          ├── Product
+          ├── Warehouse
+          ├── Quantity
+          └── Price
+```
+
+Deleting a draft document removes its lines using:
+
+```text
+ON DELETE CASCADE
+```
+
+Products and warehouses use restrictive foreign keys so historical references cannot be silently destroyed.
+
+---
+
+## 14. Stock Ledger
+
+Table:
+
+```text
+stock_ledger
+```
+
+The stock ledger stores the historical inventory movements created by posted documents.
+
+Important fields:
+
+```text
+id
+company_id
+document_id
+document_line_id
+product_id
+warehouse_id
+quantity
+movement_type
+movement_date
+created_at
+```
+
+Quantity uses:
+
+```text
+NUMERIC(18,4)
+```
+
+Current movement types:
+
+```text
+receipt
+issue
+adjustment
+reversal
+```
+
+Movement sign convention:
+
+```text
+receipt      positive
+issue        negative
+adjustment   positive or negative
+reversal     opposite sign of original movement
+```
+
+Example:
+
+```text
+Receipt   +10
+Issue      -7
+--------------
+Balance     3
+```
+
+Normal operational inventory movements originate from posted documents.
+
+Historical ledger movements should not be manually rewritten to alter inventory balances.
+
+---
+
+## 15. Stock Balances
+
+Table:
+
+```text
+stock_balances
+```
+
+Stores the current operational stock quantity.
+
+Important fields:
+
+```text
+id
+company_id
+product_id
+warehouse_id
+quantity
+updated_at
+```
+
+Exactly one balance row exists for each combination of:
+
+```text
+company_id
+product_id
+warehouse_id
+```
+
+enforced by:
+
+```text
+UNIQUE(company_id, product_id, warehouse_id)
+```
+
+The expected invariant is:
+
+```text
+StockBalance.quantity
+=
+SUM(StockLedger.quantity)
+```
+
+for the same company, product and warehouse.
+
+`StockLedger` is the movement history.
+
+`StockBalance` is the current operational state and is also used for concurrency locking.
+
+---
+
+## 16. Document Posting
+
+Posting converts a draft document into operational stock movements.
+
+Current flow:
+
+```text
+POST /documents/{id}/post
+          │
+          ▼
+   Lock Document
+          │
+          ▼
+ status == DRAFT
+          │
+          ▼
+Accounting Period Check
+          │
+          ▼
+ Validate Products
+          │
+          ▼
+Validate Warehouses
+          │
+          ▼
+Validate Quantities
+          │
+          ▼
+Calculate Stock Deltas
+          │
+          ▼
+Lock StockBalance
+          │
+          ▼
+Validate Resulting Stock
+          │
+          ▼
+Update StockBalance
+          │
+          ▼
+Create StockLedger Movements
+          │
+          ▼
+Document → POSTED
+          │
+          ▼
+        COMMIT
+```
+
+If any validation fails:
+
+```text
+ROLLBACK
+```
+
+No partial posting is allowed.
+
+---
+
+## 17. PostgreSQL Concurrency Control
+
+Posting uses PostgreSQL row-level locking.
+
+The relevant balance row is selected using:
+
+```text
+SELECT ... FOR UPDATE
+```
+
+Example:
+
+```text
+Current stock = 8
+
+Transaction A → ISSUE 6
+Transaction B → ISSUE 6
+```
+
+Correct behavior:
+
+```text
+Transaction A
+│
+├── locks StockBalance
+├── 8 - 6 = 2
+└── COMMIT
+
+Transaction B
+│
+├── waits for the lock
+├── reads new quantity = 2
+├── 2 - 6 < 0
+└── ROLLBACK
+```
+
+Final result:
+
+```text
+StockBalance = 2
+StockLedger SUM = 2
+```
+
+When multiple balance rows are involved, locks are acquired in deterministic order to reduce deadlock risk.
+
+---
+
+## 18. Document Reversal
+
+Posted documents are not physically deleted.
+
+They are reversed.
+
+Current flow:
+
+```text
+POST /documents/{id}/reverse
+          │
+          ▼
+   Lock Document
+          │
+          ▼
+ status == POSTED
+          │
+          ▼
+Check Reversal Period
+          │
+          ▼
+Load Original Movements
+          │
+          ▼
+Calculate Opposite Movements
+          │
+          ▼
+Lock StockBalance
+          │
+          ▼
+Validate Resulting Stock
+          │
+          ▼
+Update StockBalance
+          │
+          ▼
+Create REVERSAL Movements
+          │
+          ▼
+Document → REVERSED
+          │
+          ├── reversed_at
+          └── reversed_by
+          │
+          ▼
+        COMMIT
+```
+
+Example:
+
+```text
+Original ISSUE
+-6
+
+Reversal
++6
+```
+
+The original movement remains in the ledger.
+
+The reversal is stored as a separate new movement.
+
+---
+
+## 19. Reversal Stock Protection
+
+A reversal is rejected if it would create negative inventory.
+
+Example:
+
+```text
+Receipt +10
+Issue    -7
+
+Current stock = 3
+```
+
+Reversing the original receipt would produce:
+
+```text
+3 - 10 = -7
+```
+
+Therefore the operation is rejected and rolled back.
+
+The following remain unchanged:
+
+```text
+Document
+StockLedger
+StockBalance
+```
+
+A reversed document cannot be reversed again.
+
+---
+
+## 20. Document Integrity Rules
+
+### DRAFT
+
+```text
+GET      allowed
+PATCH    allowed
+DELETE   allowed
+POST     allowed
+```
+
+### POSTED
+
+```text
+GET      allowed
+PATCH    rejected
+DELETE   rejected
+POST     again rejected
+REVERSE  allowed with permission
+```
+
+### REVERSED
+
+```text
+GET             allowed
+PATCH           rejected
+DELETE          rejected
+second REVERSE  rejected
+```
+
+---
+
+## 21. Audit Logs
 
 Table:
 
@@ -512,9 +838,11 @@ Table:
 audit_logs
 ```
 
-Used as the foundation for system auditability.
+Provides a foundation for system auditability.
 
-Important ERP actions should eventually be traceable by:
+Full automatic audit integration is still planned.
+
+Important ERP operations should eventually record:
 
 ```text
 user
@@ -525,37 +853,39 @@ entity
 changes
 ```
 
-Audit history is especially important for financial and accounting operations.
+Especially important operations include:
+
+```text
+document posting
+document reversal
+accounting period changes
+accounting journal posting
+```
 
 ---
 
-## 19. Planned Accounting Tables
+## 22. Planned Accounting Tables
 
-The accounting database will later be extended with entities such as:
+Future accounting tables include:
 
 ```text
 journal_entries
 journal_entry_lines
 ```
 
-Expected relationship:
+Expected structure:
 
 ```text
-Company
+Document
    │
    ▼
-Journal Entry
+JournalEntry
    │
-   ├─────────────┐
-   ▼             ▼
-Debit Line    Credit Line
-   │             │
-   └──────┬──────┘
-          ▼
-       Account
+   ├── Debit
+   └── Credit
 ```
 
-Each posted journal entry must satisfy:
+Every posted journal entry must satisfy:
 
 ```text
 SUM(debit) = SUM(credit)
@@ -563,9 +893,11 @@ SUM(debit) = SUM(credit)
 
 ---
 
-## 20. Planned Data Flow
+## 23. Planned Integrated Posting
 
-A future business document may follow this flow:
+The warehouse posting engine is the first operational posting contour.
+
+Future integrated posting will extend the same concept to:
 
 ```text
 Business Document
@@ -574,36 +906,65 @@ Business Document
 Validation
        │
        ▼
-Accounting Period Check
+Accounting Period
        │
        ▼
 Posting Engine
        │
-       ├── Accounting Ledger
-       │
        ├── Stock Ledger
+       ├── Stock Balance
        │
-       └── Tax Registers
+       ├── Accounting Journal
+       ├── General Ledger
        │
-       ▼
-Reports
+       ├── Tax / VAT Registers
+       └── Management Registers
 ```
-
-This allows one business operation to create consistent movements across different ERP registers.
 
 ---
 
-## 21. Database Design Principles
+## 24. Planned Inventory Extensions
 
-The database follows these principles:
+Future inventory development may include:
 
-1. Company-owned records must be isolated by company.
-2. Financial history should remain auditable.
-3. Referential integrity should be enforced with foreign keys where appropriate.
-4. Important uniqueness rules should also exist at database level.
-5. Accounting periods control whether dated financial operations may be modified.
-6. Account codes are unique within a company.
-7. Inventory uses movement-based accounting.
-8. Schema changes are performed through Alembic migrations.
-9. Application validation does not replace important database constraints.
-10. Future accounting entries must preserve double-entry accounting rules.
+```text
+warehouse transfers
+inventory counts
+reservations
+returns
+batch tracking
+lot tracking
+serial numbers
+FIFO cost layers
+inventory valuation
+cost of goods sold
+purchase documents
+sales documents
+```
+
+FIFO costing is planned but not yet implemented.
+
+---
+
+## 25. Database Design Principles
+
+1. Company-owned records are isolated by company.
+2. Operational and financial history remains auditable.
+3. Posted documents are not destructively edited.
+4. Posted inventory operations are corrected through reversal.
+5. Referential integrity is enforced with foreign keys.
+6. Important uniqueness rules exist at database level.
+7. Accounting periods control dated posting operations.
+8. Account codes are unique within a company.
+9. Product SKUs are unique within a company.
+10. Warehouse names are unique within a company.
+11. Inventory history is stored in `stock_ledger`.
+12. Current inventory is stored in `stock_balances`.
+13. `StockBalance` must reconcile with `StockLedger`.
+14. Inventory posting uses PostgreSQL row-level locks.
+15. Posting and reversal are atomic.
+16. Failed operations roll back completely.
+17. Decimal database types are used for quantities and prices.
+18. Schema changes are managed through Alembic.
+19. Application validation does not replace important database constraints.
+20. Future accounting entries must obey double-entry accounting.
