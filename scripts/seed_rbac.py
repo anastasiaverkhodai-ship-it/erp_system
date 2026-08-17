@@ -1,0 +1,84 @@
+import asyncio
+
+from sqlalchemy import select
+
+from app.core.database import AsyncSessionLocal
+from app.models.permission import Permission
+from app.models.role import Role
+
+
+PERMISSIONS = [
+    "users.read",
+    "users.create",
+    "users.update",
+    "companies.read",
+    "companies.update",
+    "companies.create",
+    "products.read",
+    "products.create",
+    "products.update",
+    "warehouse.read",
+    "warehouse.create",
+    "documents.read",
+    "documents.create",
+    "documents.approve",
+    "reports.read",
+    "accounting.periods.read",
+    "accounting.periods.manage",
+    "accounts.read",
+    "accounts.create",
+    "accounts.update",
+]
+
+
+ROLES = [
+    "admin",
+    "director",
+    "accountant",
+    "manager",
+    "seller",
+]
+
+
+async def seed_rbac():
+    async with AsyncSessionLocal() as db:
+
+        for permission_name in PERMISSIONS:
+            result = await db.execute(
+                select(Permission).where(
+                    Permission.name == permission_name
+                )
+            )
+
+            permission = result.scalar_one_or_none()
+
+            if permission is None:
+                db.add(
+                    Permission(
+                        name=permission_name
+                    )
+                )
+
+        for role_name in ROLES:
+            result = await db.execute(
+                select(Role).where(
+                    Role.name == role_name
+                )
+            )
+
+            role = result.scalar_one_or_none()
+
+            if role is None:
+                db.add(
+                    Role(
+                        name=role_name
+                    )
+                )
+
+        await db.commit()
+
+        print("RBAC seed completed successfully")
+
+
+if __name__ == "__main__":
+    asyncio.run(seed_rbac())

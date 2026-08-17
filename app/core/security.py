@@ -1,32 +1,31 @@
-from passlib.context import CryptContext
+from datetime import datetime, timedelta, timezone
+
+import jwt
+from pwdlib import PasswordHash
+
+from app.core.config import settings
 
 
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto",
-)
+password_hash = PasswordHash.recommended()
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return password_hash.hash(password)
 
 
 def verify_password(
     plain_password: str,
     hashed_password: str,
 ) -> bool:
-    return pwd_context.verify(
+    return password_hash.verify(
         plain_password,
         hashed_password,
     )
-from datetime import datetime, timedelta, timezone
-
-from jose import jwt
-
-from app.core.config import settings
 
 
-def create_access_token(user_id: int) -> str:
+def create_access_token(
+    user_id: int,
+) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.access_token_expire_minutes
     )
@@ -44,7 +43,9 @@ def create_access_token(user_id: int) -> str:
     )
 
 
-def create_refresh_token(user_id: int) -> str:
+def create_refresh_token(
+    user_id: int,
+) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         days=settings.refresh_token_expire_days
     )

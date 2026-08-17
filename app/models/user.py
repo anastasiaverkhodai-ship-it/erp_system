@@ -1,9 +1,14 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+
+if TYPE_CHECKING:
+    from app.models.role import Role
 
 
 class User(Base):
@@ -46,4 +51,9 @@ class User(Base):
         DateTime,
         default=datetime.utcnow,
         nullable=False,
+    )
+
+    roles: Mapped[list["Role"]] = relationship(
+        secondary="user_roles",
+        back_populates="users",
     )
