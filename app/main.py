@@ -9,6 +9,7 @@ from app.api.v1.documents import router as documents_router
 from app.api.v1.products import router as products_router
 from app.api.v1.warehouses import router as warehouses_router
 from app.api.v1.journal_entries import router as journal_entries_router
+from app.api.v1.accounting_rules import router as accounting_rules_router
 
 app = FastAPI(
     title="ERP System API",
@@ -60,6 +61,12 @@ app.include_router(
     journal_entries_router,
     prefix="/api/v1",
 )
+
+app.include_router(
+    accounting_rules_router,
+    prefix="/api/v1",
+)
+
 @app.get("/")
 async def root():
     return {"message": "ERP API is running"}

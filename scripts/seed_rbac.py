@@ -38,6 +38,9 @@ PERMISSIONS = [
     "journal_entries.delete",
     "journal_entries.approve",
     "journal_entries.reverse",
+    "accounting_rules.read",
+    "accounting_rules.create",
+    "accounting_rules.update",
 ]
 
 

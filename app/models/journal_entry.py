@@ -6,8 +6,10 @@ from sqlalchemy import (
     DateTime,
     Enum as SQLEnum,
     ForeignKey,
+    Index,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,13 +25,22 @@ class JournalEntryStatus(str, Enum):
 class JournalEntry(Base):
     __tablename__ = "journal_entries"
 
-    __table_args__ = (
-        UniqueConstraint(
-            "reversal_of_id",
-            name="uq_journal_entry_reversal_of",
-        ),
-    )
 
+    __table_args__ = (
+    UniqueConstraint(
+        "reversal_of_id",
+        name="uq_journal_entry_reversal_of",
+    ),
+    Index(
+        "uq_journal_entry_original_document",
+        "document_id",
+        unique=True,
+        postgresql_where=text(
+            "reversal_of_id IS NULL "
+            "AND document_id IS NOT NULL"
+        ),
+    ),
+)
     id: Mapped[int] = mapped_column(
         primary_key=True,
     )
@@ -51,6 +62,15 @@ class JournalEntry(Base):
         nullable=True,
         index=True,
     )
+
+    accounting_rule_id: Mapped[int | None] = mapped_column(
+    ForeignKey(
+        "accounting_rules.id",
+        ondelete="RESTRICT",
+    ),
+    nullable=True,
+    index=True,
+)
 
     entry_date: Mapped[date] = mapped_column(
         Date,

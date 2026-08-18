@@ -99,6 +99,7 @@ class JournalEntryResponse(BaseModel):
     id: int
     company_id: int
     document_id: int | None
+    accounting_rule_id: int | None
 
     entry_date: date
     description: str | None

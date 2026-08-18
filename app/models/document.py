@@ -55,6 +55,14 @@ class Document(Base):
         index=True,
     )
 
+    accounting_rule_id: Mapped[int | None] = mapped_column(
+    ForeignKey(
+        "accounting_rules.id",
+        ondelete="RESTRICT",
+    ),
+    nullable=True,
+    index=True,
+)
     number: Mapped[str] = mapped_column(
         String(50),
         nullable=False,

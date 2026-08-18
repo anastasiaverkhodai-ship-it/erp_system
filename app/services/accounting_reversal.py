@@ -122,6 +122,7 @@ async def reverse_journal_entry(
     reversal_entry = JournalEntry(
         company_id=company_id,
         document_id=original_entry.document_id,
+        accounting_rule_id=original_entry.accounting_rule_id,
         entry_date=reversal_date,
         description=(
             f"Reversal of JournalEntry "

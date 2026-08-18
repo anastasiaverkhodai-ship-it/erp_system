@@ -20,6 +20,7 @@ from app.models.user import User
 from app.models.warehouse import Warehouse
 from app.schemas.document import (
     DocumentCreate,
+    DocumentPostRequest,
     DocumentResponse,
     DocumentReverseRequest,
     DocumentUpdate,
@@ -28,6 +29,12 @@ from app.services.document_posting import (
     DocumentNotFoundError,
     DocumentPostingError,
     post_document,
+)
+
+from app.services.document_accounting import (
+    DocumentAccountingError,
+    DocumentAccountingNotFoundError,
+    generate_and_post_journal_entry_from_document,
 )
 
 from app.services.document_reversal import (
@@ -583,19 +590,46 @@ async def delete_document(
 async def post_document_endpoint(
     company_id: int,
     document_id: int,
+    data: DocumentPostRequest,
     _=Depends(
         require_company_permission(
             "documents.approve"
         )
     ),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     try:
+        # -------------------------------------------------
+        # 1. Post warehouse document
+        # -------------------------------------------------
+
         document = await post_document(
             db=db,
             company_id=company_id,
             document_id=document_id,
         )
+
+        # -------------------------------------------------
+        # 2. Generate + post accounting JournalEntry
+        # -------------------------------------------------
+
+        journal_entry = (
+            await generate_and_post_journal_entry_from_document(
+                db=db,
+                company_id=company_id,
+                document_id=document_id,
+                accounting_rule_id=data.accounting_rule_id,
+                created_by=current_user.id,
+            )
+        )
+
+        journal_entry_id = journal_entry.id
+
+
+        # -------------------------------------------------
+        # 3. One COMMIT for warehouse + accounting
+        # -------------------------------------------------
 
         await db.commit()
         await db.refresh(document)
@@ -608,9 +642,19 @@ async def post_document_endpoint(
             "status": document.status,
             "document_date": document.document_date,
             "posted_at": document.posted_at,
+            "accounting_rule_id": data.accounting_rule_id,
+            "journal_entry_id": journal_entry_id,
         }
 
     except DocumentNotFoundError as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except DocumentAccountingNotFoundError as exc:
         await db.rollback()
 
         raise HTTPException(
@@ -626,6 +670,22 @@ async def post_document_endpoint(
             detail=str(exc),
         ) from exc
 
+    except DocumentAccountingError as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except IntegrityError as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Document posting conflict",
+        ) from exc
+
     except HTTPException:
         await db.rollback()
         raise
@@ -633,7 +693,6 @@ async def post_document_endpoint(
     except Exception:
         await db.rollback()
         raise
-
     # ---------------------------------------------------------
 # REVERSE POSTED DOCUMENT
 # ---------------------------------------------------------

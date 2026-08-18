@@ -49,6 +49,9 @@ class DocumentUpdate(BaseModel):
     min_length=1,
 )
 
+class DocumentPostRequest(BaseModel):
+    accounting_rule_id: int
+
 class DocumentReverseRequest(BaseModel):
     reversal_date: date
 
@@ -71,6 +74,7 @@ class DocumentResponse(BaseModel):
 
     id: int
     company_id: int
+    accounting_rule_id: int | None
     number: str
     document_type: DocumentType
     document_date: date

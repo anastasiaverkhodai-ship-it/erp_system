@@ -15,6 +15,12 @@ from app.models.warehouse import Warehouse
 from app.models.stock_balance import StockBalance
 from app.models.journal_entry import JournalEntry, JournalEntryStatus
 from app.models.journal_entry_line import JournalEntryLine
+from app.models.accounting_rule import AccountingRule
+from app.models.accounting_rule_line import (
+    AccountingAmountSource,
+    AccountingRuleLine,
+    AccountingRuleSide,
+)
 from app.models.rbac import (
     role_permissions,
     user_roles,

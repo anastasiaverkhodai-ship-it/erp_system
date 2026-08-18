@@ -40,6 +40,9 @@ ROLE_PERMISSIONS = {
         "journal_entries.delete",
         "journal_entries.approve",
         "journal_entries.reverse",
+        "accounting_rules.read",
+        "accounting_rules.create",
+        "accounting_rules.update",
 
     ],
 
@@ -67,6 +70,7 @@ ROLE_PERMISSIONS = {
         "journal_entries.read",
         "journal_entries.approve",
         "journal_entries.reverse",
+         "accounting_rules.read",
 
     ],
 
@@ -78,16 +82,19 @@ ROLE_PERMISSIONS = {
         "documents.reverse",
         "reports.read",
         "accounting.periods.read",
-        "accounting.periods.manage",   
+        "accounting.periods.manage",
         "accounts.read",
         "accounts.create",
-        "accounts.update", 
+        "accounts.update",
         "journal_entries.read",
         "journal_entries.create",
         "journal_entries.update",
         "journal_entries.delete",
         "journal_entries.approve",
         "journal_entries.reverse",
+        "accounting_rules.read",
+        "accounting_rules.create",
+        "accounting_rules.update",
     ],
 
     "manager": [

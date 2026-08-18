@@ -8,11 +8,18 @@ from app.models.document import (
     Document,
     DocumentStatus,
 )
+
+from app.models.journal_entry import JournalEntry
 from app.models.stock_ledger import (
     StockLedger,
     StockMovementType,
 )
 from app.services.accounting_period_service import ensure_period_open
+from app.services.accounting_reversal import (
+    AccountingReversalError,
+    JournalEntryReversalNotFoundError,
+    reverse_journal_entry,
+)
 from app.services.document_posting import get_locked_stock_balance
 
 
@@ -186,6 +193,61 @@ async def reverse_document(
                 movement_date=reversal_date,
             )
         )
+
+       # ---------------------------------------------------------
+    # REVERSE ACCOUNTING JOURNAL ENTRY
+    # ---------------------------------------------------------
+
+    journal_result = await db.execute(
+        select(JournalEntry).where(
+            JournalEntry.company_id == company_id,
+            JournalEntry.document_id == document.id,
+            JournalEntry.reversal_of_id.is_(None),
+        )
+    )
+
+    journal_entry = (
+        journal_result.scalar_one_or_none()
+    )
+
+    if journal_entry is None:
+        # Legacy documents created before integrated
+        # accounting may legitimately have no JournalEntry.
+        if document.accounting_rule_id is not None:
+            raise DocumentReversalError(
+                "Document requires an accounting journal "
+                "entry, but none was found"
+            )
+
+    else:
+        # If the document explicitly stores a rule,
+        # the JournalEntry must point to the same rule.
+        if (
+            document.accounting_rule_id is not None
+            and journal_entry.accounting_rule_id
+            != document.accounting_rule_id
+        ):
+            raise DocumentReversalError(
+                "Document accounting rule does not match "
+                "the journal entry accounting rule"
+            )
+
+        try:
+            await reverse_journal_entry(
+                db=db,
+                company_id=company_id,
+                journal_entry_id=journal_entry.id,
+                reversal_date=reversal_date,
+                reversed_by=reversed_by,
+            )
+
+        except (
+            AccountingReversalError,
+            JournalEntryReversalNotFoundError,
+        ) as exc:
+            raise DocumentReversalError(
+                str(exc)
+            ) from exc
 
     # ---------------------------------------------------------
     # MARK DOCUMENT AS REVERSED
