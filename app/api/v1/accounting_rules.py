@@ -15,6 +15,8 @@ from app.models.account import Account
 from app.models.accounting_rule import AccountingRule
 from app.models.accounting_rule_line import AccountingRuleLine
 from app.models.company import Company
+from app.models.document import Document
+from app.models.journal_entry import JournalEntry
 from app.schemas.accounting_rule import (
     AccountingRuleCreate,
     AccountingRuleResponse,
@@ -290,6 +292,51 @@ async def update_accounting_rule(
                 detail="Accounting rule not found",
             )
 
+        # Check whether this rule has already been used.
+        document_usage_result = await db.execute(
+            select(Document.id)
+            .where(
+                Document.company_id == company_id,
+                Document.accounting_rule_id
+                == accounting_rule.id,
+            )
+            .limit(1)
+        )
+
+        journal_usage_result = await db.execute(
+            select(JournalEntry.id)
+            .where(
+                JournalEntry.company_id == company_id,
+                JournalEntry.accounting_rule_id
+                == accounting_rule.id,
+            )
+            .limit(1)
+        )
+
+        rule_is_used = (
+            document_usage_result.scalar_one_or_none()
+            is not None
+            or journal_usage_result.scalar_one_or_none()
+            is not None
+        )
+
+        if rule_is_used:
+            immutable_fields_requested = (
+                data.code is not None
+                or data.name is not None
+                or data.document_type is not None
+                or data.lines is not None
+            )
+
+            if immutable_fields_requested:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Accounting rule has already been used "
+                        "and its structure cannot be changed. "
+                        "Only is_active may be updated."
+                    ),
+                )
         update_data = data.model_dump(
             exclude_unset=True,
             exclude={"lines"},
