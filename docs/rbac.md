@@ -2,84 +2,15 @@
 
 ## 1. Overview
 
-The ERP System uses Role-Based Access Control (RBAC).
+The ERP System uses Role-Based Access Control.
 
 Authorization is enforced by the backend.
 
-The client application must never be treated as the security boundary.
-
-The system supports:
-
-```text
-Global Roles
-Company-Specific Roles
-Permissions
-```
+The frontend may hide unavailable actions for usability, but backend authorization remains the security boundary.
 
 ---
 
-## 2. Main Tables
-
-```text
-users
-roles
-permissions
-
-user_roles
-role_permissions
-
-user_companies
-user_company_roles
-```
-
----
-
-## 3. Global Roles
-
-Table:
-
-```text
-user_roles
-```
-
-Global roles are used for system-level permissions.
-
-Example:
-
-```text
-companies.create
-```
-
-A global administrator may create a new company.
-
----
-
-## 4. Company Roles
-
-Table:
-
-```text
-user_company_roles
-```
-
-Company roles apply inside one specific company.
-
-Example:
-
-```text
-User
-│
-├── Company A → accountant
-└── Company B → manager
-```
-
-The same user can therefore have different permissions in different companies.
-
----
-
-## 5. Standard Roles
-
-Current standard roles:
+## 2. Current Standard Roles
 
 ```text
 admin
@@ -89,23 +20,24 @@ manager
 seller
 ```
 
-These roles are an initial ERP configuration.
+---
 
-Additional roles can be added later without redesigning the core business tables.
-
-Possible future roles include:
+## 3. Main RBAC Tables
 
 ```text
-warehouse_operator
-cashier
-auditor
-senior_accountant
-procurement_manager
+roles
+permissions
+user_roles
+role_permissions
+user_companies
+user_company_roles
 ```
+
+`user_company_roles` allows one user to have different roles in different companies.
 
 ---
 
-## 6. Current Permissions
+## 4. Current Permission Groups
 
 ### Users
 
@@ -139,7 +71,7 @@ warehouse.create
 warehouse.update
 ```
 
-### Documents
+### Warehouse Documents
 
 ```text
 documents.read
@@ -171,38 +103,71 @@ accounts.create
 accounts.update
 ```
 
+### Journal Entries
+
+```text
+journal_entries.read
+journal_entries.create
+journal_entries.update
+journal_entries.delete
+journal_entries.approve
+journal_entries.reverse
+```
+
 ---
 
-## 7. Current Role Matrix
+## 5. Journal Entry Permission Model
+
+Permissions are deliberately separated by action.
+
+```text
+journal_entries.read
+```
+
+allows reading journal entries.
+
+```text
+journal_entries.create
+```
+
+allows creation of draft entries.
+
+```text
+journal_entries.update
+```
+
+allows editing draft entries.
+
+```text
+journal_entries.delete
+```
+
+allows deleting draft entries.
+
+```text
+journal_entries.approve
+```
+
+allows posting a balanced draft entry.
+
+```text
+journal_entries.reverse
+```
+
+allows reversal of a posted entry.
+
+---
+
+## 6. Journal Entry Role Matrix
 
 | Permission | Admin | Director | Accountant | Manager | Seller |
 |---|---|---|---|---|---|
-| users.read | ✅ | ✅ | — | — | — |
-| users.create | ✅ | ✅ | — | — | — |
-| users.update | ✅ | ✅ | — | — | — |
-| companies.create | ✅ | — | — | — | — |
-| companies.read | ✅ | ✅ | ✅ | — | — |
-| companies.update | ✅ | ✅ | — | — | — |
-| products.read | ✅ | ✅ | — | ✅ | ✅ |
-| products.create | ✅ | ✅ | — | ✅ | — |
-| products.update | ✅ | ✅ | — | ✅ | — |
-| warehouse.read | ✅ | ✅ | — | ✅ | — |
-| warehouse.create | ✅ | ✅ | — | ✅ | — |
-| warehouse.update | ✅ | ✅ | — | ✅ | — |
-| documents.read | ✅ | ✅ | ✅ | ✅ | ✅ |
-| documents.create | ✅ | ✅ | ✅ | ✅ | ✅ |
-| documents.update | ✅ | ✅ | ✅ | ✅ | ✅ |
-| documents.delete | ✅ | ✅ | ✅ | ✅ | ✅ |
-| documents.approve | ✅ | ✅ | ✅ | — | — |
-| documents.reverse | ✅ | ✅ | ✅ | — | — |
-| reports.read | ✅ | ✅ | ✅ | — | — |
-| accounting.periods.read | ✅ | ✅ | ✅ | — | — |
-| accounting.periods.manage | ✅ | — | ✅ | — | — |
-| accounts.read | ✅ | ✅ | ✅ | ✅ | — |
-| accounts.create | ✅ | — | ✅ | — | — |
-| accounts.update | ✅ | — | ✅ | — | — |
-
-This matrix reflects the current seeded configuration.
+| journal_entries.read | ✅ | ✅ | ✅ | — | — |
+| journal_entries.create | ✅ | — | ✅ | — | — |
+| journal_entries.update | ✅ | — | ✅ | — | — |
+| journal_entries.delete | ✅ | — | ✅ | — | — |
+| journal_entries.approve | ✅ | ✅ | ✅ | — | — |
+| journal_entries.reverse | ✅ | ✅ | ✅ | — | — |
 
 The source of truth for seeded role permissions is:
 
@@ -212,9 +177,43 @@ scripts/seed_role_permissions.py
 
 ---
 
-## 8. Document Permissions
+## 7. Journal Lifecycle Security
 
-Document permissions are separated by operation:
+### DRAFT
+
+With the appropriate permissions:
+
+```text
+GET     allowed
+PATCH   allowed
+DELETE  allowed
+POST    allowed
+```
+
+### POSTED
+
+```text
+GET      allowed
+PATCH    rejected
+DELETE   rejected
+POST     again rejected
+REVERSE  allowed with permission
+```
+
+### REVERSED
+
+```text
+GET              allowed
+PATCH            rejected
+DELETE           rejected
+second reversal  rejected
+```
+
+---
+
+## 8. Warehouse Document Permissions
+
+Warehouse document permissions remain separate:
 
 ```text
 documents.read
@@ -225,63 +224,23 @@ documents.approve
 documents.reverse
 ```
 
-This allows the ERP to distinguish between:
+Warehouse posting permission does not automatically grant accounting posting permission.
+
+This separation allows future approval workflows to distinguish:
 
 ```text
-reading documents
-creating a draft
-editing a draft
-deleting a draft
-posting a document
-reversing a posted document
+warehouse operation
 ```
 
-Posting uses:
+from:
 
 ```text
-documents.approve
-```
-
-Reversal uses:
-
-```text
-documents.reverse
+accounting approval
 ```
 
 ---
 
-## 9. Document Lifecycle Security
-
-### DRAFT
-
-A user with appropriate permissions may:
-
-```text
-read
-update
-delete
-post
-```
-
-### POSTED
-
-A posted document cannot be edited or physically deleted.
-
-A user with:
-
-```text
-documents.reverse
-```
-
-may reverse it.
-
-### REVERSED
-
-A reversed document remains historical and cannot be reversed again.
-
----
-
-## 10. Company Permission Enforcement
+## 9. Company Permission Enforcement
 
 Company-scoped authorization uses:
 
@@ -310,72 +269,57 @@ RolePermission
 Permission
 ```
 
-The check includes:
-
-```text
-user_id
-company_id
-role
-is_active
-permission
-```
+The relevant company is part of the authorization decision.
 
 ---
 
-## 11. Global Permission Enforcement
+## 10. Global Permission Enforcement
 
-Global permissions use:
+Global/system-level authorization uses:
 
 ```text
 require_global_permission(...)
 ```
 
-For example:
-
-```text
-companies.create
-```
-
-This is separate from company-specific authorization.
+This is separate from company-scoped business permissions.
 
 ---
 
-## 12. Security Principle
+## 11. Security Principle
 
-The frontend may hide controls based on permissions for usability.
+The frontend is never trusted as the sole authorization mechanism.
 
-However, the backend always remains the final authorization authority.
+For example, hiding a `Reverse` button is not sufficient.
 
-For example:
+The backend must still validate:
 
 ```text
-Frontend hides "Reverse"
+journal_entries.reverse
 ```
 
-is not sufficient.
-
-The API must still enforce:
+or:
 
 ```text
 documents.reverse
 ```
 
+before performing the operation.
+
 ---
 
-## 13. Future RBAC Development
+## 12. Future RBAC Extensions
 
-Future ERP versions may support:
+Future versions may include:
 
 ```text
 custom roles
 role management UI
 permission management UI
-company-specific role templates
-more granular accounting permissions
-warehouse-specific restrictions
-approval limits
+warehouse-specific access
+accounting-area restrictions
+approval thresholds
 document amount limits
-department-level access
+department restrictions
+auditor roles
+cashier roles
 ```
-
-The current RBAC architecture is designed so these additions do not require redesigning the main ERP business tables.

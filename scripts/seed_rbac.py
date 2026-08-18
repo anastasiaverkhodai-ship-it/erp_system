@@ -32,6 +32,12 @@ PERMISSIONS = [
     "accounts.read",
     "accounts.create",
     "accounts.update",
+    "journal_entries.read",
+    "journal_entries.create",
+    "journal_entries.update",
+    "journal_entries.delete",
+    "journal_entries.approve",
+    "journal_entries.reverse",
 ]
 
 

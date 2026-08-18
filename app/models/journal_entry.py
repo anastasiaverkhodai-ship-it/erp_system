@@ -1,0 +1,124 @@
+from datetime import date, datetime
+from enum import Enum
+
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Enum as SQLEnum,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.core.database import Base
+
+
+class JournalEntryStatus(str, Enum):
+    DRAFT = "draft"
+    POSTED = "posted"
+    REVERSED = "reversed"
+
+
+class JournalEntry(Base):
+    __tablename__ = "journal_entries"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "reversal_of_id",
+            name="uq_journal_entry_reversal_of",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+    )
+
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "companies.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    document_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "documents.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+        index=True,
+    )
+
+    entry_date: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+        index=True,
+    )
+
+    description: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+
+    status: Mapped[JournalEntryStatus] = mapped_column(
+        SQLEnum(
+            JournalEntryStatus,
+            name="journal_entry_status_enum",
+            native_enum=False,
+            values_callable=lambda enum: [
+                item.value for item in enum
+            ],
+        ),
+        default=JournalEntryStatus.DRAFT,
+        nullable=False,
+        index=True,
+    )
+
+    created_by: Mapped[int] = mapped_column(
+        ForeignKey(
+            "users.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+    posted_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+    )
+
+    reversed_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+    )
+
+    reversed_by: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "users.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
+
+    reversal_of_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "journal_entries.id",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
+
+    lines = relationship(
+        "JournalEntryLine",
+        back_populates="journal_entry",
+        cascade="all, delete-orphan",
+    )

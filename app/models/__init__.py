@@ -13,7 +13,8 @@ from app.models.user_company import user_companies
 from app.models.user_company_role import UserCompanyRole
 from app.models.warehouse import Warehouse
 from app.models.stock_balance import StockBalance
-
+from app.models.journal_entry import JournalEntry, JournalEntryStatus
+from app.models.journal_entry_line import JournalEntryLine
 from app.models.rbac import (
     role_permissions,
     user_roles,

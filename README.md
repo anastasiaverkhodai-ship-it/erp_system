@@ -59,19 +59,30 @@ The architecture is inspired by enterprise accounting systems such as 1C UTP whi
 
 Version: `0.1`
 
-The ERP foundation and the first warehouse document posting engine are implemented.
+Implemented foundations include:
 
-### Core Platform
+```text
+Authentication
+RBAC
+Companies
+Accounting Periods
+Chart of Accounts
 
-Implemented:
+Products
+Warehouses
+Documents
+Document Lines
 
-- FastAPI application
-- PostgreSQL database
-- Docker environment
-- Async SQLAlchemy
-- Alembic migrations
-- Pydantic configuration
-- Environment-based configuration
+Stock Ledger
+Stock Balances
+Warehouse Posting
+Warehouse Reversal
+
+Journal Entries
+Journal Entry Lines
+Accounting Posting
+Accounting Reversal
+```
 
 ---
 
@@ -81,13 +92,13 @@ Implemented:
 
 - User registration
 - User login
-- OAuth2 password login
+- OAuth2 password authentication
 - JWT access tokens
 - JWT refresh token generation
 - Argon2 password hashing
 - Active user validation
 
-Refresh token endpoint functionality is planned for a later stage.
+A dedicated refresh endpoint is planned for a later stage.
 
 ---
 
@@ -98,10 +109,9 @@ Implemented:
 - Users
 - Roles
 - Permissions
-- Global user roles
-- Role permissions
-- Company membership
+- Global roles
 - Company-specific roles
+- Role permissions
 - Company-specific permission enforcement
 - Active/inactive company access
 
@@ -128,7 +138,7 @@ Implemented:
 - Company role assignment
 - Company access deactivation
 
-Company-owned business data is isolated by `company_id`.
+Business data is isolated by `company_id`.
 
 ---
 
@@ -137,13 +147,14 @@ Company-owned business data is isolated by `company_id`.
 Implemented:
 
 - Company-specific accounting periods
-- Year and month validation
-- Unique periods per company
+- Unique year/month periods
 - Open/closed period handling
-- Accounting period locking
+- Period locking
 - Posting-period validation
 
-Document posting and reversal use accounting period validation.
+Both warehouse posting and accounting posting use accounting period validation.
+
+Reversal operations also validate their reversal date against the accounting period.
 
 ---
 
@@ -151,15 +162,14 @@ Document posting and reversal use accounting period validation.
 
 Implemented:
 
-- Company-specific Chart of Accounts
+- Company-specific accounts
 - Account creation
 - Account reading
 - Account updating
 - Hierarchical accounts
 - Parent account validation
 - Company-specific account code uniqueness
-
-Future accounting posting will build on this structure.
+- Account activation/deactivation
 
 ---
 
@@ -175,7 +185,7 @@ Implemented:
 - Product activation/deactivation
 - Company-specific SKU uniqueness
 
-Products are deactivated instead of physically deleted so historical records remain valid.
+Products are normally deactivated instead of physically deleted.
 
 ---
 
@@ -191,11 +201,11 @@ Implemented:
 - Warehouse activation/deactivation
 - Company-specific warehouse name uniqueness
 
-Warehouses are deactivated instead of physically deleted so historical inventory records remain valid.
+Warehouses are normally deactivated instead of physically deleted.
 
 ---
 
-## Documents
+## Warehouse Documents
 
 Current warehouse document types:
 
@@ -205,7 +215,7 @@ issue
 adjustment
 ```
 
-Current document statuses:
+Current statuses:
 
 ```text
 draft
@@ -216,17 +226,16 @@ cancelled
 
 Implemented:
 
-- Document creation
-- Document lines
-- Document listing
-- Document details
+- Draft creation
 - Draft editing
 - Draft deletion
-- Document posting
-- Document reversal
+- Document listing
+- Document details
+- Posting
+- Reversal
 - Company-specific document numbering
 
-Current main lifecycle:
+Main lifecycle:
 
 ```text
 DRAFT
@@ -238,15 +247,13 @@ POSTED
 REVERSED
 ```
 
-Posted documents cannot be edited or physically deleted.
+Posted warehouse documents cannot be destructively edited or deleted.
 
 ---
 
 ## Inventory Posting Engine
 
-The first transactional ERP posting contour is implemented.
-
-Posting performs:
+Warehouse posting performs:
 
 ```text
 Document validation
@@ -261,7 +268,7 @@ Product / warehouse validation
 Stock delta calculation
         │
         ▼
-Stock balance locking
+StockBalance locking
         │
         ▼
 Negative stock validation
@@ -278,17 +285,13 @@ Document POSTED
 
 Posting is atomic.
 
-If any validation fails, the transaction is rolled back completely.
+Failed posting operations are rolled back completely.
 
 ---
 
 ## Stock Ledger
 
-Implemented:
-
-```text
-stock_ledger
-```
+`stock_ledger` stores historical inventory movements.
 
 Current movement types:
 
@@ -298,8 +301,6 @@ issue
 adjustment
 reversal
 ```
-
-`StockLedger` stores historical inventory movements created by posted documents.
 
 Example:
 
@@ -314,13 +315,7 @@ Balance     3
 
 ## Stock Balance
 
-Implemented:
-
-```text
-stock_balances
-```
-
-A current balance is maintained for each:
+`stock_balances` stores the current operational inventory quantity for:
 
 ```text
 company
@@ -342,106 +337,319 @@ for the same company, product and warehouse.
 
 ---
 
-## Concurrency Protection
+## Inventory Concurrency Protection
 
-Inventory posting uses PostgreSQL row-level locking.
-
-Relevant stock balance rows are locked with:
+Warehouse posting uses PostgreSQL row-level locking:
 
 ```text
 SELECT ... FOR UPDATE
 ```
 
-This prevents concurrent transactions from consuming the same inventory simultaneously.
+This prevents concurrent operations from consuming the same available stock.
 
-Multi-stock operations acquire locks in deterministic order to reduce deadlock risk.
+Multi-balance operations acquire locks in deterministic order to reduce deadlock risk.
 
 ---
 
 ## Negative Stock Protection
 
-Issue and negative adjustment operations are rejected if they would create negative inventory.
+Issues and negative adjustments are rejected if they would produce negative stock.
 
-Multiple lines for the same product and warehouse are aggregated before stock validation.
-
-This prevents multiple lines inside one document from independently consuming the same available balance.
+Multiple document lines affecting the same product and warehouse are aggregated before stock validation.
 
 ---
 
-## Document Reversal
+## Warehouse Reversal
 
 Posted warehouse documents can be reversed.
 
 Reversal:
 
-- preserves original movements
+- preserves original ledger movements
 - creates opposite `reversal` movements
-- updates current stock balances
+- updates StockBalance
 - validates the reversal accounting period
-- validates resulting stock
+- prevents resulting negative stock
 - records `reversed_at`
 - records `reversed_by`
+
+A warehouse document can only be reversed once.
+
+---
+
+# Accounting Posting v1
+
+The ERP now contains the first double-entry accounting posting engine.
+
+Implemented tables:
+
+```text
+journal_entries
+journal_entry_lines
+```
+
+---
+
+## Journal Entries
+
+Current journal statuses:
+
+```text
+draft
+posted
+reversed
+```
+
+Implemented operations:
+
+```text
+GET     journal entry list
+GET     journal entry
+POST    create draft
+PATCH   update draft
+DELETE  delete draft
+POST    post journal entry
+POST    reverse journal entry
+```
+
+Main lifecycle:
+
+```text
+DRAFT
+  │
+  ▼
+POSTED
+  │
+  ▼
+REVERSED
+```
+
+---
+
+## Journal Entry Lines
+
+Each accounting line contains:
+
+```text
+account_id
+debit
+credit
+description
+```
+
+Exactly one side of a line must be positive:
+
+```text
+Debit > 0, Credit = 0
+```
+
+or:
+
+```text
+Credit > 0, Debit = 0
+```
+
+A line cannot contain values on both sides.
+
+A line also cannot contain zero on both sides.
+
+---
+
+## Double-Entry Validation
+
+A draft may temporarily be unbalanced.
+
+For example:
+
+```text
+Debit  = 1000
+Credit = 900
+```
+
+may exist as a draft.
+
+However, posting requires:
+
+```text
+SUM(Debit) = SUM(Credit)
+```
+
+and:
+
+```text
+SUM(Debit) > 0
+```
+
+Example of a valid posted journal entry:
+
+```text
+Dr 281   1000.00
+Cr 631   1000.00
+```
+
+---
+
+## Accounting Account Validation
+
+New accounting posting validates that every account:
+
+- exists
+- belongs to the same company as the journal entry
+- is active
+
+A Company 1 journal entry cannot post against a Company 2 account.
+
+---
+
+## Accounting Period Validation
+
+A journal entry can only be posted when its `entry_date` belongs to an open accounting period.
+
+Accounting reversal separately validates its `reversal_date`.
+
+---
+
+## Accounting Posting Concurrency
+
+The JournalEntry row is locked using PostgreSQL row-level locking during posting.
+
+This protects lifecycle transitions such as:
+
+```text
+DRAFT → POSTED
+```
+
+from conflicting operations.
+
+---
+
+## Accounting Reversal
+
+Posted journal entries are corrected through reversal rather than destructive modification.
 
 Example:
 
 ```text
-Original issue:  -6
-Reversal:        +6
+Original:
+
+Dr 281   1000
+Cr 631   1000
 ```
 
-A document can only be reversed once.
+Reversal:
 
-Reversal is atomic and rolls back completely if validation fails.
+```text
+Dr 631   1000
+Cr 281   1000
+```
+
+The reversal is stored as a new posted JournalEntry.
+
+It references the original through:
+
+```text
+reversal_of_id
+```
+
+The original becomes:
+
+```text
+status = reversed
+reversed_at = timestamp
+reversed_by = user_id
+```
+
+A unique constraint prevents multiple reversal entries for the same original journal entry.
+
+A reversal journal entry itself cannot be reversed through the current reversal service.
+
+---
+
+## Historical Account Reversal
+
+Accounting reversal does not require the historical accounts to remain active.
+
+This allows an old valid accounting posting to be reversed even if one of its accounts was later deactivated.
+
+The accounts must still belong to the correct company.
+
+---
+
+## Current Accounting API
+
+```text
+GET
+/api/v1/companies/{company_id}/journal-entries
+
+POST
+/api/v1/companies/{company_id}/journal-entries
+
+GET
+/api/v1/companies/{company_id}/journal-entries/{journal_entry_id}
+
+PATCH
+/api/v1/companies/{company_id}/journal-entries/{journal_entry_id}
+
+DELETE
+/api/v1/companies/{company_id}/journal-entries/{journal_entry_id}
+
+POST
+/api/v1/companies/{company_id}/journal-entries/{journal_entry_id}/post
+
+POST
+/api/v1/companies/{company_id}/journal-entries/{journal_entry_id}/reverse
+```
+
+---
+
+## Current Architecture
+
+```text
+Company
+│
+├── Accounting Periods
+├── Chart of Accounts
+│
+├── Products
+├── Warehouses
+│
+├── Documents
+│     │
+│     └── Document Lines
+│            │
+│            └── Stock Ledger
+│
+├── Stock Balances
+│
+└── Journal Entries
+       │
+       └── Journal Entry Lines
+              │
+              └── Accounts
+```
+
+Warehouse posting and accounting posting currently exist as separate operational contours.
+
+Automatic generation of JournalEntry records from warehouse documents is not yet implemented.
+
+This is intentional because a generic receipt, issue, or adjustment does not by itself contain enough business information to determine every accounting correspondence correctly.
 
 ---
 
 ## Audit
 
-The project contains an `audit_logs` database foundation.
+The project contains an `audit_logs` foundation.
 
-Full automatic audit-event integration is planned for later stages.
+Full automatic audit-event integration remains planned.
 
 Important future audit events include:
 
-- document posting
-- document reversal
+- warehouse document posting
+- warehouse document reversal
+- journal entry posting
+- journal entry reversal
 - accounting period changes
-- accounting journal posting
 - security-sensitive operations
-
----
-
-## Current High-Level Architecture
-
-```text
-User
- │
- ▼
-Authentication
- │
- ▼
-RBAC
- │
- ▼
-Company
- │
- ├── Accounting Periods
- ├── Chart of Accounts
- ├── Products
- ├── Warehouses
- │
- └── Documents
-       │
-       └── Document Lines
-              │
-              ▼
-          Stock Ledger
-
-Products + Warehouses
-         │
-         ▼
-    Stock Balances
-```
 
 ---
 
@@ -472,7 +680,7 @@ erp_system/
 
 ## Documentation
 
-Detailed project documentation is available in:
+Detailed documentation is available in:
 
 ```text
 docs/
@@ -488,57 +696,43 @@ rbac.md
 accounting_periods.md
 chart_of_accounts.md
 documents.md
+accounting.md
 development.md
 ```
 
 ---
 
-## Planned Next Stage
+## Planned Next Stages
 
-The next major backend stage is the accounting posting engine.
-
-Planned entities include:
+Major future stages include:
 
 ```text
-journal_entries
-journal_entry_lines
+Document → Accounting posting rules
+Purchase documents
+Sales documents
+Business partners
+Contracts
+FIFO inventory costing
+Cost of goods sold
+Warehouse transfers
+Inventory counts
+VAT accounting
+Ukrainian tax accounting
+Bank integration
+Bank reconciliation
+Financial statements
+Tax reporting
+Management reporting
+Full audit integration
 ```
 
-Future integrated posting architecture:
+Future business documents will eventually be capable of creating consistent movements across:
 
 ```text
-Business Document
-       │
-       ▼
-Posting Engine
-       │
-       ├── Stock Ledger
-       ├── Stock Balance
-       │
-       ├── Accounting Journal
-       ├── General Ledger
-       ├── VAT / Tax Registers
-       └── Management Registers
+Stock Ledger
+Stock Balance
+Accounting Journal
+General Ledger
+Tax / VAT Registers
+Management Registers
 ```
-
-Every accounting journal entry must satisfy double-entry accounting:
-
-```text
-SUM(Debit) = SUM(Credit)
-```
-
-Later stages will include:
-
-- FIFO inventory costing
-- Purchases
-- Sales
-- Warehouse transfers
-- Inventory counts
-- Cost of goods sold
-- VAT accounting
-- Ukrainian tax accounting
-- Bank integration
-- Financial statements
-- Tax reports
-- Management reports
-- Full audit integration
