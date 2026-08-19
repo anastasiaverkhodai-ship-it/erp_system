@@ -21,6 +21,7 @@ class AccountingRuleSide(str, Enum):
 class AccountingAmountSource(str, Enum):
     DOCUMENT_TOTAL = "document_total"
     LINE_TOTAL = "line_total"
+    INVENTORY_COST = "inventory_cost"
 
 
 class AccountingRuleLine(Base):

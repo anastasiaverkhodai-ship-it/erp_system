@@ -20,12 +20,15 @@ from app.models.journal_entry import (
     JournalEntry,
     JournalEntryStatus,
 )
+
+from app.models.inventory_cost_entry import InventoryCostEntry
 from app.models.journal_entry_line import JournalEntryLine
 from app.services.accounting_posting import (
     AccountingPostingError,
     post_journal_entry,
     validate_journal_entry,
 )
+
 
 class DocumentAccountingError(Exception):
     pass
@@ -171,6 +174,26 @@ async def generate_journal_entry_from_document(
         Decimal("0.00"),
     )
 
+    inventory_cost_entries_result = await db.execute(
+        select(InventoryCostEntry)
+        .where(
+            InventoryCostEntry.company_id == company_id,
+            InventoryCostEntry.document_id == document.id,
+        )
+        .order_by(
+            InventoryCostEntry.document_line_id
+        )
+    )
+
+    inventory_cost_entries = (
+        inventory_cost_entries_result.scalars().all()
+    )
+
+    inventory_cost_by_line = {
+        entry.document_line_id: entry
+        for entry in inventory_cost_entries
+    }
+
     # --------------------------------------------------
     # 5. Generate JournalEntry lines
     # --------------------------------------------------
@@ -206,6 +229,54 @@ async def generate_journal_entry_from_document(
                     key=lambda item: item.id,
                 )
             ]
+
+        elif (
+            rule_line.amount_source
+            == AccountingAmountSource.INVENTORY_COST
+        ):
+            inventory_cost_amounts: list[Decimal] = []
+
+            for document_line in sorted(
+                document.lines,
+                key=lambda item: item.id,
+            ):
+                cost_entry = inventory_cost_by_line.get(
+                    document_line.id
+                )
+
+                if cost_entry is None:
+                    raise DocumentAccountingError(
+                        (
+                            "Inventory cost was not found "
+                            f"for document line "
+                            f"{document_line.id}"
+                        )
+                    )
+
+                if (
+                    Decimal(cost_entry.quantity)
+                    != Decimal(document_line.quantity)
+                ):
+                    raise DocumentAccountingError(
+                        (
+                            "Inventory cost quantity does "
+                            "not match document line "
+                            f"{document_line.id}. "
+                            f"Costed: {cost_entry.quantity}, "
+                            f"required: "
+                            f"{document_line.quantity}"
+                        )
+                    )
+
+                inventory_cost_amounts.append(
+                    _money(
+                        Decimal(
+                            cost_entry.cost_amount
+                        )
+                    )
+                )
+
+            amounts = inventory_cost_amounts
 
         else:
             raise DocumentAccountingError(
@@ -307,6 +378,7 @@ async def generate_journal_entry_from_document(
     await db.flush()
 
     return journal_entry
+
 
 async def generate_and_post_journal_entry_from_document(
     db: AsyncSession,

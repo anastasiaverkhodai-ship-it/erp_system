@@ -15,6 +15,7 @@ from app.api.permissions import (
 from app.core.database import get_db
 from app.models.company import Company
 from app.models.role import Role
+from app.models.stock_ledger import StockLedger
 from app.models.user import User
 from app.models.user_company import user_companies
 from app.models.user_company_role import UserCompanyRole
@@ -126,9 +127,11 @@ async def create_company(
         name=data.name,
         edrpou=data.edrpou,
         vat_number=data.vat_number,
+        inventory_valuation_method=(
+            data.inventory_valuation_method
+        ),
         is_active=True,
     )
-
     db.add(company)
 
     # Потрібен company.id до commit
@@ -226,6 +229,46 @@ async def update_company(
     update_data = data.model_dump(
         exclude_unset=True
     )
+
+    if "inventory_valuation_method" in update_data:
+        new_method = update_data[
+            "inventory_valuation_method"
+        ]
+
+        if new_method is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Inventory valuation method "
+                    "cannot be null"
+                ),
+            )
+
+        if (
+            new_method
+            != company.inventory_valuation_method
+        ):
+            stock_history_result = await db.execute(
+                select(StockLedger.id)
+                .where(
+                    StockLedger.company_id
+                    == company_id
+                )
+                .limit(1)
+            )
+
+            if (
+                stock_history_result.scalar_one_or_none()
+                is not None
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Inventory valuation method cannot "
+                        "be changed because the company "
+                        "already has inventory history"
+                    ),
+                )
 
     for field, value in update_data.items():
         setattr(company, field, value)

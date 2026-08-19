@@ -19,6 +19,11 @@ from app.models.stock_ledger import (
 )
 from app.models.warehouse import Warehouse
 from app.services.accounting_period_service import ensure_period_open
+from app.services.inventory_costing import (
+    InventoryCostingError,
+    process_inventory_issue,
+    process_inventory_receipt,
+)
 
 
 class DocumentPostingError(Exception):
@@ -356,6 +361,35 @@ async def post_document(
             )
         )
 
+        if (
+            document.document_type
+            == DocumentType.RECEIPT
+        ):
+            try:
+                await process_inventory_receipt(
+                    db=db,
+                    document=document,
+                    line=line,
+                )
+            except InventoryCostingError as exc:
+                raise DocumentPostingError(
+                    str(exc)
+                ) from exc
+
+        elif (
+            document.document_type
+            == DocumentType.ISSUE
+        ):
+            try:
+                await process_inventory_issue(
+                    db=db,
+                    document=document,
+                    line=line,
+                )
+            except InventoryCostingError as exc:
+                raise DocumentPostingError(
+                    str(exc)
+                ) from exc
     # ---------------------------------------------------------
     # MARK DOCUMENT AS POSTED
     # ---------------------------------------------------------

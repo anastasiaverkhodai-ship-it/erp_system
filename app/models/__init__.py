@@ -8,6 +8,9 @@ from app.models.permission import Permission
 from app.models.product import Product
 from app.models.role import Role
 from app.models.stock_ledger import StockLedger, StockMovementType
+from app.models.stock_lot import StockLot
+from app.models.stock_lot_consumption import StockLotConsumption
+from app.models.inventory_cost_entry import InventoryCostEntry
 from app.models.user import User
 from app.models.user_company import user_companies
 from app.models.user_company_role import UserCompanyRole

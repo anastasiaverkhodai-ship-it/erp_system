@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.document import (
     Document,
     DocumentStatus,
+    DocumentType,
 )
 
 from app.models.journal_entry import JournalEntry
@@ -22,6 +23,10 @@ from app.services.accounting_reversal import (
 )
 from app.services.document_posting import get_locked_stock_balance
 
+from app.services.inventory_costing import (
+    InventoryCostingError,
+    reverse_inventory_costing,
+)
 
 class DocumentReversalError(Exception):
     """Business error raised when a document cannot be reversed."""
@@ -96,6 +101,20 @@ async def reverse_document(
         raise DocumentReversalError(
             "Document has no stock movements to reverse"
         )
+
+    # ---------------------------------------------------------
+    # REVERSE FIFO FOR RECEIPT
+    # ---------------------------------------------------------
+    try:
+        await reverse_inventory_costing(
+            db=db,
+            document=document,
+        )
+    except InventoryCostingError as exc:
+           raise DocumentReversalError(
+            str(exc)
+        ) from exc
+
 
     # ---------------------------------------------------------
     # CALCULATE REVERSAL DELTAS
