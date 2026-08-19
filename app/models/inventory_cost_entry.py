@@ -35,7 +35,14 @@ class InventoryCostEntry(Base):
             "cost_amount >= 0",
             name="ck_inventory_cost_entry_amount_nonnegative",
         ),
+
+        CheckConstraint(
+    "valuation_amount >= 0",
+    name="ck_inventory_cost_entry_valuation_amount_nonnegative",
+),
     )
+
+
 
     id: Mapped[int] = mapped_column(
         primary_key=True,
@@ -87,10 +94,14 @@ class InventoryCostEntry(Base):
     )
 
     unit_cost: Mapped[Decimal] = mapped_column(
-        Numeric(18, 4),
+        Numeric(20, 8),
         nullable=False,
     )
 
+    valuation_amount: Mapped[Decimal] = mapped_column(
+    Numeric(20, 8),
+    nullable=False,
+)
     cost_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 2),
         nullable=False,

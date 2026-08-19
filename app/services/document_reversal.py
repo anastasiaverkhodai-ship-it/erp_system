@@ -106,9 +106,10 @@ async def reverse_document(
     # REVERSE FIFO FOR RECEIPT
     # ---------------------------------------------------------
     try:
-        await reverse_inventory_costing(
+                await reverse_inventory_costing(
             db=db,
             document=document,
+            reversal_date=reversal_date,
         )
     except InventoryCostingError as exc:
            raise DocumentReversalError(
