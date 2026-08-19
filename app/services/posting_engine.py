@@ -5,9 +5,7 @@ from app.services.posting_handler import (
     PostingHandler,
     PostingHandlerError,
 )
-from app.services.warehouse_posting_handler import (
-    WarehousePostingHandler,
-)
+
 
 class PostingEngineError(Exception):
     """Business error raised by the posting engine."""
@@ -16,13 +14,8 @@ class PostingEngineError(Exception):
 class PostingEngine:
     def __init__(
         self,
-        handlers: Sequence[PostingHandler] | None = None,
+        handlers: Sequence[PostingHandler],
     ) -> None:
-        if handlers is None:
-            handlers = (
-                WarehousePostingHandler(),
-            )
-
         self.handlers = tuple(handlers)
 
     async def post(

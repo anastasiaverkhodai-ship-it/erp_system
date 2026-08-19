@@ -21,7 +21,13 @@ from app.services.posting_engine import (
     PostingEngine,
     PostingEngineError,
 )
-posting_engine = PostingEngine()
+
+from app.services.posting_registry import (
+    get_default_posting_handlers,
+)
+posting_engine = PostingEngine(
+    handlers=get_default_posting_handlers(),
+)
 
 class DocumentPostingError(Exception):
     """Business error raised when a document cannot be posted."""
