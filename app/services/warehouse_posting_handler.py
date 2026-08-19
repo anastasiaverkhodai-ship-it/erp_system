@@ -21,7 +21,6 @@ from app.services.posting_handler import (
     PostingHandlerError,
 )
 
-
 class WarehousePostingHandlerError(
     PostingHandlerError
 ):
@@ -49,6 +48,9 @@ class WarehousePostingHandler:
                 str(exc)
             ) from exc
 
+        context.set_stock_deltas(
+            stock_deltas
+        )
         # -----------------------------------------------------
         # LOCK AND UPDATE STOCK BALANCES
         # -----------------------------------------------------
@@ -166,7 +168,7 @@ class WarehousePostingHandler:
                 == DocumentType.ISSUE
             ):
                 try:
-                    await process_inventory_issue(
+                    cost_entry = await process_inventory_issue(
                         db=db,
                         document=document,
                         line=line,
@@ -175,3 +177,8 @@ class WarehousePostingHandler:
                     raise WarehousePostingHandlerError(
                         str(exc)
                     ) from exc
+
+                context.set_inventory_cost(
+                    document_line_id=line.id,
+                    cost_entry=cost_entry,
+                )

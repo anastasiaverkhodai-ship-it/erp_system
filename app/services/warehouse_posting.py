@@ -10,6 +10,7 @@ from app.models.product import Product
 from app.models.stock_balance import StockBalance
 from app.models.warehouse import Warehouse
 from app.services.posting_context import PostingContext
+from app.services.posting_types import StockDeltas
 
 class WarehousePostingError(Exception):
     """Business error raised during warehouse posting validation."""
@@ -53,14 +54,11 @@ async def get_locked_stock_balance(
 
 async def calculate_stock_deltas(
     context: PostingContext,
-) -> dict[tuple[int, int], Decimal]:
+) -> StockDeltas:
     document = context.document
     db = context.db
 
-    stock_deltas: dict[
-        tuple[int, int],
-        Decimal,
-    ] = {}
+    stock_deltas: StockDeltas = {}
 
     for line in document.lines:
         product_result = await db.execute(
