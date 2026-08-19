@@ -21,7 +21,9 @@ from app.services.accounting_reversal import (
     JournalEntryReversalNotFoundError,
     reverse_journal_entry,
 )
-from app.services.document_posting import get_locked_stock_balance
+from app.services.warehouse_posting import (
+    get_locked_stock_balance,
+)
 
 from app.services.inventory_costing import (
     InventoryCostingError,
@@ -102,22 +104,7 @@ async def reverse_document(
             "Document has no stock movements to reverse"
         )
 
-    # ---------------------------------------------------------
-    # REVERSE FIFO FOR RECEIPT
-    # ---------------------------------------------------------
-    try:
-                await reverse_inventory_costing(
-            db=db,
-            document=document,
-            reversal_date=reversal_date,
-        )
-    except InventoryCostingError as exc:
-           raise DocumentReversalError(
-            str(exc)
-        ) from exc
-
-
-    # ---------------------------------------------------------
+       # ---------------------------------------------------------
     # CALCULATE REVERSAL DELTAS
     # ---------------------------------------------------------
 
@@ -148,6 +135,8 @@ async def reverse_document(
     # LOCK AND UPDATE STOCK BALANCES
     # ---------------------------------------------------------
 
+    # Use the same lock order as document posting:
+    # StockBalance first, inventory costing second.
     for (
         product_id,
         warehouse_id,
@@ -189,6 +178,21 @@ async def reverse_document(
         balance.updated_at = datetime.now(
             timezone.utc
         ).replace(tzinfo=None)
+
+    # ---------------------------------------------------------
+    # REVERSE INVENTORY COSTING
+    # ---------------------------------------------------------
+
+    try:
+        await reverse_inventory_costing(
+            db=db,
+            document=document,
+            reversal_date=reversal_date,
+        )
+    except InventoryCostingError as exc:
+        raise DocumentReversalError(
+            str(exc)
+        ) from exc
 
     # ---------------------------------------------------------
     # CREATE REVERSAL STOCK MOVEMENTS

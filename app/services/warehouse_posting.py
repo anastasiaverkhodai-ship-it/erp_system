@@ -1,16 +1,55 @@
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import DocumentType
 from app.models.product import Product
+from app.models.stock_balance import StockBalance
 from app.models.warehouse import Warehouse
 from app.services.posting_context import PostingContext
 
-
 class WarehousePostingError(Exception):
     """Business error raised during warehouse posting validation."""
+async def get_locked_stock_balance(
+    db: AsyncSession,
+    company_id: int,
+    product_id: int,
+    warehouse_id: int,
+) -> StockBalance:
+    now = datetime.now(
+        timezone.utc
+    ).replace(tzinfo=None)
 
+    statement = (
+        pg_insert(StockBalance)
+        .values(
+            company_id=company_id,
+            product_id=product_id,
+            warehouse_id=warehouse_id,
+            quantity=Decimal("0"),
+            updated_at=now,
+        )
+        .on_conflict_do_nothing(
+            constraint="uq_stock_balance_company_product_warehouse"
+        )
+    )
+
+    await db.execute(statement)
+
+    result = await db.execute(
+        select(StockBalance)
+        .where(
+            StockBalance.company_id == company_id,
+            StockBalance.product_id == product_id,
+            StockBalance.warehouse_id == warehouse_id,
+        )
+        .with_for_update()
+    )
+
+    return result.scalar_one()
 
 async def calculate_stock_deltas(
     context: PostingContext,
