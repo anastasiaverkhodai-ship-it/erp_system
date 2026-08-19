@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -8,29 +8,20 @@ from sqlalchemy.orm import selectinload
 from app.models.document import (
     Document,
     DocumentStatus,
-    DocumentType,
 )
 from app.models.stock_balance import StockBalance
-from app.models.stock_ledger import (
-    StockLedger,
-    StockMovementType,
-)
+
 from app.services.accounting_period_service import ensure_period_open
-from app.services.inventory_costing import (
-    InventoryCostingError,
-    process_inventory_issue,
-    process_inventory_receipt,
-)
+
 from app.services.posting_context import (
     create_posting_context,
 )
 
-from app.services.warehouse_posting import (
-    WarehousePostingError,
-    calculate_stock_deltas,
-    get_locked_stock_balance,
+from app.services.posting_engine import (
+    PostingEngine,
+    PostingEngineError,
 )
-
+posting_engine = PostingEngine()
 
 class DocumentPostingError(Exception):
     """Business error raised when a document cannot be posted."""
@@ -112,160 +103,17 @@ async def post_document(
     )
 
     # ---------------------------------------------------------
-    # VALIDATION AND STOCK DELTA CALCULATION
+    # WAREHOUSE POSTING ENGINE
     # ---------------------------------------------------------
 
     try:
-        stock_deltas = await calculate_stock_deltas(
+        await posting_engine.post_warehouse(
             context
         )
-    except WarehousePostingError as exc:
+    except PostingEngineError as exc:
         raise DocumentPostingError(
             str(exc)
         ) from exc
-
-    # ---------------------------------------------------------
-    # LOCK AND UPDATE STOCK BALANCES
-    # ---------------------------------------------------------
-
-    # Always lock balances in the same order.
-    # This reduces the risk of deadlocks when documents
-    # contain multiple products / warehouses.
-    for (
-        product_id,
-        warehouse_id,
-    ) in sorted(stock_deltas):
-        delta = stock_deltas[
-            (
-                product_id,
-                warehouse_id,
-            )
-        ]
-
-        balance = await get_locked_stock_balance(
-            db=db,
-            company_id=context.company_id,
-            product_id=product_id,
-            warehouse_id=warehouse_id,
-        )
-
-        current_quantity = Decimal(
-            balance.quantity
-        )
-
-        new_quantity = (
-            current_quantity
-            + delta
-        )
-
-        if new_quantity < Decimal("0"):
-            raise DocumentPostingError(
-                f"Insufficient stock for product "
-                f"{product_id}. "
-                f"Available: {current_quantity}, "
-                f"required change: {delta}"
-            )
-
-        balance.quantity = new_quantity
-
-        balance.updated_at = datetime.now(
-            timezone.utc
-        ).replace(tzinfo=None)
-
-    # ---------------------------------------------------------
-    # CREATE STOCK LEDGER MOVEMENTS
-    # ---------------------------------------------------------
-
-    for line in document.lines:
-        if (
-            context.document_type
-            == DocumentType.RECEIPT
-        ):
-            movement_type = (
-                StockMovementType.RECEIPT
-            )
-
-            movement_quantity = (
-                line.quantity
-            )
-
-        elif (
-            context.document_type
-            == DocumentType.ISSUE
-        ):
-            movement_type = (
-                StockMovementType.ISSUE
-            )
-
-            movement_quantity = (
-                -line.quantity
-            )
-
-        elif (
-            context.document_type
-            == DocumentType.ADJUSTMENT
-        ):
-            movement_type = (
-                StockMovementType.ADJUSTMENT
-            )
-
-            movement_quantity = (
-                line.quantity
-            )
-
-        else:
-            raise DocumentPostingError(
-                f"Unsupported document type: "
-                f"{context.document_type}"
-            )
-
-        db.add(
-            StockLedger(
-                company_id=context.company_id,
-                document_id=context.document_id,
-                document_line_id=line.id,
-                product_id=line.product_id,
-                warehouse_id=line.warehouse_id,
-                quantity=movement_quantity,
-                movement_type=movement_type,
-                movement_date=context.operation_date,
-            )
-        )
-
-        # -----------------------------------------------------
-        # INVENTORY COSTING
-        # -----------------------------------------------------
-
-        if (
-            context.document_type
-            == DocumentType.RECEIPT
-        ):
-            try:
-                await process_inventory_receipt(
-                    db=db,
-                    document=document,
-                    line=line,
-                )
-            except InventoryCostingError as exc:
-                raise DocumentPostingError(
-                    str(exc)
-                ) from exc
-
-        elif (
-            context.document_type
-            == DocumentType.ISSUE
-        ):
-            try:
-                await process_inventory_issue(
-                    db=db,
-                    document=document,
-                    line=line,
-                )
-            except InventoryCostingError as exc:
-                raise DocumentPostingError(
-                    str(exc)
-                ) from exc
-
     # ---------------------------------------------------------
     # MARK DOCUMENT AS POSTED
     # ---------------------------------------------------------
