@@ -24,7 +24,7 @@ from app.services.posting_engine import (
 from app.services.posting_factory import (
     create_default_posting_engine,
 )
-
+from app.models.journal_entry import JournalEntry
 
 class DocumentPostingError(Exception):
     """Business error raised when a document cannot be posted."""
@@ -60,7 +60,9 @@ async def post_document(
     db: AsyncSession,
     company_id: int,
     document_id: int,
-) -> Document:
+    accounting_rule_id: int,
+    created_by: int,
+) -> tuple[Document, JournalEntry]:
     result = await db.execute(
         select(Document)
         .options(
@@ -93,6 +95,8 @@ async def post_document(
     context = create_posting_context(
         db=db,
         document=document,
+        accounting_rule_id=accounting_rule_id,
+        created_by=created_by,
     )
 
     # ---------------------------------------------------------
@@ -104,6 +108,12 @@ async def post_document(
         operation_date=context.operation_date,
         db=context.db,
     )
+    # ---------------------------------------------------------
+    # MARK DOCUMENT AS POSTED INSIDE THE TRANSACTION
+    # ---------------------------------------------------------
+
+    document.status = DocumentStatus.POSTED
+    document.posted_at = context.posting_time
     # ---------------------------------------------------------
     # POSTING ENGINE
     # ---------------------------------------------------------
@@ -119,16 +129,14 @@ async def post_document(
             str(exc)
         ) from exc
 
-    # ---------------------------------------------------------
-    # MARK DOCUMENT AS POSTED
-    # ---------------------------------------------------------
-    # ---------------------------------------------------------
-    # MARK DOCUMENT AS POSTED
-    # ---------------------------------------------------------
+    journal_entry = context.get_journal_entry()
 
-    document.status = DocumentStatus.POSTED
-    document.posted_at = context.posting_time
+    if journal_entry is None:
+        raise DocumentPostingError(
+            "Posting engine did not create "
+            "an accounting journal entry"
+        )
 
     await db.flush()
 
-    return document
+    return document, journal_entry

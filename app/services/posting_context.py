@@ -16,6 +16,7 @@ from app.services.posting_types import (
 from app.models.inventory_cost_entry import (
     InventoryCostEntry,
 )
+from app.models.journal_entry import JournalEntry
 
 @dataclass(slots=True)
 class PostingContext:
@@ -23,12 +24,14 @@ class PostingContext:
     document: Document
     operation_date: date
     posting_time: datetime
+    accounting_rule_id: int
+    created_by: int
     shared_data: dict[
-    PostingContextKey,
-    object,
-] = field(
-    default_factory=dict
-)
+        PostingContextKey,
+        object,
+    ] = field(
+        default_factory=dict
+    )
 
     @property
     def company_id(self) -> int:
@@ -41,6 +44,14 @@ class PostingContext:
     @property
     def document_type(self) -> DocumentType:
         return self.document.document_type
+
+    @property
+    def user_id(self) -> int:
+        return self.created_by
+
+    @property
+    def rule_id(self) -> int:
+        return self.accounting_rule_id
 
     def set_stock_deltas(
         self,
@@ -100,9 +111,40 @@ class PostingContext:
 
         return dict(value)
 
+    def set_journal_entry(
+        self,
+        journal_entry: JournalEntry,
+    ) -> None:
+        self.shared_data[
+            PostingContextKey.JOURNAL_ENTRY
+        ] = journal_entry
+
+    def get_journal_entry(
+        self,
+    ) -> JournalEntry | None:
+        value = self.shared_data.get(
+            PostingContextKey.JOURNAL_ENTRY
+        )
+
+        if value is None:
+            return None
+
+        if not isinstance(
+            value,
+            JournalEntry,
+        ):
+            raise TypeError(
+                "Posting context journal entry "
+                "has invalid type"
+            )
+
+        return value
+
 def create_posting_context(
     db: AsyncSession,
     document: Document,
+    accounting_rule_id: int,
+    created_by: int,
 ) -> PostingContext:
     return PostingContext(
         db=db,
@@ -111,4 +153,6 @@ def create_posting_context(
         posting_time=datetime.now(
             timezone.utc
         ).replace(tzinfo=None),
+        accounting_rule_id=accounting_rule_id,
+        created_by=created_by,
     )
