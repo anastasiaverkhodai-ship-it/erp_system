@@ -18,16 +18,13 @@ from app.services.posting_context import (
 )
 
 from app.services.posting_engine import (
-    PostingEngine,
     PostingEngineError,
 )
 
-from app.services.posting_registry import (
-    get_default_posting_handlers,
+from app.services.posting_factory import (
+    create_default_posting_engine,
 )
-posting_engine = PostingEngine(
-    handlers=get_default_posting_handlers(),
-)
+
 
 class DocumentPostingError(Exception):
     """Business error raised when a document cannot be posted."""
@@ -107,19 +104,24 @@ async def post_document(
         operation_date=context.operation_date,
         db=context.db,
     )
+    # ---------------------------------------------------------
+    # POSTING ENGINE
+    # ---------------------------------------------------------
 
-    # ---------------------------------------------------------
-    # WAREHOUSE POSTING ENGINE
-    # ---------------------------------------------------------
+    posting_engine = create_default_posting_engine()
 
     try:
-      await posting_engine.post(
-    context
-)
+        await posting_engine.post(
+            context
+        )
     except PostingEngineError as exc:
         raise DocumentPostingError(
             str(exc)
         ) from exc
+
+    # ---------------------------------------------------------
+    # MARK DOCUMENT AS POSTED
+    # ---------------------------------------------------------
     # ---------------------------------------------------------
     # MARK DOCUMENT AS POSTED
     # ---------------------------------------------------------
