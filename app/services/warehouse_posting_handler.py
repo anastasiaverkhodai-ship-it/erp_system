@@ -17,8 +17,14 @@ from app.services.warehouse_posting import (
     get_locked_stock_balance,
 )
 
+from app.services.posting_handler import (
+    PostingHandlerError,
+)
 
-class WarehousePostingHandlerError(Exception):
+
+class WarehousePostingHandlerError(
+    PostingHandlerError
+):
     """Business error raised by the warehouse posting handler."""
 
 

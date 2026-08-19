@@ -107,9 +107,9 @@ async def post_document(
     # ---------------------------------------------------------
 
     try:
-        await posting_engine.post_warehouse(
-            context
-        )
+      await posting_engine.post(
+    context
+)
     except PostingEngineError as exc:
         raise DocumentPostingError(
             str(exc)
