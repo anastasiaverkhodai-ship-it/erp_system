@@ -1,5 +1,4 @@
-from datetime import date, datetime, timezone
-from decimal import Decimal
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,34 +6,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.document import (
     Document,
     DocumentStatus,
-    DocumentType,
 )
-
 from app.models.journal_entry import JournalEntry
 from app.models.stock_ledger import (
     StockLedger,
     StockMovementType,
 )
-from app.services.accounting_period_service import ensure_period_open
-from app.services.accounting_reversal import (
-    AccountingReversalError,
-    JournalEntryReversalNotFoundError,
-    reverse_journal_entry,
+from app.services.accounting_period_service import (
+    ensure_period_open,
 )
-from app.services.warehouse_posting import (
-    get_locked_stock_balance,
+from app.services.reversal_context import (
+    create_reversal_context,
+)
+from app.services.reversal_engine import (
+    ReversalEngineError,
+)
+from app.services.reversal_factory import (
+    create_default_reversal_engine,
 )
 
-from app.services.inventory_costing import (
-    InventoryCostingError,
-    reverse_inventory_costing,
-)
 
 class DocumentReversalError(Exception):
     """Business error raised when a document cannot be reversed."""
 
 
-class DocumentReversalNotFoundError(DocumentReversalError):
+class DocumentReversalNotFoundError(
+    DocumentReversalError
+):
     """Raised when the requested document does not exist."""
 
 
@@ -95,7 +93,7 @@ async def reverse_document(
         .order_by(StockLedger.id)
     )
 
-    original_movements = (
+    original_movements = list(
         movements_result.scalars().all()
     )
 
@@ -104,122 +102,8 @@ async def reverse_document(
             "Document has no stock movements to reverse"
         )
 
-       # ---------------------------------------------------------
-    # CALCULATE REVERSAL DELTAS
     # ---------------------------------------------------------
-
-    stock_deltas: dict[
-        tuple[int, int],
-        Decimal,
-    ] = {}
-
-    for movement in original_movements:
-        key = (
-            movement.product_id,
-            movement.warehouse_id,
-        )
-
-        reversal_quantity = (
-            -Decimal(movement.quantity)
-        )
-
-        stock_deltas[key] = (
-            stock_deltas.get(
-                key,
-                Decimal("0"),
-            )
-            + reversal_quantity
-        )
-
-    # ---------------------------------------------------------
-    # LOCK AND UPDATE STOCK BALANCES
-    # ---------------------------------------------------------
-
-    # Use the same lock order as document posting:
-    # StockBalance first, inventory costing second.
-    for (
-        product_id,
-        warehouse_id,
-    ) in sorted(stock_deltas):
-        delta = stock_deltas[
-            (
-                product_id,
-                warehouse_id,
-            )
-        ]
-
-        balance = await get_locked_stock_balance(
-            db=db,
-            company_id=company_id,
-            product_id=product_id,
-            warehouse_id=warehouse_id,
-        )
-
-        current_quantity = Decimal(
-            balance.quantity
-        )
-
-        new_quantity = (
-            current_quantity
-            + delta
-        )
-
-        if new_quantity < Decimal("0"):
-            raise DocumentReversalError(
-                f"Cannot reverse document because "
-                f"stock would become negative for "
-                f"product {product_id}. "
-                f"Available: {current_quantity}, "
-                f"reversal change: {delta}"
-            )
-
-        balance.quantity = new_quantity
-
-        balance.updated_at = datetime.now(
-            timezone.utc
-        ).replace(tzinfo=None)
-
-    # ---------------------------------------------------------
-    # REVERSE INVENTORY COSTING
-    # ---------------------------------------------------------
-
-    try:
-        await reverse_inventory_costing(
-            db=db,
-            document=document,
-            reversal_date=reversal_date,
-        )
-    except InventoryCostingError as exc:
-        raise DocumentReversalError(
-            str(exc)
-        ) from exc
-
-    # ---------------------------------------------------------
-    # CREATE REVERSAL STOCK MOVEMENTS
-    # ---------------------------------------------------------
-
-    for movement in original_movements:
-        db.add(
-            StockLedger(
-                company_id=movement.company_id,
-                document_id=document.id,
-                document_line_id=(
-                    movement.document_line_id
-                ),
-                product_id=movement.product_id,
-                warehouse_id=movement.warehouse_id,
-                quantity=(
-                    -Decimal(movement.quantity)
-                ),
-                movement_type=(
-                    StockMovementType.REVERSAL
-                ),
-                movement_date=reversal_date,
-            )
-        )
-
-       # ---------------------------------------------------------
-    # REVERSE ACCOUNTING JOURNAL ENTRY
+    # LOAD ORIGINAL ACCOUNTING JOURNAL ENTRY
     # ---------------------------------------------------------
 
     journal_result = await db.execute(
@@ -230,60 +114,50 @@ async def reverse_document(
         )
     )
 
-    journal_entry = (
+    original_journal_entry = (
         journal_result.scalar_one_or_none()
     )
 
-    if journal_entry is None:
-        # Legacy documents created before integrated
-        # accounting may legitimately have no JournalEntry.
-        if document.accounting_rule_id is not None:
-            raise DocumentReversalError(
-                "Document requires an accounting journal "
-                "entry, but none was found"
-            )
+    # ---------------------------------------------------------
+    # CREATE REVERSAL CONTEXT
+    # ---------------------------------------------------------
 
-    else:
-        # If the document explicitly stores a rule,
-        # the JournalEntry must point to the same rule.
-        if (
-            document.accounting_rule_id is not None
-            and journal_entry.accounting_rule_id
-            != document.accounting_rule_id
-        ):
-            raise DocumentReversalError(
-                "Document accounting rule does not match "
-                "the journal entry accounting rule"
-            )
+    context = create_reversal_context(
+        db=db,
+        document=document,
+        reversal_date=reversal_date,
+        reversed_by=reversed_by,
+    )
 
-        try:
-            await reverse_journal_entry(
-                db=db,
-                company_id=company_id,
-                journal_entry_id=journal_entry.id,
-                reversal_date=reversal_date,
-                reversed_by=reversed_by,
-            )
+    context.original_stock_movements = (
+        original_movements
+    )
+    context.original_journal_entry = (
+        original_journal_entry
+    )
 
-        except (
-            AccountingReversalError,
-            JournalEntryReversalNotFoundError,
-        ) as exc:
-            raise DocumentReversalError(
-                str(exc)
-            ) from exc
+    # ---------------------------------------------------------
+    # REVERSAL ENGINE
+    # ---------------------------------------------------------
+
+    reversal_engine = create_default_reversal_engine()
+
+    try:
+        await reversal_engine.reverse(
+            context
+        )
+    except ReversalEngineError as exc:
+        raise DocumentReversalError(
+            str(exc)
+        ) from exc
 
     # ---------------------------------------------------------
     # MARK DOCUMENT AS REVERSED
     # ---------------------------------------------------------
 
     document.status = DocumentStatus.REVERSED
-
-    document.reversed_at = datetime.now(
-        timezone.utc
-    ).replace(tzinfo=None)
-
-    document.reversed_by = reversed_by
+    document.reversed_at = context.reversal_time
+    document.reversed_by = context.reversed_by
 
     await db.flush()
 
