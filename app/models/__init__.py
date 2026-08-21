@@ -11,6 +11,8 @@ from app.models.stock_ledger import StockLedger, StockMovementType
 from app.models.stock_lot import StockLot
 from app.models.stock_lot_consumption import StockLotConsumption
 from app.models.inventory_cost_entry import InventoryCostEntry
+from app.models.idempotency_record import IdempotencyRecord
+from app.models.idempotency_result import IdempotencyResult
 from app.models.moving_average_balance import MovingAverageBalance
 from app.models.moving_average_movement import MovingAverageMovement
 from app.models.user import User
