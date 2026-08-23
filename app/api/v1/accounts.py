@@ -11,6 +11,12 @@ from app.schemas.account import (
     AccountResponse,
     AccountUpdate,
 )
+from app.services.account_hierarchy_service import (
+    AccountHierarchyCycleError,
+    AccountParentNotFoundError,
+    lock_account_hierarchy,
+    validate_account_parent,
+)
 
 
 router = APIRouter(
@@ -54,6 +60,11 @@ async def create_account(
     ),
     db: AsyncSession = Depends(get_db),
 ):
+    await lock_account_hierarchy(
+        session=db,
+        company_id=company_id,
+    )
+
     existing_result = await db.execute(
         select(Account).where(
             Account.company_id == company_id,
@@ -61,34 +72,51 @@ async def create_account(
         )
     )
 
-    if existing_result.scalar_one_or_none() is not None:
+    if (
+        existing_result.scalar_one_or_none()
+        is not None
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Account with this code already exists",
+            detail=(
+                "Account with this code already exists"
+            ),
         )
 
-    if data.parent_id is not None:
-        parent_result = await db.execute(
-            select(Account).where(
-                Account.id == data.parent_id,
-                Account.company_id == company_id,
-            )
+    try:
+        parent = await validate_account_parent(
+            session=db,
+            company_id=company_id,
+            account_id=None,
+            parent_id=data.parent_id,
         )
 
-        if parent_result.scalar_one_or_none() is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Parent account not found",
-            )
+    except AccountParentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except AccountHierarchyCycleError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
 
     account = Account(
         company_id=company_id,
         code=data.code,
         name=data.name,
         account_type=data.account_type,
+        normal_balance=data.normal_balance,
         parent_id=data.parent_id,
+        is_postable=data.is_postable,
+        is_system=False,
         is_active=True,
     )
+
+    if parent is not None:
+        parent.is_postable = False
 
     db.add(account)
 
@@ -111,6 +139,21 @@ async def update_account(
     ),
     db: AsyncSession = Depends(get_db),
 ):
+    update_data = data.model_dump(
+        exclude_unset=True
+    )
+
+    hierarchy_sensitive = (
+        "parent_id" in update_data
+        or "is_postable" in update_data
+    )
+
+    if hierarchy_sensitive:
+        await lock_account_hierarchy(
+            session=db,
+            company_id=company_id,
+        )
+
     result = await db.execute(
         select(Account).where(
             Account.id == account_id,
@@ -126,9 +169,29 @@ async def update_account(
             detail="Account not found",
         )
 
-    update_data = data.model_dump(
-        exclude_unset=True
-    )
+    if account.is_system:
+        protected_system_fields = {
+            "code",
+            "account_type",
+            "normal_balance",
+            "parent_id",
+            "is_postable",
+        }
+
+        attempted_protected_fields = (
+            protected_system_fields
+            & set(update_data)
+        )
+
+        if attempted_protected_fields:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "System account fields cannot be "
+                    "changed through the regular API: "
+                    f"{sorted(attempted_protected_fields)}"
+                ),
+            )
 
     if "code" in update_data:
         duplicate_result = await db.execute(
@@ -139,37 +202,69 @@ async def update_account(
             )
         )
 
-        if duplicate_result.scalar_one_or_none() is not None:
+        if (
+            duplicate_result.scalar_one_or_none()
+            is not None
+        ):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Account with this code already exists",
+                detail=(
+                    "Account with this code "
+                    "already exists"
+                ),
             )
 
-    if (
-        "parent_id" in update_data
-        and update_data["parent_id"] is not None
-    ):
-        if update_data["parent_id"] == account_id:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Account cannot be its own parent",
+    new_parent = None
+
+    if "parent_id" in update_data:
+        try:
+            new_parent = await validate_account_parent(
+                session=db,
+                company_id=company_id,
+                account_id=account_id,
+                parent_id=update_data["parent_id"],
             )
 
-        parent_result = await db.execute(
-            select(Account).where(
-                Account.id == update_data["parent_id"],
-                Account.company_id == company_id,
-            )
-        )
-
-        if parent_result.scalar_one_or_none() is None:
+        except AccountParentNotFoundError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Parent account not found",
+                detail=str(exc),
+            ) from exc
+
+        except AccountHierarchyCycleError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    if update_data.get("is_postable") is True:
+        child_result = await db.execute(
+            select(Account.id)
+            .where(
+                Account.company_id == company_id,
+                Account.parent_id == account_id,
+            )
+            .limit(1)
+        )
+
+        if child_result.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Account with child accounts "
+                    "cannot be postable"
+                ),
             )
 
+    if new_parent is not None:
+        new_parent.is_postable = False
+
     for field, value in update_data.items():
-        setattr(account, field, value)
+        setattr(
+            account,
+            field,
+            value,
+        )
 
     await db.commit()
     await db.refresh(account)

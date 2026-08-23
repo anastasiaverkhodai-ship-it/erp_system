@@ -13,6 +13,7 @@ from app.api.permissions import (
     require_global_permission,
 )
 from app.core.database import get_db
+from app.models.account import Account
 from app.models.company import Company
 from app.models.role import Role
 from app.models.stock_ledger import StockLedger
@@ -23,6 +24,10 @@ from app.schemas.company import (
     CompanyCreate,
     CompanyResponse,
     CompanyUpdate,
+)
+
+from app.services.company_chart_of_accounts_seeding_service import (
+    seed_company_chart_of_accounts,
 )
 
 
@@ -130,12 +135,22 @@ async def create_company(
         inventory_valuation_method=(
             data.inventory_valuation_method
         ),
+        chart_of_accounts_template=(
+            data.chart_of_accounts_template
+        ),
         is_active=True,
     )
     db.add(company)
 
     # Потрібен company.id до commit
     await db.flush()
+
+    # Створюємо системний план рахунків компанії
+    # в тій самій транзакції.
+    await seed_company_chart_of_accounts(
+        session=db,
+        company_id=company.id,
+    )
 
     # Даємо користувачу доступ до компанії
     await db.execute(
@@ -267,6 +282,48 @@ async def update_company(
                         "Inventory valuation method cannot "
                         "be changed because the company "
                         "already has inventory history"
+                    ),
+                )
+
+    if "chart_of_accounts_template" in update_data:
+        new_template = update_data[
+            "chart_of_accounts_template"
+        ]
+
+        if new_template is None:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY
+                ),
+                detail=(
+                    "Chart of Accounts template "
+                    "cannot be null"
+                ),
+            )
+
+        if (
+            new_template
+            != company.chart_of_accounts_template
+        ):
+            system_account_result = await db.execute(
+                select(Account.id)
+                .where(
+                    Account.company_id == company_id,
+                    Account.is_system.is_(True),
+                )
+                .limit(1)
+            )
+
+            if (
+                system_account_result.scalar_one_or_none()
+                is not None
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Chart of Accounts template cannot "
+                        "be changed because the company "
+                        "already has system accounts"
                     ),
                 )
 

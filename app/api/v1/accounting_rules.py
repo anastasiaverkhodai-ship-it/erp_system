@@ -175,6 +175,7 @@ async def create_accounting_rule(
                 Account.id.in_(account_ids),
                 Account.company_id == company_id,
                 Account.is_active.is_(True),
+                Account.is_postable.is_(True),
             )
         )
 
@@ -191,7 +192,7 @@ async def create_accounting_rule(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
                     "Accounting rule contains invalid, "
-                    "inactive, or foreign-company accounts: "
+                    "inactive, non-postable, or foreign-company accounts: "
                     f"{sorted(invalid_account_ids)}"
                 ),
             )
@@ -380,6 +381,7 @@ async def update_accounting_rule(
                     Account.id.in_(account_ids),
                     Account.company_id == company_id,
                     Account.is_active.is_(True),
+                    Account.is_postable.is_(True),
                 )
             )
 
@@ -396,7 +398,7 @@ async def update_accounting_rule(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(
                         "Accounting rule contains invalid, "
-                        "inactive, or foreign-company accounts: "
+                        "inactive, non-postable, or foreign-company accounts: "
                         f"{sorted(invalid_account_ids)}"
                     ),
                 )

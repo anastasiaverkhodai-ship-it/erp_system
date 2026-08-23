@@ -3,6 +3,7 @@ from enum import Enum
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum as SQLEnum,
     String,
@@ -10,6 +11,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+
+from app.services.chart_of_accounts_template_types import (
+    ChartOfAccountsTemplateType,
+)
 
 class InventoryValuationMethod(str, Enum):
     FIFO = "fifo"
@@ -21,6 +26,18 @@ class InventoryValuationMethod(str, Enum):
 
 class Company(Base):
     __tablename__ = "companies"
+
+    __table_args__ = (
+        CheckConstraint(
+            (
+                "chart_of_accounts_template IN ("
+                "'general_291', "
+                "'simplified_186'"
+                ")"
+            ),
+            name="chart_of_accounts_template_enum",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         primary_key=True,
@@ -57,6 +74,28 @@ class Company(Base):
         ),
         default=InventoryValuationMethod.FIFO,
         server_default=InventoryValuationMethod.FIFO.value,
+        nullable=False,
+    )
+
+    chart_of_accounts_template: Mapped[
+        ChartOfAccountsTemplateType
+    ] = mapped_column(
+        SQLEnum(
+            ChartOfAccountsTemplateType,
+            name="chart_of_accounts_template_enum",
+            native_enum=False,
+            create_constraint=False,
+            validate_strings=True,
+            values_callable=lambda enum_class: [
+                item.value
+                for item in enum_class
+            ],
+            length=32,
+        ),
+        default=ChartOfAccountsTemplateType.GENERAL_291,
+        server_default=(
+            ChartOfAccountsTemplateType.GENERAL_291.value
+        ),
         nullable=False,
     )
 

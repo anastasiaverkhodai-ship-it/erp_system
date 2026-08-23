@@ -1,6 +1,11 @@
 from pydantic import BaseModel, Field
 from app.models.company import InventoryValuationMethod
 
+from app.services.chart_of_accounts_template_types import (
+    ChartOfAccountsTemplateType,
+)
+
+
 
 class CompanyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
@@ -16,6 +21,10 @@ class CompanyCreate(BaseModel):
     inventory_valuation_method: InventoryValuationMethod = (
         InventoryValuationMethod.FIFO
     )
+
+    chart_of_accounts_template: (
+        ChartOfAccountsTemplateType
+    ) = ChartOfAccountsTemplateType.GENERAL_291
 
 
 class CompanyUpdate(BaseModel):
@@ -38,6 +47,10 @@ class CompanyUpdate(BaseModel):
         InventoryValuationMethod | None
     ) = None
 
+    chart_of_accounts_template: (
+        ChartOfAccountsTemplateType | None
+    ) = None
+
     is_active: bool | None = None
 
 
@@ -47,6 +60,7 @@ class CompanyResponse(BaseModel):
     edrpou: str | None
     vat_number: str | None
     inventory_valuation_method: InventoryValuationMethod
+    chart_of_accounts_template: ChartOfAccountsTemplateType
     is_active: bool
 
     model_config = {

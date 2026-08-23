@@ -78,6 +78,7 @@ async def validate_journal_entry(
             Account.company_id
             == journal_entry.company_id,
             Account.is_active.is_(True),
+            Account.is_postable.is_(True),
         )
     )
 
@@ -93,7 +94,7 @@ async def validate_journal_entry(
         raise AccountingPostingError(
             (
                 "Journal entry contains invalid, inactive, "
-                "or foreign-company accounts: "
+                "non-postable, or foreign-company accounts: "
                 f"{sorted(invalid_account_ids)}"
             )
         )
