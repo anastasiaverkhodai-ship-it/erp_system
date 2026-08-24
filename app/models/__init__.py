@@ -2,6 +2,7 @@ from app.models.account import Account
 from app.models.accounting_period import AccountingPeriod
 from app.models.audit_log import AuditLog
 from app.models.company import Company
+from app.models.counterparty import Counterparty
 from app.models.document import Document, DocumentStatus, DocumentType
 from app.models.document_line import DocumentLine
 from app.models.permission import Permission

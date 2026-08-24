@@ -19,6 +19,9 @@ ROLE_PERMISSIONS = {
         "products.read",
         "products.create",
         "products.update",
+        "counterparties.read",
+        "counterparties.create",
+        "counterparties.update",
         "warehouse.read",
         "warehouse.create",
         "warehouse.update",
@@ -43,7 +46,6 @@ ROLE_PERMISSIONS = {
         "accounting_rules.read",
         "accounting_rules.create",
         "accounting_rules.update",
-
     ],
 
     "director": [
@@ -55,12 +57,15 @@ ROLE_PERMISSIONS = {
         "products.read",
         "products.create",
         "products.update",
+        "counterparties.read",
+        "counterparties.create",
+        "counterparties.update",
         "warehouse.read",
         "warehouse.create",
         "warehouse.update",
         "documents.read",
         "documents.create",
-         "documents.update",
+        "documents.update",
         "documents.delete",
         "documents.reverse",
         "documents.approve",
@@ -70,12 +75,14 @@ ROLE_PERMISSIONS = {
         "journal_entries.read",
         "journal_entries.approve",
         "journal_entries.reverse",
-         "accounting_rules.read",
-
+        "accounting_rules.read",
     ],
 
     "accountant": [
         "companies.read",
+        "counterparties.read",
+        "counterparties.create",
+        "counterparties.update",
         "documents.read",
         "documents.create",
         "documents.approve",
@@ -101,6 +108,9 @@ ROLE_PERMISSIONS = {
         "products.read",
         "products.create",
         "products.update",
+        "counterparties.read",
+        "counterparties.create",
+        "counterparties.update",
         "warehouse.read",
         "warehouse.create",
         "documents.read",
@@ -110,6 +120,8 @@ ROLE_PERMISSIONS = {
 
     "seller": [
         "products.read",
+        "counterparties.read",
+        "counterparties.create",
         "documents.read",
         "documents.create",
     ],
@@ -118,61 +130,88 @@ ROLE_PERMISSIONS = {
 
 async def seed_role_permissions():
     async with AsyncSessionLocal() as db:
-
-        for role_name, permission_names in ROLE_PERMISSIONS.items():
-
+        for (
+            role_name,
+            permission_names,
+        ) in ROLE_PERMISSIONS.items():
             role_result = await db.execute(
                 select(Role).where(
                     Role.name == role_name
                 )
             )
 
-            role = role_result.scalar_one_or_none()
+            role = (
+                role_result.scalar_one_or_none()
+            )
 
             if role is None:
-                print(f"Role not found: {role_name}")
+                print(
+                    f"Role not found: {role_name}"
+                )
                 continue
 
-            for permission_name in permission_names:
-
-                permission_result = await db.execute(
-                    select(Permission).where(
-                        Permission.name == permission_name
+            for permission_name in (
+                permission_names
+            ):
+                permission_result = (
+                    await db.execute(
+                        select(Permission).where(
+                            Permission.name
+                            == permission_name
+                        )
                     )
                 )
 
                 permission = (
-                    permission_result.scalar_one_or_none()
+                    permission_result
+                    .scalar_one_or_none()
                 )
 
                 if permission is None:
                     print(
-                        f"Permission not found: "
+                        "Permission not found: "
                         f"{permission_name}"
                     )
                     continue
 
-                existing_result = await db.execute(
-                    select(role_permissions).where(
-                        role_permissions.c.role_id == role.id,
-                        role_permissions.c.permission_id == permission.id,
+                existing_result = (
+                    await db.execute(
+                        select(
+                            role_permissions
+                        ).where(
+                            role_permissions.c.role_id
+                            == role.id,
+                            role_permissions.c.permission_id
+                            == permission.id,
+                        )
                     )
                 )
 
-                existing = existing_result.first()
+                existing = (
+                    existing_result.first()
+                )
 
                 if existing is None:
                     await db.execute(
-                        role_permissions.insert().values(
+                        role_permissions
+                        .insert()
+                        .values(
                             role_id=role.id,
-                            permission_id=permission.id,
+                            permission_id=(
+                                permission.id
+                            ),
                         )
                     )
 
         await db.commit()
 
-        print("Role permissions seeded successfully")
+        print(
+            "Role permissions seeded "
+            "successfully"
+        )
 
 
 if __name__ == "__main__":
-    asyncio.run(seed_role_permissions())
+    asyncio.run(
+        seed_role_permissions()
+    )

@@ -17,6 +17,9 @@ PERMISSIONS = [
     "products.read",
     "products.create",
     "products.update",
+    "counterparties.read",
+    "counterparties.create",
+    "counterparties.update",
     "warehouse.read",
     "warehouse.create",
     "warehouse.update",
@@ -55,7 +58,6 @@ ROLES = [
 
 async def seed_rbac():
     async with AsyncSessionLocal() as db:
-
         for permission_name in PERMISSIONS:
             result = await db.execute(
                 select(Permission).where(
@@ -90,7 +92,9 @@ async def seed_rbac():
 
         await db.commit()
 
-        print("RBAC seed completed successfully")
+        print(
+            "RBAC seed completed successfully"
+        )
 
 
 if __name__ == "__main__":
