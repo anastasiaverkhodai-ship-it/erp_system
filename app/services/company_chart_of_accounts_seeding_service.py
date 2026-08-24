@@ -6,8 +6,8 @@ from app.models.company import Company
 from app.services.account_hierarchy_service import (
     lock_account_hierarchy,
 )
-from app.services.ukrainian_system_account_catalog_builder import (
-    build_ukrainian_system_account_catalog,
+from app.services.ukrainian_working_system_account_catalog_builder import (
+    build_ukrainian_working_system_account_catalog,
 )
 
 
@@ -80,7 +80,7 @@ async def seed_company_chart_of_accounts(
             "Company not found"
         )
 
-    catalog = build_ukrainian_system_account_catalog(
+    catalog = build_ukrainian_working_system_account_catalog(
         company.chart_of_accounts_template
     )
 

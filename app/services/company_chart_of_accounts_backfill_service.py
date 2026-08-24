@@ -11,12 +11,14 @@ from app.services.account_hierarchy_service import (
 from app.services.chart_of_accounts_template_types import (
     ChartOfAccountsTemplateType,
 )
-from app.services.ukrainian_system_account_catalog_builder import (
-    build_ukrainian_system_account_catalog,
+from app.services.ukrainian_working_system_account_catalog_builder import (
+    build_ukrainian_working_system_account_catalog,
 )
 
 
-class CompanyChartOfAccountsBackfillError(Exception):
+class CompanyChartOfAccountsBackfillError(
+    Exception
+):
     pass
 
 
@@ -50,19 +52,20 @@ async def backfill_company_chart_of_accounts(
     company_id: int,
 ) -> CompanyChartOfAccountsBackfillResult:
     """
-    Backfill the selected system Chart of Accounts for
-    a legacy company.
+    Upgrade one company to its complete working
+    Ukrainian Chart of Accounts.
 
-    Compatible existing official synthetic accounts keep
-    their database IDs and are promoted to is_system=True.
+    The operation:
 
-    Missing official synthetic accounts are created.
-
-    Custom accounts are preserved unchanged.
-
-    Existing is_postable values are preserved because a
-    legacy synthetic account may already have custom
-    subaccounts and therefore correctly be non-postable.
+    - preserves IDs of compatible existing accounts;
+    - promotes compatible working accounts to system;
+    - creates missing system accounts;
+    - establishes working-account hierarchy;
+    - applies required non-postable parent state;
+    - preserves existing non-postable synthetic accounts
+      when they may already have custom children;
+    - is company-scoped and concurrency-safe;
+    - does not commit.
 
     The caller owns commit/rollback.
     """
@@ -85,7 +88,9 @@ async def backfill_company_chart_of_accounts(
         .with_for_update()
     )
 
-    company = company_result.scalar_one_or_none()
+    company = (
+        company_result.scalar_one_or_none()
+    )
 
     if company is None:
         raise (
@@ -94,8 +99,10 @@ async def backfill_company_chart_of_accounts(
             )
         )
 
-    catalog = build_ukrainian_system_account_catalog(
-        company.chart_of_accounts_template
+    catalog = (
+        build_ukrainian_working_system_account_catalog(
+            company.chart_of_accounts_template
+        )
     )
 
     definitions = catalog.seed_order()
@@ -122,8 +129,44 @@ async def backfill_company_chart_of_accounts(
         for account in existing_accounts
     }
 
+    # -----------------------------------------------------
+    # Protect against unexpected SYSTEM accounts.
+    #
+    # Non-system custom accounts are allowed.
+    # -----------------------------------------------------
+
+    unexpected_system_codes = sorted(
+        account.code
+        for account in existing_accounts
+        if (
+            account.is_system
+            and account.code
+            not in expected_by_code
+        )
+    )
+
+    if unexpected_system_codes:
+        raise (
+            CompanyChartOfAccountsBackfillConflictError(
+                "Company contains system accounts "
+                "outside its selected Chart of "
+                "Accounts template: "
+                f"{unexpected_system_codes}"
+            )
+        )
+
     promoted_count = 0
     created_count = 0
+
+    # -----------------------------------------------------
+    # First pass:
+    #
+    # - validate compatible existing accounts;
+    # - promote compatible legacy working accounts;
+    # - create missing accounts without parent_id.
+    #
+    # Parent IDs are assigned only after flush.
+    # -----------------------------------------------------
 
     for definition in definitions:
         existing = existing_by_code.get(
@@ -140,28 +183,66 @@ async def backfill_company_chart_of_accounts(
                 existing.account_type
                 != definition.account_type
             ):
-                mismatches.append("account_type")
+                mismatches.append(
+                    "account_type"
+                )
 
             if (
                 existing.normal_balance
                 != definition.normal_balance
             ):
-                mismatches.append("normal_balance")
+                mismatches.append(
+                    "normal_balance"
+                )
 
-            if existing.parent_id is not None:
-                mismatches.append("parent_id")
+            # Synthetic/root accounts must never
+            # themselves have a parent.
+            if (
+                definition.parent_code is None
+                and existing.parent_id is not None
+            ):
+                mismatches.append(
+                    "parent_id"
+                )
 
             if mismatches:
-                raise CompanyChartOfAccountsBackfillConflictError(
-                    "Existing account conflicts with "
-                    "the selected system Chart of Accounts: "
-                    f"code={definition.code}, "
-                    f"fields={mismatches}"
+                raise (
+                    CompanyChartOfAccountsBackfillConflictError(
+                        "Existing account conflicts "
+                        "with the selected working "
+                        "Chart of Accounts: "
+                        f"code={definition.code}, "
+                        f"fields={mismatches}"
+                    )
                 )
 
             if not existing.is_system:
                 existing.is_system = True
                 promoted_count += 1
+
+            # Required system parents must become
+            # non-postable.
+            #
+            # If a synthetic definition is postable,
+            # preserve an existing False value because
+            # the legacy company may already have its
+            # own custom child accounts.
+            if (
+                not definition.is_postable
+                and existing.is_postable
+            ):
+                existing.is_postable = False
+
+            # Three-digit working accounts are leaf
+            # system accounts in this architecture.
+            if (
+                len(definition.code) == 3
+                and existing.is_postable
+                != definition.is_postable
+            ):
+                existing.is_postable = (
+                    definition.is_postable
+                )
 
             continue
 
@@ -170,7 +251,9 @@ async def backfill_company_chart_of_accounts(
             code=definition.code,
             name=definition.name,
             account_type=definition.account_type,
-            normal_balance=definition.normal_balance,
+            normal_balance=(
+                definition.normal_balance
+            ),
             parent_id=None,
             is_postable=definition.is_postable,
             is_system=True,
@@ -185,7 +268,59 @@ async def backfill_company_chart_of_accounts(
 
         created_count += 1
 
+    # Allocate IDs for all newly created accounts.
     await session.flush()
+
+    # -----------------------------------------------------
+    # Second pass:
+    #
+    # Establish and validate system hierarchy.
+    # -----------------------------------------------------
+
+    hierarchy_changed = False
+
+    for definition in definitions:
+        account = existing_by_code[
+            definition.code
+        ]
+
+        if definition.parent_code is None:
+            continue
+
+        parent = existing_by_code[
+            definition.parent_code
+        ]
+
+        if account.parent_id is None:
+            account.parent_id = parent.id
+            hierarchy_changed = True
+
+        elif account.parent_id != parent.id:
+            raise (
+                CompanyChartOfAccountsBackfillConflictError(
+                    "Existing working account has "
+                    "an incorrect parent: "
+                    f"code={definition.code}, "
+                    f"expected_parent="
+                    f"{definition.parent_code}"
+                )
+            )
+
+        if parent.is_postable:
+            parent.is_postable = False
+            hierarchy_changed = True
+
+        if (
+            account.is_postable
+            != definition.is_postable
+        ):
+            account.is_postable = (
+                definition.is_postable
+            )
+            hierarchy_changed = True
+
+    if hierarchy_changed:
+        await session.flush()
 
     custom_count = sum(
         account.code not in expected_by_code
@@ -194,7 +329,9 @@ async def backfill_company_chart_of_accounts(
 
     return CompanyChartOfAccountsBackfillResult(
         company_id=company.id,
-        template_type=company.chart_of_accounts_template,
+        template_type=(
+            company.chart_of_accounts_template
+        ),
         promoted_count=promoted_count,
         created_count=created_count,
         custom_count=custom_count,
