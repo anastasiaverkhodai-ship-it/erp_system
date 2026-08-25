@@ -8,6 +8,7 @@ from app.api.v1.counterparties import router as counterparties_router
 from app.api.v1.contracts import router as contracts_router
 from app.api.v1.company_users import router as company_users_router
 from app.api.v1.documents import router as documents_router
+from app.api.v1.trade_documents import router as trade_documents_router
 from app.api.v1.products import router as products_router
 from app.api.v1.warehouses import router as warehouses_router
 from app.api.v1.journal_entries import router as journal_entries_router
@@ -62,6 +63,11 @@ app.include_router(
 
 app.include_router(
     contracts_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    trade_documents_router,
     prefix="/api/v1",
 )
 app.include_router(

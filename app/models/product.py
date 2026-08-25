@@ -1,4 +1,9 @@
-from sqlalchemy import Boolean, ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -12,6 +17,11 @@ class Product(Base):
             "company_id",
             "sku",
             name="uq_product_company_sku",
+        ),
+        UniqueConstraint(
+            "company_id",
+            "id",
+            name="uq_products_company_id_id",
         ),
     )
 

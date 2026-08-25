@@ -29,6 +29,12 @@ class Contract(Base):
     __table_args__ = (
         UniqueConstraint(
             "company_id",
+            "counterparty_id",
+            "id",
+            name="uq_contracts_company_counterparty_id",
+        ),
+        UniqueConstraint(
+            "company_id",
             "id",
             name="uq_contracts_company_id_id",
         ),
