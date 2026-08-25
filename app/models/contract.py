@@ -1,12 +1,13 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
-    Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Enum as SQLEnum,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     Numeric,
     String,
@@ -16,62 +17,86 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from app.services.counterparty_types import (
-    CounterpartyType,
-    CounterpartyVatStatus,
+from app.services.contract_types import (
+    ContractStatus,
+    ContractType,
 )
 
 
-class Counterparty(Base):
-    __tablename__ = "counterparties"
+class Contract(Base):
+    __tablename__ = "contracts"
 
     __table_args__ = (
         UniqueConstraint(
             "company_id",
             "id",
-            name="uq_counterparties_company_id_id",
+            name="uq_contracts_company_id_id",
         ),
         UniqueConstraint(
             "company_id",
-            "edrpou",
-            name="uq_counterparty_company_edrpou",
+            "counterparty_id",
+            "number",
+            name=(
+                "uq_contract_company_"
+                "counterparty_number"
+            ),
         ),
-        UniqueConstraint(
-            "company_id",
-            "tax_number",
-            name="uq_counterparty_company_tax_number",
-        ),
-        UniqueConstraint(
-            "company_id",
-            "vat_number",
-            name="uq_counterparty_company_vat_number",
+        ForeignKeyConstraint(
+            [
+                "company_id",
+                "counterparty_id",
+            ],
+            [
+                "counterparties.company_id",
+                "counterparties.id",
+            ],
+            name=(
+                "fk_contracts_company_"
+                "counterparty"
+            ),
+            ondelete="RESTRICT",
         ),
         CheckConstraint(
             (
-                "counterparty_type IN "
-                "('customer', 'supplier', 'both')"
+                "contract_type IN "
+                "('sales', 'purchase', 'mixed')"
             ),
-            name="counterparty_type_enum",
+            name="contract_type_enum",
         ),
         CheckConstraint(
             (
-                "vat_status IN "
-                "('unknown', 'non_vat_payer', "
-                "'vat_payer')"
+                "status IN "
+                "('draft', 'active', 'closed')"
             ),
-            name="counterparty_vat_status_enum",
+            name="contract_status_enum",
+        ),
+        CheckConstraint(
+            (
+                "end_date IS NULL "
+                "OR end_date >= start_date"
+            ),
+            name="ck_contract_date_range",
         ),
         CheckConstraint(
             "payment_term_days >= 0",
-            name="ck_counterparty_payment_term_days_nonnegative",
+            name=(
+                "ck_contract_payment_term_"
+                "days_nonnegative"
+            ),
         ),
         CheckConstraint(
             "credit_limit >= 0",
-            name="ck_counterparty_credit_limit_nonnegative",
+            name=(
+                "ck_contract_credit_limit_"
+                "nonnegative"
+            ),
         ),
         CheckConstraint(
-            "char_length(default_currency_code) = 3",
-            name="ck_counterparty_currency_code_length",
+            "char_length(currency_code) = 3",
+            name=(
+                "ck_contract_currency_code_"
+                "length"
+            ),
         ),
     )
 
@@ -88,22 +113,28 @@ class Counterparty(Base):
         index=True,
     )
 
-    name: Mapped[str] = mapped_column(
-        String(255),
+    counterparty_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        index=True,
+    )
+
+    number: Mapped[str] = mapped_column(
+        String(100),
         nullable=False,
     )
 
-    short_name: Mapped[str | None] = mapped_column(
+    name: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
     )
 
-    counterparty_type: Mapped[
-        CounterpartyType
+    contract_type: Mapped[
+        ContractType
     ] = mapped_column(
         SQLEnum(
-            CounterpartyType,
-            name="counterparty_type_enum",
+            ContractType,
+            name="contract_type_enum",
             native_enum=False,
             create_constraint=False,
             values_callable=lambda enum: [
@@ -112,26 +143,14 @@ class Counterparty(Base):
             ],
         ),
         nullable=False,
-        default=CounterpartyType.BOTH,
-        server_default=CounterpartyType.BOTH.value,
     )
 
-    edrpou: Mapped[str | None] = mapped_column(
-        String(8),
-        nullable=True,
-    )
-
-    tax_number: Mapped[str | None] = mapped_column(
-        String(20),
-        nullable=True,
-    )
-
-    vat_status: Mapped[
-        CounterpartyVatStatus
+    status: Mapped[
+        ContractStatus
     ] = mapped_column(
         SQLEnum(
-            CounterpartyVatStatus,
-            name="counterparty_vat_status_enum",
+            ContractStatus,
+            name="contract_status_enum",
             native_enum=False,
             create_constraint=False,
             values_callable=lambda enum: [
@@ -140,18 +159,23 @@ class Counterparty(Base):
             ],
         ),
         nullable=False,
-        default=CounterpartyVatStatus.UNKNOWN,
+        default=ContractStatus.DRAFT,
         server_default=(
-            CounterpartyVatStatus.UNKNOWN.value
+            ContractStatus.DRAFT.value
         ),
     )
 
-    vat_number: Mapped[str | None] = mapped_column(
-        String(20),
+    start_date: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+
+    end_date: Mapped[date | None] = mapped_column(
+        Date,
         nullable=True,
     )
 
-    default_currency_code: Mapped[str] = mapped_column(
+    currency_code: Mapped[str] = mapped_column(
         String(3),
         nullable=False,
         default="UAH",
@@ -173,13 +197,6 @@ class Counterparty(Base):
         nullable=False,
         default=Decimal("0.00"),
         server_default="0.00",
-    )
-
-    is_active: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        default=True,
-        server_default="true",
     )
 
     created_at: Mapped[datetime] = mapped_column(
