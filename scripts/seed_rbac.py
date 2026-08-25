@@ -26,6 +26,7 @@ PERMISSIONS = [
     "trade_documents.read",
     "trade_documents.create",
     "trade_documents.update",
+    "trade_documents.confirm",
     "warehouse.read",
     "warehouse.create",
     "warehouse.update",

@@ -8,6 +8,7 @@ TRADE_PERMISSIONS = {
     "trade_documents.read",
     "trade_documents.create",
     "trade_documents.update",
+    "trade_documents.confirm",
 }
 
 
@@ -59,5 +60,10 @@ def test_seller_trade_document_permissions() -> None:
 
     assert (
         "trade_documents.update"
+        not in permissions
+    )
+
+    assert (
+        "trade_documents.confirm"
         not in permissions
     )
