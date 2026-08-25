@@ -33,6 +33,17 @@ class TradeDocumentLine(Base):
                 "document_line_number"
             ),
         ),
+        UniqueConstraint(
+            "company_id",
+            "trade_document_id",
+            "id",
+            "product_id",
+            "warehouse_id",
+            name=(
+                "uq_trade_document_lines_"
+                "reservation_source"
+            ),
+        ),
         ForeignKeyConstraint(
             [
                 "company_id",

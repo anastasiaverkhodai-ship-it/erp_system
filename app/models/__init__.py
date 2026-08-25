@@ -37,5 +37,6 @@ from app.models.rbac import (
     user_roles,
 )
 from app.models.recalculation_request import RecalculationRequest
+from app.models.reservation_movement import ReservationMovement
 from app.models.trade_document import TradeDocument
 from app.models.trade_document_line import TradeDocumentLine
