@@ -8,6 +8,9 @@ from app.models.document import (
     DocumentStatus,
 )
 from app.models.journal_entry import JournalEntry
+from app.models.trade_fulfillment import (
+    TradeFulfillment,
+)
 from app.models.stock_ledger import (
     StockLedger,
     StockMovementType,
@@ -34,6 +37,12 @@ class DocumentReversalNotFoundError(
     DocumentReversalError
 ):
     """Raised when the requested document does not exist."""
+
+
+class DocumentReversalFulfillmentLinkedError(
+    DocumentReversalError
+):
+    """Raised for warehouse documents linked to fulfillment."""
 
 
 async def reverse_document(
@@ -66,6 +75,48 @@ async def reverse_document(
     if document.status != DocumentStatus.POSTED:
         raise DocumentReversalError(
             "Only posted documents can be reversed"
+        )
+
+    # ---------------------------------------------------------
+    # PROTECT TRADE FULFILLMENT TARGETS
+    # ---------------------------------------------------------
+    #
+    # A warehouse ISSUE created by Sales Order fulfillment
+    # cannot be reversed independently through the generic
+    # warehouse-document reversal flow.
+    #
+    # Generic reversal would restore stock / FIFO / accounting
+    # while leaving:
+    #
+    #   TradeFulfillment
+    #   TradeFulfillmentLine
+    #   reservation CONSUME
+    #   Sales Order fulfillment status
+    #
+    # unchanged and therefore inconsistent.
+    #
+    # A future dedicated fulfillment reversal / return flow
+    # must coordinate all of those states atomically.
+
+    fulfillment_result = await db.execute(
+        select(
+            TradeFulfillment.id
+        ).where(
+            TradeFulfillment.company_id
+            == company_id,
+            TradeFulfillment.warehouse_document_id
+            == document.id,
+        )
+    )
+
+    if (
+        fulfillment_result.scalar_one_or_none()
+        is not None
+    ):
+        raise DocumentReversalFulfillmentLinkedError(
+            "Warehouse document is linked to a trade "
+            "fulfillment and cannot be reversed through "
+            "the generic document reversal flow"
         )
 
     # ---------------------------------------------------------

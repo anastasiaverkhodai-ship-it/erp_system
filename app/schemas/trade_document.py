@@ -268,3 +268,91 @@ class TradeDocumentResponse(BaseModel):
     lines: list[
         TradeDocumentLineResponse
     ]
+
+
+class SalesOrderFulfillmentLineRequest(BaseModel):
+    """
+    One requested Sales Order fulfillment line.
+
+    Product and warehouse are deliberately not accepted here.
+    They are derived from the persistent TradeDocumentLine.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    trade_document_line_id: int = Field(
+        gt=0,
+    )
+
+    quantity: Decimal = Field(
+        gt=0,
+        max_digits=18,
+        decimal_places=4,
+    )
+
+
+class SalesOrderFulfillmentRequest(BaseModel):
+    """
+    Create and post one warehouse ISSUE for part or all
+    of a confirmed Sales Order.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    warehouse_document_number: str = Field(
+        min_length=1,
+        max_length=50,
+    )
+
+    document_date: date
+
+    accounting_rule_id: int = Field(
+        gt=0,
+    )
+
+    lines: list[
+        SalesOrderFulfillmentLineRequest
+    ] = Field(
+        min_length=1,
+    )
+
+    @field_validator(
+        "warehouse_document_number",
+        mode="before",
+    )
+    @classmethod
+    def normalize_warehouse_document_number(
+        cls,
+        value: Any,
+    ) -> Any:
+        if not isinstance(
+            value,
+            str,
+        ):
+            return value
+
+        value = value.strip()
+
+        if not value:
+            raise ValueError(
+                "Warehouse document number "
+                "cannot be blank"
+            )
+
+        return value
+
+
+class SalesOrderFulfillmentResponse(BaseModel):
+    """
+    Persistent results created by one atomic fulfillment.
+    """
+
+    trade_document: TradeDocumentResponse
+
+    warehouse_document_id: int
+    fulfillment_id: int
+    journal_entry_id: int

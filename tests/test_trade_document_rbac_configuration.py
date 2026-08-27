@@ -10,6 +10,7 @@ TRADE_PERMISSIONS = {
     "trade_documents.update",
     "trade_documents.confirm",
     "trade_documents.cancel",
+    "trade_documents.fulfill",
 }
 
 

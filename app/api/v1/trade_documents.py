@@ -21,6 +21,8 @@ from app.models.trade_document_line import TradeDocumentLine
 from app.models.user import User
 from app.models.warehouse import Warehouse
 from app.schemas.trade_document import (
+    SalesOrderFulfillmentRequest,
+    SalesOrderFulfillmentResponse,
     TradeDocumentCreate,
     TradeDocumentResponse,
     TradeDocumentUpdate,
@@ -34,8 +36,16 @@ from app.services.trade_document_validation import (
 )
 
 
+from app.services.document_posting import (
+    DocumentPostingError,
+)
 from app.services.reservation_persistence_service import (
     ReservationPersistenceError,
+)
+from app.services.trade_fulfillment_service import (
+    SalesOrderFulfillmentError,
+    SalesOrderFulfillmentRequestLine,
+    execute_sales_order_fulfillment,
 )
 from app.services.trade_document_lifecycle_service import (
     SalesOrderLinesRequiredError,
@@ -930,4 +940,137 @@ async def cancel_trade_document_sales_order(
         db,
         company_id=company_id,
         document_id=document_id_value,
+    )
+
+
+
+@router.post(
+    "/{document_id}/fulfill",
+    response_model=SalesOrderFulfillmentResponse,
+)
+async def fulfill_trade_document_sales_order(
+    company_id: int,
+    document_id: int,
+    data: SalesOrderFulfillmentRequest,
+    current_user: User = Depends(
+        get_current_user
+    ),
+    db: AsyncSession = Depends(get_db),
+    _permission=Depends(
+        require_company_permission(
+            "trade_documents.fulfill"
+        )
+    ),
+):
+    """
+    Fulfill part or all of a confirmed Sales Order.
+
+    One atomic database transaction coordinates:
+
+        TradeFulfillment
+        warehouse ISSUE
+        reservation CONSUME
+        stock posting
+        inventory costing
+        accounting posting
+        Sales Order status
+
+    Product and warehouse are always derived from
+    the persistent source TradeDocumentLine.
+    """
+
+    try:
+        execution_result = (
+            await execute_sales_order_fulfillment(
+                db,
+                company_id=company_id,
+                trade_document_id=document_id,
+                warehouse_document_number=(
+                    data.warehouse_document_number
+                ),
+                document_date=data.document_date,
+                accounting_rule_id=(
+                    data.accounting_rule_id
+                ),
+                created_by=current_user.id,
+                request_lines=[
+                    SalesOrderFulfillmentRequestLine(
+                        trade_document_line_id=(
+                            line.trade_document_line_id
+                        ),
+                        quantity=line.quantity,
+                    )
+                    for line in data.lines
+                ],
+            )
+        )
+
+        trade_document_id_value = (
+            execution_result.sales_order.id
+        )
+
+        warehouse_document_id = (
+            execution_result
+            .warehouse_document
+            .id
+        )
+
+        fulfillment_id = (
+            execution_result.fulfillment.id
+        )
+
+        journal_entry_id = (
+            execution_result.journal_entry.id
+        )
+
+        await db.commit()
+
+    except SalesOrderNotFoundError as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except (
+        SalesOrderFulfillmentError,
+        ReservationPersistenceError,
+        DocumentPostingError,
+    ) as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except IntegrityError as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Sales order fulfillment could not "
+                "be completed because of a data conflict"
+            ),
+        ) from exc
+
+    except Exception:
+        await db.rollback()
+        raise
+
+    trade_document = await _load_trade_document(
+        db,
+        company_id=company_id,
+        document_id=trade_document_id_value,
+    )
+
+    return SalesOrderFulfillmentResponse(
+        trade_document=trade_document,
+        warehouse_document_id=(
+            warehouse_document_id
+        ),
+        fulfillment_id=fulfillment_id,
+        journal_entry_id=journal_entry_id,
     )

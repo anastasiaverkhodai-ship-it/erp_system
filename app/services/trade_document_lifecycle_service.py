@@ -325,8 +325,8 @@ def reservation_lock_order(
     Return lines in deterministic stock-lock order.
 
     Multiple sales orders may reserve overlapping stock keys.
-    Sorting by warehouse/product before acquiring StockBalance
-    locks reduces deadlock risk between concurrent confirmations.
+    Sorting by product/warehouse before acquiring StockBalance
+    locks matches warehouse posting and reduces deadlock risk.
     """
 
     validate_sales_order_confirmation(
@@ -337,8 +337,8 @@ def reservation_lock_order(
         sorted(
             document.lines,
             key=lambda line: (
-                line.warehouse_id,
                 line.product_id,
+                line.warehouse_id,
                 line.id or 0,
             ),
         )
@@ -545,8 +545,8 @@ def cancellation_release_order(
         sorted(
             document.lines,
             key=lambda line: (
-                line.warehouse_id,
                 line.product_id,
+                line.warehouse_id,
                 line.id or 0,
             ),
         )

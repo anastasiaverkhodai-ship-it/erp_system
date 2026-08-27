@@ -259,6 +259,6 @@ def test_reservation_lock_order_is_deterministic() -> None:
     ] == [
         5,
         10,
-        20,
         30,
+        20,
     ]

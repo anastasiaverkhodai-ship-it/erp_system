@@ -21,6 +21,10 @@ CANCEL_PATH = (
     + "/cancel"
 )
 
+FULFILL_PATH = (
+    f"{DETAIL_PATH}/fulfill"
+)
+
 
 def _paths():
     return app.openapi()["paths"]
@@ -99,6 +103,7 @@ def test_only_expected_trade_document_paths() -> None:
         DETAIL_PATH,
         CONFIRM_PATH,
         CANCEL_PATH,
+        FULFILL_PATH,
     }
 
 

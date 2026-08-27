@@ -215,8 +215,8 @@ def test_confirmed_release_order_is_deterministic() -> None:
     ] == [
         5,
         10,
-        20,
         30,
+        20,
     ]
 
 
