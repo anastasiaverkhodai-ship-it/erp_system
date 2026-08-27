@@ -1,7 +1,11 @@
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Numeric
+from sqlalchemy import (
+    ForeignKey,
+    Numeric,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -12,6 +16,19 @@ if TYPE_CHECKING:
 
 class DocumentLine(Base):
     __tablename__ = "document_lines"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id",
+            "id",
+            "product_id",
+            "warehouse_id",
+            name=(
+                "uq_document_lines_"
+                "fulfillment_target"
+            ),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         primary_key=True,

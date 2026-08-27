@@ -40,6 +40,15 @@ class Document(Base):
             "number",
             name="uq_document_company_number",
         ),
+        UniqueConstraint(
+            "company_id",
+            "id",
+            "document_type",
+            name=(
+                "uq_documents_company_id_"
+                "id_document_type"
+            ),
+        ),
     )
 
     id: Mapped[int] = mapped_column(

@@ -40,3 +40,5 @@ from app.models.recalculation_request import RecalculationRequest
 from app.models.reservation_movement import ReservationMovement
 from app.models.trade_document import TradeDocument
 from app.models.trade_document_line import TradeDocumentLine
+from app.models.trade_fulfillment import TradeFulfillment
+from app.models.trade_fulfillment_line import TradeFulfillmentLine
