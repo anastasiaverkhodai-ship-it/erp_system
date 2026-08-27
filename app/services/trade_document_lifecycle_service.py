@@ -12,6 +12,8 @@ from app.models.trade_document import TradeDocument
 from app.models.trade_document_line import TradeDocumentLine
 from app.models.warehouse import Warehouse
 from app.services.reservation_persistence_service import (
+    get_reserved_quantity_for_source_line,
+    release_source_line,
     reserve_source_line,
 )
 from app.services.trade_document_types import (
@@ -441,6 +443,185 @@ async def confirm_sales_order(
     )
 
     document.confirmed_at = datetime.now(
+        timezone.utc
+    )
+
+    await db.flush()
+
+    return document
+
+
+class SalesOrderReservationStateError(
+    TradeDocumentLifecycleError
+):
+    """Sales-order reservation state is internally invalid."""
+
+
+def validate_sales_order_cancellation(
+    document: TradeDocument,
+) -> None:
+    """
+    Validate whether a Sales Order may be cancelled.
+
+    Allowed:
+        DRAFT
+        CONFIRMED
+
+    Not allowed:
+        PARTIALLY_FULFILLED
+        FULFILLED
+        CANCELLED
+    """
+
+    if document.direction != TradeDirection.SALE:
+        raise SalesOrderTypeError(
+            "Only sale trade documents can be "
+            "cancelled as sales orders"
+        )
+
+    if document.kind != TradeDocumentKind.ORDER:
+        raise SalesOrderTypeError(
+            "Only trade document kind 'order' can be "
+            "cancelled as a sales order"
+        )
+
+    if document.status not in (
+        TradeDocumentStatus.DRAFT,
+        TradeDocumentStatus.CONFIRMED,
+    ):
+        raise SalesOrderStatusError(
+            "Only draft or confirmed sales orders "
+            "can be cancelled"
+        )
+
+    # A draft can be cancelled even if its structure became
+    # incomplete. No reservation needs to be released.
+    if document.status == TradeDocumentStatus.DRAFT:
+        return
+
+    if not document.lines:
+        raise SalesOrderLinesRequiredError(
+            "Confirmed sales order must contain "
+            "at least one line"
+        )
+
+    missing_warehouse_lines = [
+        line.line_number
+        for line in document.lines
+        if line.warehouse_id is None
+    ]
+
+    if missing_warehouse_lines:
+        raise SalesOrderWarehouseRequiredError(
+            "Confirmed sales order has lines without "
+            "a reservation warehouse: "
+            + ", ".join(
+                str(line_number)
+                for line_number
+                in sorted(
+                    missing_warehouse_lines
+                )
+            )
+        )
+
+
+def cancellation_release_order(
+    document: TradeDocument,
+) -> tuple[TradeDocumentLine, ...]:
+    """
+    Return confirmed-order lines in deterministic stock-lock order.
+
+    Draft cancellation requires no reservation releases.
+    """
+
+    validate_sales_order_cancellation(
+        document
+    )
+
+    if document.status == TradeDocumentStatus.DRAFT:
+        return ()
+
+    return tuple(
+        sorted(
+            document.lines,
+            key=lambda line: (
+                line.warehouse_id,
+                line.product_id,
+                line.id or 0,
+            ),
+        )
+    )
+
+
+async def cancel_sales_order(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    document_id: int,
+) -> TradeDocument:
+    """
+    Cancel one Sales Order atomically.
+
+    Caller owns COMMIT / ROLLBACK.
+
+    DRAFT:
+        set CANCELLED
+        no reservation movement
+
+    CONFIRMED:
+        calculate outstanding reservation per source line
+        append RELEASE for every positive outstanding balance
+        set CANCELLED
+
+    PARTIALLY_FULFILLED and FULFILLED are intentionally rejected.
+    They require fulfillment reversal / return semantics rather
+    than a simple cancellation.
+    """
+
+    document = await get_locked_trade_document(
+        db,
+        company_id=company_id,
+        document_id=document_id,
+    )
+
+    lines = cancellation_release_order(
+        document
+    )
+
+    for line in lines:
+        reserved_quantity = (
+            await get_reserved_quantity_for_source_line(
+                db,
+                company_id=company_id,
+                source_document_id=document.id,
+                source_document_line_id=line.id,
+            )
+        )
+
+        if reserved_quantity < 0:
+            raise SalesOrderReservationStateError(
+                "Sales order line has a negative "
+                "reservation balance: "
+                f"line_id={line.id}, "
+                f"reserved_quantity={reserved_quantity}"
+            )
+
+        if reserved_quantity == 0:
+            continue
+
+        await release_source_line(
+            db,
+            company_id=company_id,
+            source_document_id=document.id,
+            source_document_line_id=line.id,
+            quantity=reserved_quantity,
+        )
+
+    document.status = (
+        TradeDocumentStatus.CANCELLED
+    )
+
+    document.cancelled_at = datetime.now(
         timezone.utc
     )
 

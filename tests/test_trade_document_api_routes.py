@@ -16,6 +16,11 @@ CONFIRM_PATH = (
     + "/confirm"
 )
 
+CANCEL_PATH = (
+    DETAIL_PATH
+    + "/cancel"
+)
+
 
 def _paths():
     return app.openapi()["paths"]
@@ -67,6 +72,17 @@ def test_sales_order_confirm_route() -> None:
     )
 
 
+def test_sales_order_cancel_route() -> None:
+    paths = _paths()
+
+    assert CANCEL_PATH in paths
+
+    assert (
+        "post"
+        in paths[CANCEL_PATH]
+    )
+
+
 def test_only_expected_trade_document_paths() -> None:
     trade_paths = {
         path
@@ -82,6 +98,7 @@ def test_only_expected_trade_document_paths() -> None:
         BASE_PATH,
         DETAIL_PATH,
         CONFIRM_PATH,
+        CANCEL_PATH,
     }
 
 

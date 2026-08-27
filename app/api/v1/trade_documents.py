@@ -41,9 +41,11 @@ from app.services.trade_document_lifecycle_service import (
     SalesOrderLinesRequiredError,
     SalesOrderNotFoundError,
     SalesOrderReferenceError,
+    SalesOrderReservationStateError,
     SalesOrderStatusError,
     SalesOrderTypeError,
     SalesOrderWarehouseRequiredError,
+    cancel_sales_order,
     confirm_sales_order,
 )
 
@@ -822,6 +824,100 @@ async def confirm_trade_document_sales_order(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 "Sales order could not be confirmed "
+                "because of a data conflict"
+            ),
+        ) from exc
+
+    except Exception:
+        await db.rollback()
+        raise
+
+    return await _load_trade_document(
+        db,
+        company_id=company_id,
+        document_id=document_id_value,
+    )
+
+
+@router.post(
+    "/{document_id}/cancel",
+    response_model=TradeDocumentResponse,
+)
+async def cancel_trade_document_sales_order(
+    company_id: int,
+    document_id: int,
+    db: AsyncSession = Depends(get_db),
+    _permission=Depends(
+        require_company_permission(
+            "trade_documents.cancel"
+        )
+    ),
+):
+    """
+    Cancel a Sales Order atomically.
+
+    DRAFT:
+        CANCELLED without reservation movements.
+
+    CONFIRMED:
+        RELEASE all outstanding reservations,
+        then CANCELLED.
+
+    Partially fulfilled / fulfilled orders are rejected.
+    """
+
+    try:
+        document = await cancel_sales_order(
+            db,
+            company_id=company_id,
+            document_id=document_id,
+        )
+
+        document_id_value = document.id
+
+        await db.commit()
+
+    except SalesOrderNotFoundError as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except (
+        SalesOrderStatusError,
+        SalesOrderReservationStateError,
+        ReservationPersistenceError,
+    ) as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except (
+        SalesOrderTypeError,
+        SalesOrderLinesRequiredError,
+        SalesOrderWarehouseRequiredError,
+    ) as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_422_UNPROCESSABLE_ENTITY
+            ),
+            detail=str(exc),
+        ) from exc
+
+    except IntegrityError as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Sales order could not be cancelled "
                 "because of a data conflict"
             ),
         ) from exc
