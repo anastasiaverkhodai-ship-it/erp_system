@@ -35,7 +35,7 @@ class TradeFulfillmentLine(Base):
     Both sides must describe the same product and warehouse.
 
     quantity is the fulfilled quantity represented by the
-    target warehouse ISSUE line.
+    target warehouse document line.
     """
 
     __tablename__ = "trade_fulfillment_lines"

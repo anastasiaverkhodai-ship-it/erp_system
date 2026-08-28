@@ -29,14 +29,20 @@ if TYPE_CHECKING:
 
 class TradeFulfillment(Base):
     """
-    Persistent link between a TradeDocument Sales Order
-    and one warehouse ISSUE document.
+    Persistent link between one TradeDocument and one
+    warehouse fulfillment document.
 
-    One Sales Order may have many fulfillment records because
-    it may be shipped partially through multiple ISSUE documents.
+    Supported fulfillment targets:
 
-    One warehouse ISSUE document may belong to only one
-    trade fulfillment.
+        SALE ORDER     -> ISSUE
+        PURCHASE ORDER -> RECEIPT
+
+    One TradeDocument may have many fulfillment records
+    because it may be fulfilled partially through multiple
+    warehouse documents.
+
+    One warehouse fulfillment document may belong to only
+    one TradeFulfillment.
     """
 
     __tablename__ = "trade_fulfillments"
@@ -93,10 +99,13 @@ class TradeFulfillment(Base):
             ondelete="RESTRICT",
         ),
         CheckConstraint(
-            "warehouse_document_type = 'issue'",
+            (
+                "warehouse_document_type "
+                "IN ('issue', 'receipt')"
+            ),
             name=(
                 "ck_trade_fulfillment_"
-                "warehouse_document_issue"
+                "warehouse_document_type"
             ),
         ),
         Index(
@@ -135,8 +144,6 @@ class TradeFulfillment(Base):
     warehouse_document_type: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
-        default="issue",
-        server_default="issue",
     )
 
     created_by: Mapped[int] = mapped_column(

@@ -272,10 +272,12 @@ class TradeDocumentResponse(BaseModel):
 
 class SalesOrderFulfillmentLineRequest(BaseModel):
     """
-    One requested Sales Order fulfillment line.
+    One requested Trade Order fulfillment line.
 
     Product and warehouse are deliberately not accepted here.
     They are derived from the persistent TradeDocumentLine.
+
+    Compatibility class name is retained for existing API clients.
     """
 
     model_config = ConfigDict(
@@ -295,8 +297,12 @@ class SalesOrderFulfillmentLineRequest(BaseModel):
 
 class SalesOrderFulfillmentRequest(BaseModel):
     """
-    Create and post one warehouse ISSUE for part or all
-    of a confirmed Sales Order.
+    Fulfill part or all of a confirmed Trade Order.
+
+    SALE creates a warehouse ISSUE.
+    PURCHASE creates a warehouse RECEIPT.
+
+    Compatibility class name is retained for existing API clients.
     """
 
     model_config = ConfigDict(
@@ -348,7 +354,8 @@ class SalesOrderFulfillmentRequest(BaseModel):
 
 class SalesOrderFulfillmentResponse(BaseModel):
     """
-    Persistent results created by one atomic fulfillment.
+    Persistent results created by one atomic SALE or PURCHASE
+    order fulfillment.
     """
 
     trade_document: TradeDocumentResponse

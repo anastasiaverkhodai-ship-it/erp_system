@@ -35,6 +35,7 @@ from app.services.document_reversal import (
     reverse_document_for_trade_fulfillment,
 )
 from app.services.trade_document_lifecycle_service import (
+    get_locked_purchase_order,
     get_locked_trade_document,
 )
 from app.services.trade_document_types import (
@@ -593,11 +594,13 @@ async def get_persisted_fulfilled_quantities(
     company_id: int,
     trade_document_id: int,
     source_line_ids: Sequence[int],
+    warehouse_document_type: DocumentType,
 ) -> dict[int, Decimal]:
     """
-    Return posted fulfillment quantity by Sales Order line.
+    Return posted fulfillment quantity by TradeDocument line.
 
-    Only POSTED warehouse documents count as fulfilled.
+    Only POSTED warehouse documents of the explicitly requested
+    fulfillment target type count as fulfilled.
     """
 
     line_ids = tuple(
@@ -639,6 +642,8 @@ async def get_persisted_fulfilled_quantities(
             .in_(line_ids),
             Document.status
             == DocumentStatus.POSTED,
+            Document.document_type
+            == warehouse_document_type,
         )
         .group_by(
             TradeFulfillmentLine
@@ -732,6 +737,9 @@ async def build_sales_order_fulfillment_plan(
             company_id=document.company_id,
             trade_document_id=document.id,
             source_line_ids=source_line_ids,
+            warehouse_document_type=(
+                DocumentType.ISSUE
+            ),
         )
     )
 
@@ -755,6 +763,779 @@ async def build_sales_order_fulfillment_plan(
         ),
     )
 
+
+
+
+# =============================================================
+# PURCHASE ORDER FULFILLMENT
+# =============================================================
+
+
+class PurchaseOrderFulfillmentError(Exception):
+    """Base error for Purchase Order fulfillment."""
+
+
+class PurchaseOrderFulfillmentTypeError(
+    PurchaseOrderFulfillmentError
+):
+    """Trade document is not a Purchase Order."""
+
+
+class PurchaseOrderFulfillmentStatusError(
+    PurchaseOrderFulfillmentError
+):
+    """Purchase Order cannot be fulfilled in current state."""
+
+
+class PurchaseOrderFulfillmentLinesRequiredError(
+    PurchaseOrderFulfillmentError
+):
+    """Purchase Order has no source lines."""
+
+
+class PurchaseOrderFulfillmentRequestRequiredError(
+    PurchaseOrderFulfillmentError
+):
+    """Receipt fulfillment request has no lines."""
+
+
+class PurchaseOrderFulfillmentDuplicateLineError(
+    PurchaseOrderFulfillmentError
+):
+    """The same source line appears more than once."""
+
+
+class PurchaseOrderFulfillmentSourceLineNotFoundError(
+    PurchaseOrderFulfillmentError
+):
+    """Requested line does not belong to Purchase Order."""
+
+
+class PurchaseOrderFulfillmentWarehouseRequiredError(
+    PurchaseOrderFulfillmentError
+):
+    """Purchase Order line has no receipt warehouse."""
+
+
+class PurchaseOrderFulfillmentStateError(
+    PurchaseOrderFulfillmentError
+):
+    """Stored Purchase Order fulfillment state is invalid."""
+
+
+class PurchaseOrderOverFulfillmentError(
+    PurchaseOrderFulfillmentError
+):
+    """Requested receipt exceeds remaining order quantity."""
+
+
+@dataclass(
+    frozen=True,
+    slots=True,
+)
+class PurchaseOrderFulfillmentRequestLine:
+    trade_document_line_id: int
+    quantity: Decimal
+
+    def __post_init__(self) -> None:
+        if self.trade_document_line_id <= 0:
+            raise ValueError(
+                "Trade document line ID must be "
+                "greater than zero"
+            )
+
+        quantity = Decimal(
+            self.quantity
+        )
+
+        if quantity <= ZERO:
+            raise ValueError(
+                "Fulfillment quantity must be "
+                "greater than zero"
+            )
+
+        object.__setattr__(
+            self,
+            "quantity",
+            quantity,
+        )
+
+
+@dataclass(
+    frozen=True,
+    slots=True,
+)
+class PurchaseOrderFulfillmentPlanLine:
+    source_line: TradeDocumentLine
+    quantity: Decimal
+    fulfilled_before: Decimal
+    fulfilled_after: Decimal
+
+
+@dataclass(
+    frozen=True,
+    slots=True,
+)
+class PurchaseOrderFulfillmentPlan:
+    lines: tuple[
+        PurchaseOrderFulfillmentPlanLine,
+        ...,
+    ]
+
+    resulting_status: TradeDocumentStatus
+
+
+def validate_purchase_order_fulfillment_state(
+    document: TradeDocument,
+) -> None:
+    """
+    Purchase receipt fulfillment is allowed only for an
+    already confirmed Purchase Order.
+
+    PARTIALLY_FULFILLED may be fulfilled again.
+
+    DRAFT, FULFILLED and CANCELLED are rejected.
+    """
+    if (
+        document.direction
+        != TradeDirection.PURCHASE
+    ):
+        raise PurchaseOrderFulfillmentTypeError(
+            "Only purchase trade documents can be "
+            "fulfilled as purchase orders"
+        )
+
+    if (
+        document.kind
+        != TradeDocumentKind.ORDER
+    ):
+        raise PurchaseOrderFulfillmentTypeError(
+            "Only trade document kind 'order' can be "
+            "fulfilled as a purchase order"
+        )
+
+    if document.status not in (
+        TradeDocumentStatus.CONFIRMED,
+        TradeDocumentStatus.PARTIALLY_FULFILLED,
+    ):
+        raise PurchaseOrderFulfillmentStatusError(
+            "Only confirmed or partially fulfilled "
+            "purchase orders can be fulfilled"
+        )
+
+    if not document.lines:
+        raise PurchaseOrderFulfillmentLinesRequiredError(
+            "Purchase order must contain at least one line"
+        )
+
+    missing_warehouse_lines = [
+        line.line_number
+        for line in document.lines
+        if line.warehouse_id is None
+    ]
+
+    if missing_warehouse_lines:
+        raise PurchaseOrderFulfillmentWarehouseRequiredError(
+            "Purchase order has source lines without "
+            "a receipt warehouse: "
+            + ", ".join(
+                str(line_number)
+                for line_number
+                in sorted(
+                    missing_warehouse_lines
+                )
+            )
+        )
+
+
+def calculate_purchase_order_fulfillment_status(
+    document: TradeDocument,
+    fulfilled_quantities: Mapping[
+        int,
+        Decimal,
+    ],
+) -> TradeDocumentStatus:
+    """
+    Calculate Purchase Order lifecycle status from persistent
+    fulfilled quantities.
+
+    Fulfilled means quantity represented by POSTED warehouse
+    RECEIPT fulfillment targets.
+    """
+    if not document.lines:
+        raise PurchaseOrderFulfillmentLinesRequiredError(
+            "Purchase order must contain at least one line"
+        )
+
+    any_fulfilled = False
+    all_fulfilled = True
+
+    for line in document.lines:
+        if (
+            line.id is None
+            or line.id <= 0
+        ):
+            raise PurchaseOrderFulfillmentStateError(
+                "Purchase order contains an unpersisted "
+                "source line"
+            )
+
+        source_quantity = Decimal(
+            line.quantity
+        )
+
+        fulfilled_quantity = Decimal(
+            fulfilled_quantities.get(
+                line.id,
+                ZERO,
+            )
+        )
+
+        if fulfilled_quantity < ZERO:
+            raise PurchaseOrderFulfillmentStateError(
+                "Fulfilled quantity cannot be negative: "
+                f"line_id={line.id}, "
+                f"fulfilled={fulfilled_quantity}"
+            )
+
+        if (
+            fulfilled_quantity
+            > source_quantity
+        ):
+            raise PurchaseOrderFulfillmentStateError(
+                "Persisted fulfillment exceeds "
+                "source quantity: "
+                f"line_id={line.id}, "
+                f"source={source_quantity}, "
+                f"fulfilled={fulfilled_quantity}"
+            )
+
+        if fulfilled_quantity > ZERO:
+            any_fulfilled = True
+
+        if (
+            fulfilled_quantity
+            != source_quantity
+        ):
+            all_fulfilled = False
+
+    if all_fulfilled:
+        return TradeDocumentStatus.FULFILLED
+
+    if any_fulfilled:
+        return (
+            TradeDocumentStatus
+            .PARTIALLY_FULFILLED
+        )
+
+    return TradeDocumentStatus.CONFIRMED
+
+
+def create_purchase_order_fulfillment_plan(
+    document: TradeDocument,
+    request_lines: Sequence[
+        PurchaseOrderFulfillmentRequestLine
+    ],
+    *,
+    fulfilled_quantities: Mapping[
+        int,
+        Decimal,
+    ],
+) -> PurchaseOrderFulfillmentPlan:
+    """
+    Pure Purchase Order receipt planner.
+
+    No database writes.
+    No reservation state exists for Purchase Orders.
+
+    Invariant:
+
+        0 <= posted fulfilled quantity <= source quantity
+    """
+    validate_purchase_order_fulfillment_state(
+        document
+    )
+
+    requests = tuple(
+        request_lines
+    )
+
+    if not requests:
+        raise (
+            PurchaseOrderFulfillmentRequestRequiredError(
+                "At least one fulfillment line "
+                "is required"
+            )
+        )
+
+    request_ids = [
+        request.trade_document_line_id
+        for request in requests
+    ]
+
+    if (
+        len(request_ids)
+        != len(set(request_ids))
+    ):
+        raise (
+            PurchaseOrderFulfillmentDuplicateLineError(
+                "Each purchase-order source line may "
+                "appear only once per fulfillment"
+            )
+        )
+
+    source_lines: dict[
+        int,
+        TradeDocumentLine,
+    ] = {}
+
+    current_fulfilled: dict[
+        int,
+        Decimal,
+    ] = {}
+
+    for line in document.lines:
+        if (
+            line.id is None
+            or line.id <= 0
+        ):
+            raise PurchaseOrderFulfillmentStateError(
+                "Purchase order contains an unpersisted "
+                "source line"
+            )
+
+        source_lines[
+            line.id
+        ] = line
+
+        source_quantity = Decimal(
+            line.quantity
+        )
+
+        fulfilled_before = Decimal(
+            fulfilled_quantities.get(
+                line.id,
+                ZERO,
+            )
+        )
+
+        if fulfilled_before < ZERO:
+            raise PurchaseOrderFulfillmentStateError(
+                "Fulfilled quantity cannot be negative: "
+                f"line_id={line.id}"
+            )
+
+        if (
+            fulfilled_before
+            > source_quantity
+        ):
+            raise PurchaseOrderFulfillmentStateError(
+                "Persisted fulfillment exceeds "
+                "source quantity: "
+                f"line_id={line.id}"
+            )
+
+        current_fulfilled[
+            line.id
+        ] = fulfilled_before
+
+    plan_lines: list[
+        PurchaseOrderFulfillmentPlanLine
+    ] = []
+
+    resulting_fulfilled = dict(
+        current_fulfilled
+    )
+
+    for request in requests:
+        line = source_lines.get(
+            request.trade_document_line_id
+        )
+
+        if line is None:
+            raise (
+                PurchaseOrderFulfillmentSourceLineNotFoundError(
+                    "Requested source line does not "
+                    "belong to the purchase order: "
+                    f"line_id="
+                    f"{request.trade_document_line_id}"
+                )
+            )
+
+        if line.warehouse_id is None:
+            raise (
+                PurchaseOrderFulfillmentWarehouseRequiredError(
+                    "Source line has no receipt warehouse: "
+                    f"line_id={line.id}"
+                )
+            )
+
+        source_quantity = Decimal(
+            line.quantity
+        )
+
+        fulfilled_before = (
+            current_fulfilled[
+                line.id
+            ]
+        )
+
+        fulfilled_after = (
+            fulfilled_before
+            + request.quantity
+        )
+
+        if (
+            fulfilled_after
+            > source_quantity
+        ):
+            raise PurchaseOrderOverFulfillmentError(
+                "Fulfillment exceeds remaining "
+                "source quantity: "
+                f"line_id={line.id}, "
+                f"requested={request.quantity}, "
+                f"fulfilled_before="
+                f"{fulfilled_before}, "
+                f"source={source_quantity}"
+            )
+
+        resulting_fulfilled[
+            line.id
+        ] = fulfilled_after
+
+        plan_lines.append(
+            PurchaseOrderFulfillmentPlanLine(
+                source_line=line,
+                quantity=request.quantity,
+                fulfilled_before=(
+                    fulfilled_before
+                ),
+                fulfilled_after=(
+                    fulfilled_after
+                ),
+            )
+        )
+
+    resulting_status = (
+        calculate_purchase_order_fulfillment_status(
+            document,
+            resulting_fulfilled,
+        )
+    )
+
+    ordered_plan_lines = tuple(
+        sorted(
+            plan_lines,
+            key=lambda item: (
+                item.source_line.product_id,
+                item.source_line.warehouse_id,
+                item.source_line.id,
+            ),
+        )
+    )
+
+    return PurchaseOrderFulfillmentPlan(
+        lines=ordered_plan_lines,
+        resulting_status=resulting_status,
+    )
+
+
+async def build_purchase_order_fulfillment_plan(
+    db: AsyncSession,
+    *,
+    document: TradeDocument,
+    request_lines: Sequence[
+        PurchaseOrderFulfillmentRequestLine
+    ],
+) -> PurchaseOrderFulfillmentPlan:
+    """
+    Load persistent POSTED fulfillment state and build the
+    Purchase Order receipt plan.
+
+    Caller owns the TradeDocument header lock.
+    """
+    validate_purchase_order_fulfillment_state(
+        document
+    )
+
+    source_line_ids = [
+        line.id
+        for line in document.lines
+        if line.id is not None
+    ]
+
+    fulfilled_quantities = (
+        await get_persisted_fulfilled_quantities(
+            db,
+            company_id=document.company_id,
+            trade_document_id=document.id,
+            source_line_ids=source_line_ids,
+            warehouse_document_type=(
+                DocumentType.RECEIPT
+            ),
+        )
+    )
+
+    return create_purchase_order_fulfillment_plan(
+        document,
+        request_lines,
+        fulfilled_quantities=(
+            fulfilled_quantities
+        ),
+    )
+
+
+@dataclass(
+    frozen=True,
+    slots=True,
+)
+class PurchaseOrderFulfillmentExecutionResult:
+    """
+    Result of one atomic Purchase Order receipt fulfillment.
+
+    Caller still owns COMMIT / ROLLBACK.
+    """
+
+    purchase_order: TradeDocument
+    warehouse_document: Document
+    fulfillment: TradeFulfillment
+    journal_entry: JournalEntry
+
+
+class PurchaseOrderFulfillmentDocumentNumberError(
+    PurchaseOrderFulfillmentError
+):
+    """Warehouse RECEIPT document number is invalid."""
+
+
+class PurchaseOrderFulfillmentExecutionStateError(
+    PurchaseOrderFulfillmentError
+):
+    """Atomic Purchase fulfillment produced invalid state."""
+
+
+async def execute_purchase_order_fulfillment(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    trade_document_id: int,
+    warehouse_document_number: str,
+    document_date: date,
+    accounting_rule_id: int,
+    created_by: int,
+    request_lines: Sequence[
+        PurchaseOrderFulfillmentRequestLine
+    ],
+) -> PurchaseOrderFulfillmentExecutionResult:
+    """
+    Execute one Purchase Order receipt fulfillment atomically.
+
+    Caller owns COMMIT / ROLLBACK.
+
+    Sequence:
+
+        1. lock Purchase Order header
+        2. build persistent receipt plan
+        3. create DRAFT warehouse RECEIPT + lines
+        4. create persistent TradeFulfillment header
+        5. create source -> target line mappings
+        6. post warehouse RECEIPT
+        7. update Purchase Order lifecycle status
+        8. flush
+
+    Purchase Order fulfillment deliberately performs no stock
+    reservation operations.
+
+    Any failure must be rolled back by the caller, which removes
+    the RECEIPT, mappings, stock/cost/accounting changes and the
+    Purchase Order status change together.
+    """
+    number = warehouse_document_number.strip()
+
+    if not number:
+        raise PurchaseOrderFulfillmentDocumentNumberError(
+            "Warehouse RECEIPT document number is required"
+        )
+
+    purchase_order = await get_locked_purchase_order(
+        db,
+        company_id=company_id,
+        document_id=trade_document_id,
+    )
+
+    plan = await build_purchase_order_fulfillment_plan(
+        db,
+        document=purchase_order,
+        request_lines=request_lines,
+    )
+
+    if not plan.lines:
+        raise PurchaseOrderFulfillmentExecutionStateError(
+            "Fulfillment plan contains no lines"
+        )
+
+    warehouse_document = Document(
+        company_id=company_id,
+        accounting_rule_id=accounting_rule_id,
+        number=number,
+        document_type=DocumentType.RECEIPT,
+        document_date=document_date,
+        status=DocumentStatus.DRAFT,
+        created_by=created_by,
+    )
+
+    db.add(
+        warehouse_document
+    )
+
+    await db.flush()
+
+    if warehouse_document.id is None:
+        raise PurchaseOrderFulfillmentExecutionStateError(
+            "Warehouse RECEIPT did not receive an ID"
+        )
+
+    target_lines_by_source_id: dict[
+        int,
+        DocumentLine,
+    ] = {}
+
+    for plan_line in plan.lines:
+        source_line = plan_line.source_line
+
+        if source_line.id is None:
+            raise PurchaseOrderFulfillmentExecutionStateError(
+                "Fulfillment source line has no ID"
+            )
+
+        if source_line.warehouse_id is None:
+            raise PurchaseOrderFulfillmentExecutionStateError(
+                "Fulfillment source line has no warehouse"
+            )
+
+        warehouse_line = DocumentLine(
+            document_id=warehouse_document.id,
+            product_id=source_line.product_id,
+            warehouse_id=source_line.warehouse_id,
+            quantity=plan_line.quantity,
+            price=Decimal(
+                source_line.unit_price
+            ),
+        )
+
+        db.add(
+            warehouse_line
+        )
+
+        target_lines_by_source_id[
+            source_line.id
+        ] = warehouse_line
+
+    await db.flush()
+
+    for (
+        source_line_id,
+        warehouse_line,
+    ) in target_lines_by_source_id.items():
+        if warehouse_line.id is None:
+            raise PurchaseOrderFulfillmentExecutionStateError(
+                "Warehouse RECEIPT line did not receive an ID: "
+                f"source_line_id={source_line_id}"
+            )
+
+    fulfillment = TradeFulfillment(
+        company_id=company_id,
+        trade_document_id=purchase_order.id,
+        warehouse_document_id=(
+            warehouse_document.id
+        ),
+        warehouse_document_type=(
+            DocumentType.RECEIPT.value
+        ),
+        created_by=created_by,
+    )
+
+    db.add(
+        fulfillment
+    )
+
+    await db.flush()
+
+    if fulfillment.id is None:
+        raise PurchaseOrderFulfillmentExecutionStateError(
+            "Trade fulfillment did not receive an ID"
+        )
+
+    for plan_line in plan.lines:
+        source_line = plan_line.source_line
+
+        warehouse_line = (
+            target_lines_by_source_id[
+                source_line.id
+            ]
+        )
+
+        mapping = TradeFulfillmentLine(
+            company_id=company_id,
+            fulfillment_id=fulfillment.id,
+            trade_document_id=purchase_order.id,
+            trade_document_line_id=source_line.id,
+            warehouse_document_id=(
+                warehouse_document.id
+            ),
+            warehouse_document_line_id=(
+                warehouse_line.id
+            ),
+            product_id=source_line.product_id,
+            warehouse_id=source_line.warehouse_id,
+            quantity=plan_line.quantity,
+        )
+
+        db.add(
+            mapping
+        )
+
+    await db.flush()
+
+    posted_document, journal_entry = (
+        await post_document(
+            db=db,
+            company_id=company_id,
+            document_id=warehouse_document.id,
+            accounting_rule_id=accounting_rule_id,
+            created_by=created_by,
+        )
+    )
+
+    if (
+        posted_document.id
+        != warehouse_document.id
+    ):
+        raise PurchaseOrderFulfillmentExecutionStateError(
+            "Posting returned a different "
+            "warehouse document"
+        )
+
+    if (
+        posted_document.status
+        != DocumentStatus.POSTED
+    ):
+        raise PurchaseOrderFulfillmentExecutionStateError(
+            "Warehouse RECEIPT was not posted"
+        )
+
+    purchase_order.status = (
+        plan.resulting_status
+    )
+
+    await db.flush()
+
+    return PurchaseOrderFulfillmentExecutionResult(
+        purchase_order=purchase_order,
+        warehouse_document=posted_document,
+        fulfillment=fulfillment,
+        journal_entry=journal_entry,
+    )
 
 
 @dataclass(
@@ -1510,6 +2291,9 @@ async def execute_sales_order_fulfillment_reversal(
             company_id=company_id,
             trade_document_id=sales_order.id,
             source_line_ids=all_source_line_ids,
+            warehouse_document_type=(
+                DocumentType.ISSUE
+            ),
         )
     )
 
@@ -1605,6 +2389,9 @@ async def execute_sales_order_fulfillment_reversal(
             company_id=company_id,
             trade_document_id=sales_order.id,
             source_line_ids=all_source_line_ids,
+            warehouse_document_type=(
+                DocumentType.ISSUE
+            ),
         )
     )
 
@@ -1635,6 +2422,553 @@ async def execute_sales_order_fulfillment_reversal(
     return (
         SalesOrderFulfillmentReversalExecutionResult(
             sales_order=sales_order,
+            warehouse_document=reversed_document,
+            fulfillment=fulfillment,
+        )
+    )
+
+
+# =============================================================
+# PURCHASE ORDER FULFILLMENT REVERSAL
+# =============================================================
+
+
+class PurchaseOrderFulfillmentReversalNotFoundError(
+    PurchaseOrderFulfillmentError
+):
+    """Requested Purchase Order fulfillment does not exist."""
+
+
+class PurchaseOrderFulfillmentReversalStatusError(
+    PurchaseOrderFulfillmentError
+):
+    """Purchase Order cannot reverse fulfillment in this state."""
+
+
+class PurchaseOrderFulfillmentReversalStateError(
+    PurchaseOrderFulfillmentError
+):
+    """Persistent Purchase Order fulfillment state is invalid."""
+
+
+@dataclass(
+    frozen=True,
+    slots=True,
+)
+class PurchaseOrderFulfillmentReversalExecutionResult:
+    """
+    Result of one atomic Purchase Order receipt reversal.
+
+    Caller owns COMMIT / ROLLBACK.
+    """
+
+    purchase_order: TradeDocument
+    warehouse_document: Document
+    fulfillment: TradeFulfillment
+
+
+def validate_purchase_order_fulfillment_reversal_state(
+    document: TradeDocument,
+) -> None:
+    """
+    Purchase receipt fulfillment may be reversed only while
+    the Purchase Order has active posted receipt fulfillment.
+    """
+    if (
+        document.direction
+        != TradeDirection.PURCHASE
+    ):
+        raise PurchaseOrderFulfillmentTypeError(
+            "Only purchase trade documents can reverse "
+            "purchase-order fulfillment"
+        )
+
+    if (
+        document.kind
+        != TradeDocumentKind.ORDER
+    ):
+        raise PurchaseOrderFulfillmentTypeError(
+            "Only trade document kind 'order' can reverse "
+            "purchase-order fulfillment"
+        )
+
+    if document.status not in (
+        TradeDocumentStatus.PARTIALLY_FULFILLED,
+        TradeDocumentStatus.FULFILLED,
+    ):
+        raise PurchaseOrderFulfillmentReversalStatusError(
+            "Only partially fulfilled or fulfilled "
+            "purchase orders can reverse fulfillment"
+        )
+
+    if not document.lines:
+        raise PurchaseOrderFulfillmentLinesRequiredError(
+            "Purchase order must contain at least one line"
+        )
+
+
+async def get_locked_purchase_trade_fulfillment(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    trade_document_id: int,
+    fulfillment_id: int,
+) -> TradeFulfillment:
+    """
+    Lock one exact persistent fulfillment belonging to the
+    requested Purchase Order and company.
+    """
+    result = await db.execute(
+        select(
+            TradeFulfillment
+        )
+        .where(
+            TradeFulfillment.id
+            == fulfillment_id,
+            TradeFulfillment.company_id
+            == company_id,
+            TradeFulfillment.trade_document_id
+            == trade_document_id,
+        )
+        .with_for_update()
+    )
+
+    fulfillment = (
+        result.scalar_one_or_none()
+    )
+
+    if fulfillment is None:
+        raise (
+            PurchaseOrderFulfillmentReversalNotFoundError(
+                "Trade fulfillment not found"
+            )
+        )
+
+    return fulfillment
+
+
+def validate_purchase_order_reversal_balances(
+    document: TradeDocument,
+    *,
+    fulfilled_quantities: Mapping[
+        int,
+        Decimal,
+    ],
+) -> None:
+    """
+    Validate persistent Purchase Order fulfillment before
+    reversal.
+
+    Purchase invariant:
+
+        0 <= active POSTED RECEIPT fulfillment
+           <= source quantity
+
+    Current lifecycle status must agree with that persistent
+    fulfillment state.
+    """
+    for line in document.lines:
+        if (
+            line.id is None
+            or line.id <= 0
+        ):
+            raise (
+                PurchaseOrderFulfillmentReversalStateError(
+                    "Purchase order contains an "
+                    "unpersisted source line"
+                )
+            )
+
+        source_quantity = Decimal(
+            line.quantity
+        )
+
+        fulfilled_quantity = Decimal(
+            fulfilled_quantities.get(
+                line.id,
+                ZERO,
+            )
+        )
+
+        if fulfilled_quantity < ZERO:
+            raise (
+                PurchaseOrderFulfillmentReversalStateError(
+                    "Fulfilled quantity cannot be negative: "
+                    f"line_id={line.id}"
+                )
+            )
+
+        if (
+            fulfilled_quantity
+            > source_quantity
+        ):
+            raise (
+                PurchaseOrderFulfillmentReversalStateError(
+                    "Persisted receipt fulfillment exceeds "
+                    "source quantity: "
+                    f"line_id={line.id}, "
+                    f"source={source_quantity}, "
+                    f"fulfilled={fulfilled_quantity}"
+                )
+            )
+
+    calculated_status = (
+        calculate_purchase_order_fulfillment_status(
+            document,
+            fulfilled_quantities,
+        )
+    )
+
+    if (
+        calculated_status
+        != document.status
+    ):
+        raise (
+            PurchaseOrderFulfillmentReversalStateError(
+                "Purchase order lifecycle status does not "
+                "match persistent posted receipt fulfillment: "
+                f"stored={document.status.value}, "
+                f"calculated={calculated_status.value}"
+            )
+        )
+
+
+async def execute_purchase_order_fulfillment_reversal(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    trade_document_id: int,
+    fulfillment_id: int,
+    reversal_date: date,
+    reversed_by: int,
+) -> PurchaseOrderFulfillmentReversalExecutionResult:
+    """
+    Reverse one persistent Purchase Order receipt fulfillment
+    atomically.
+
+    Caller owns COMMIT / ROLLBACK.
+
+    Sequence:
+
+        1. lock Purchase Order header
+        2. validate Purchase Order lifecycle
+        3. lock fulfillment header + mappings
+        4. validate exact RECEIPT fulfillment mapping
+        5. validate persistent POSTED receipt quantities
+        6. reverse exact linked warehouse RECEIPT
+        7. recalculate active POSTED receipt fulfillment
+        8. verify exact fulfillment quantity disappeared
+        9. recalculate Purchase Order lifecycle status
+       10. flush
+
+    Purchase fulfillment reversal deliberately performs no
+    reservation operations.
+    """
+    if fulfillment_id <= 0:
+        raise ValueError(
+            "Fulfillment ID must be greater than zero"
+        )
+
+    # ---------------------------------------------------------
+    # 1. LOCK PURCHASE ORDER
+    # ---------------------------------------------------------
+
+    purchase_order = await get_locked_purchase_order(
+        db,
+        company_id=company_id,
+        document_id=trade_document_id,
+    )
+
+    validate_purchase_order_fulfillment_reversal_state(
+        purchase_order
+    )
+
+    # ---------------------------------------------------------
+    # 2. LOCK EXACT FULFILLMENT
+    # ---------------------------------------------------------
+
+    fulfillment = (
+        await get_locked_purchase_trade_fulfillment(
+            db,
+            company_id=company_id,
+            trade_document_id=purchase_order.id,
+            fulfillment_id=fulfillment_id,
+        )
+    )
+
+    if (
+        fulfillment.warehouse_document_type
+        != DocumentType.RECEIPT.value
+    ):
+        raise PurchaseOrderFulfillmentReversalStateError(
+            "Purchase Order fulfillment target must be "
+            "a warehouse RECEIPT"
+        )
+
+    mappings = (
+        await get_trade_fulfillment_lines_for_reversal(
+            db,
+            company_id=company_id,
+            trade_document_id=purchase_order.id,
+            fulfillment_id=fulfillment.id,
+        )
+    )
+
+    if not mappings:
+        raise PurchaseOrderFulfillmentReversalStateError(
+            "Trade fulfillment has no line mappings"
+        )
+
+    # ---------------------------------------------------------
+    # 3. VALIDATE / AGGREGATE MAPPINGS
+    # ---------------------------------------------------------
+
+    source_lines_by_id = {
+        line.id: line
+        for line in purchase_order.lines
+        if line.id is not None
+    }
+
+    reversal_quantities: dict[
+        int,
+        Decimal,
+    ] = {}
+
+    for mapping in mappings:
+        if (
+            mapping.warehouse_document_id
+            != fulfillment.warehouse_document_id
+        ):
+            raise (
+                PurchaseOrderFulfillmentReversalStateError(
+                    "Fulfillment line points to a different "
+                    "warehouse document"
+                )
+            )
+
+        source_line = source_lines_by_id.get(
+            mapping.trade_document_line_id
+        )
+
+        if source_line is None:
+            raise (
+                PurchaseOrderFulfillmentReversalStateError(
+                    "Fulfillment mapping references a source "
+                    "line outside the Purchase Order"
+                )
+            )
+
+        if (
+            source_line.product_id
+            != mapping.product_id
+        ):
+            raise (
+                PurchaseOrderFulfillmentReversalStateError(
+                    "Fulfillment mapping product does not "
+                    "match the source line"
+                )
+            )
+
+        if (
+            source_line.warehouse_id
+            != mapping.warehouse_id
+        ):
+            raise (
+                PurchaseOrderFulfillmentReversalStateError(
+                    "Fulfillment mapping warehouse does not "
+                    "match the source line"
+                )
+            )
+
+        quantity = Decimal(
+            mapping.quantity
+        )
+
+        if quantity <= ZERO:
+            raise (
+                PurchaseOrderFulfillmentReversalStateError(
+                    "Fulfillment mapping quantity must be "
+                    "greater than zero"
+                )
+            )
+
+        reversal_quantities[
+            source_line.id
+        ] = (
+            reversal_quantities.get(
+                source_line.id,
+                ZERO,
+            )
+            + quantity
+        )
+
+    all_source_line_ids = [
+        line.id
+        for line in purchase_order.lines
+        if line.id is not None
+    ]
+
+    # ---------------------------------------------------------
+    # 4. VALIDATE CURRENT ACTIVE POSTED RECEIPTS
+    # ---------------------------------------------------------
+
+    fulfilled_before = (
+        await get_persisted_fulfilled_quantities(
+            db,
+            company_id=company_id,
+            trade_document_id=purchase_order.id,
+            source_line_ids=all_source_line_ids,
+            warehouse_document_type=(
+                DocumentType.RECEIPT
+            ),
+        )
+    )
+
+    validate_purchase_order_reversal_balances(
+        purchase_order,
+        fulfilled_quantities=fulfilled_before,
+    )
+
+    for (
+        source_line_id,
+        reversal_quantity,
+    ) in reversal_quantities.items():
+        if (
+            reversal_quantity
+            > fulfilled_before.get(
+                source_line_id,
+                ZERO,
+            )
+        ):
+            raise (
+                PurchaseOrderFulfillmentReversalStateError(
+                    "Receipt fulfillment reversal quantity "
+                    "exceeds currently posted fulfilled "
+                    "quantity"
+                )
+            )
+
+    # ---------------------------------------------------------
+    # 5. REVERSE EXACT LINKED WAREHOUSE RECEIPT
+    # ---------------------------------------------------------
+
+    try:
+        reversed_document = (
+            await reverse_document_for_trade_fulfillment(
+                db,
+                company_id=company_id,
+                document_id=(
+                    fulfillment.warehouse_document_id
+                ),
+                fulfillment_id=fulfillment.id,
+                reversal_date=reversal_date,
+                reversed_by=reversed_by,
+            )
+        )
+
+    except DocumentReversalError as exc:
+        raise (
+            PurchaseOrderFulfillmentReversalStateError(
+                str(exc)
+            )
+        ) from exc
+
+    if (
+        reversed_document.status
+        != DocumentStatus.REVERSED
+    ):
+        raise (
+            PurchaseOrderFulfillmentReversalStateError(
+                "Warehouse fulfillment RECEIPT "
+                "was not reversed"
+            )
+        )
+
+    if (
+        reversed_document.document_type
+        != DocumentType.RECEIPT
+    ):
+        raise (
+            PurchaseOrderFulfillmentReversalStateError(
+                "Controlled reversal returned a "
+                "non-RECEIPT warehouse document"
+            )
+        )
+
+    # ---------------------------------------------------------
+    # 6. RECALCULATE ACTIVE POSTED RECEIPT FULFILLMENT
+    # ---------------------------------------------------------
+
+    fulfilled_after = (
+        await get_persisted_fulfilled_quantities(
+            db,
+            company_id=company_id,
+            trade_document_id=purchase_order.id,
+            source_line_ids=all_source_line_ids,
+            warehouse_document_type=(
+                DocumentType.RECEIPT
+            ),
+        )
+    )
+
+    # Exact audit invariant:
+    #
+    # after = before - quantity represented by THIS
+    # reversed fulfillment.
+    for source_line in purchase_order.lines:
+        if source_line.id is None:
+            continue
+
+        expected_after = (
+            Decimal(
+                fulfilled_before.get(
+                    source_line.id,
+                    ZERO,
+                )
+            )
+            - Decimal(
+                reversal_quantities.get(
+                    source_line.id,
+                    ZERO,
+                )
+            )
+        )
+
+        actual_after = Decimal(
+            fulfilled_after.get(
+                source_line.id,
+                ZERO,
+            )
+        )
+
+        if actual_after != expected_after:
+            raise (
+                PurchaseOrderFulfillmentReversalStateError(
+                    "Active posted receipt fulfillment did "
+                    "not decrease by the exact reversed "
+                    "fulfillment quantity: "
+                    f"line_id={source_line.id}, "
+                    f"expected={expected_after}, "
+                    f"actual={actual_after}"
+                )
+            )
+
+    # ---------------------------------------------------------
+    # 7. RECALCULATE PURCHASE ORDER STATUS
+    # ---------------------------------------------------------
+
+    purchase_order.status = (
+        calculate_purchase_order_fulfillment_status(
+            purchase_order,
+            fulfilled_after,
+        )
+    )
+
+    await db.flush()
+
+    return (
+        PurchaseOrderFulfillmentReversalExecutionResult(
+            purchase_order=purchase_order,
             warehouse_document=reversed_document,
             fulfillment=fulfillment,
         )

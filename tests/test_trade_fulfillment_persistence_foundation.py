@@ -161,22 +161,48 @@ def test_fulfillment_target_is_company_and_type_safe() -> None:
     ]
 
 
-def test_fulfillment_target_must_be_issue() -> None:
-    checks = {
-        constraint.name
-        for constraint
-        in TradeFulfillment.__table__.constraints
-        if isinstance(
-            constraint,
-            CheckConstraint,
-        )
-    }
+def test_fulfillment_target_type_is_restricted() -> None:
+    constraint = next(
+        (
+            constraint
+            for constraint
+            in TradeFulfillment.__table__.constraints
+            if (
+                isinstance(
+                    constraint,
+                    CheckConstraint,
+                )
+                and constraint.name
+                == (
+                    "ck_trade_fulfillment_"
+                    "warehouse_document_type"
+                )
+            )
+        ),
+        None,
+    )
+
+    assert constraint is not None
 
     assert (
-        "ck_trade_fulfillment_"
-        "warehouse_document_issue"
-        in checks
+        str(
+            constraint.sqltext
+        )
+        == (
+            "warehouse_document_type "
+            "IN ('issue', 'receipt')"
+        )
     )
+
+
+def test_fulfillment_target_type_has_no_default() -> None:
+    column = (
+        TradeFulfillment.__table__.c
+        .warehouse_document_type
+    )
+
+    assert column.default is None
+    assert column.server_default is None
 
 
 def test_fulfillment_line_header_fk() -> None:

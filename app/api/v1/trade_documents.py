@@ -30,6 +30,7 @@ from app.schemas.trade_document import (
     TradeDocumentUpdate,
 )
 from app.services.trade_document_types import (
+    TradeDirection,
     TradeDocumentStatus,
 )
 from app.services.trade_document_validation import (
@@ -45,13 +46,24 @@ from app.services.reservation_persistence_service import (
     ReservationPersistenceError,
 )
 from app.services.trade_fulfillment_service import (
+    PurchaseOrderFulfillmentError,
+    PurchaseOrderFulfillmentRequestLine,
+    PurchaseOrderFulfillmentReversalNotFoundError,
     SalesOrderFulfillmentError,
     SalesOrderFulfillmentRequestLine,
+    SalesOrderFulfillmentReversalNotFoundError,
+    execute_purchase_order_fulfillment,
+    execute_purchase_order_fulfillment_reversal,
     execute_sales_order_fulfillment,
     execute_sales_order_fulfillment_reversal,
-    SalesOrderFulfillmentReversalNotFoundError,
 )
 from app.services.trade_document_lifecycle_service import (
+    PurchaseOrderLinesRequiredError,
+    PurchaseOrderNotFoundError,
+    PurchaseOrderReferenceError,
+    PurchaseOrderStatusError,
+    PurchaseOrderTypeError,
+    PurchaseOrderWarehouseRequiredError,
     SalesOrderLinesRequiredError,
     SalesOrderNotFoundError,
     SalesOrderReferenceError,
@@ -59,7 +71,9 @@ from app.services.trade_document_lifecycle_service import (
     SalesOrderStatusError,
     SalesOrderTypeError,
     SalesOrderWarehouseRequiredError,
+    cancel_purchase_order,
     cancel_sales_order,
+    confirm_purchase_order,
     confirm_sales_order,
 )
 
@@ -314,6 +328,40 @@ async def _load_trade_document(
         )
 
     return document
+
+
+
+async def _get_trade_document_direction(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    document_id: int,
+) -> TradeDirection:
+    """
+    Resolve TradeDocument direction for API lifecycle dispatch.
+
+    Domain services still lock and revalidate the document before
+    performing any state transition, so this lookup is dispatch
+    metadata only.
+    """
+    direction = (
+        await db.execute(
+            select(
+                TradeDocument.direction
+            ).where(
+                TradeDocument.id == document_id,
+                TradeDocument.company_id == company_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if direction is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trade document not found",
+        )
+
+    return direction
 
 
 @router.get(
@@ -778,21 +826,52 @@ async def confirm_trade_document_sales_order(
     ),
 ):
     """
-    Confirm a draft Sales Order atomically.
-    """
+    Confirm a draft SALE or PURCHASE Order atomically.
 
+    The public route is direction-neutral. The existing function
+    name is retained for backward compatibility.
+    """
     try:
-        document = await confirm_sales_order(
+        direction = await _get_trade_document_direction(
             db,
             company_id=company_id,
             document_id=document_id,
         )
 
+        if direction == TradeDirection.SALE:
+            document = await confirm_sales_order(
+                db,
+                company_id=company_id,
+                document_id=document_id,
+            )
+
+        elif direction == TradeDirection.PURCHASE:
+            document = await confirm_purchase_order(
+                db,
+                company_id=company_id,
+                document_id=document_id,
+            )
+
+        else:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY
+                ),
+                detail="Unsupported trade document direction",
+            )
+
         document_id_value = document.id
 
         await db.commit()
 
-    except SalesOrderNotFoundError as exc:
+    except HTTPException:
+        await db.rollback()
+        raise
+
+    except (
+        SalesOrderNotFoundError,
+        PurchaseOrderNotFoundError,
+    ) as exc:
         await db.rollback()
 
         raise HTTPException(
@@ -800,7 +879,10 @@ async def confirm_trade_document_sales_order(
             detail=str(exc),
         ) from exc
 
-    except SalesOrderStatusError as exc:
+    except (
+        SalesOrderStatusError,
+        PurchaseOrderStatusError,
+    ) as exc:
         await db.rollback()
 
         raise HTTPException(
@@ -813,6 +895,10 @@ async def confirm_trade_document_sales_order(
         SalesOrderLinesRequiredError,
         SalesOrderWarehouseRequiredError,
         SalesOrderReferenceError,
+        PurchaseOrderTypeError,
+        PurchaseOrderLinesRequiredError,
+        PurchaseOrderWarehouseRequiredError,
+        PurchaseOrderReferenceError,
     ) as exc:
         await db.rollback()
 
@@ -837,7 +923,7 @@ async def confirm_trade_document_sales_order(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "Sales order could not be confirmed "
+                "Trade order could not be confirmed "
                 "because of a data conflict"
             ),
         ) from exc
@@ -868,30 +954,53 @@ async def cancel_trade_document_sales_order(
     ),
 ):
     """
-    Cancel a Sales Order atomically.
+    Cancel a SALE or PURCHASE Order atomically.
 
-    DRAFT:
-        CANCELLED without reservation movements.
-
-    CONFIRMED:
-        RELEASE all outstanding reservations,
-        then CANCELLED.
-
-    Partially fulfilled / fulfilled orders are rejected.
+    SALE confirmation reservations are released by the Sales
+    lifecycle service. PURCHASE cancellation never creates or
+    releases reservation movements.
     """
-
     try:
-        document = await cancel_sales_order(
+        direction = await _get_trade_document_direction(
             db,
             company_id=company_id,
             document_id=document_id,
         )
 
+        if direction == TradeDirection.SALE:
+            document = await cancel_sales_order(
+                db,
+                company_id=company_id,
+                document_id=document_id,
+            )
+
+        elif direction == TradeDirection.PURCHASE:
+            document = await cancel_purchase_order(
+                db,
+                company_id=company_id,
+                document_id=document_id,
+            )
+
+        else:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY
+                ),
+                detail="Unsupported trade document direction",
+            )
+
         document_id_value = document.id
 
         await db.commit()
 
-    except SalesOrderNotFoundError as exc:
+    except HTTPException:
+        await db.rollback()
+        raise
+
+    except (
+        SalesOrderNotFoundError,
+        PurchaseOrderNotFoundError,
+    ) as exc:
         await db.rollback()
 
         raise HTTPException(
@@ -902,6 +1011,7 @@ async def cancel_trade_document_sales_order(
     except (
         SalesOrderStatusError,
         SalesOrderReservationStateError,
+        PurchaseOrderStatusError,
         ReservationPersistenceError,
     ) as exc:
         await db.rollback()
@@ -915,6 +1025,9 @@ async def cancel_trade_document_sales_order(
         SalesOrderTypeError,
         SalesOrderLinesRequiredError,
         SalesOrderWarehouseRequiredError,
+        PurchaseOrderTypeError,
+        PurchaseOrderLinesRequiredError,
+        PurchaseOrderWarehouseRequiredError,
     ) as exc:
         await db.rollback()
 
@@ -931,7 +1044,7 @@ async def cancel_trade_document_sales_order(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "Sales order could not be cancelled "
+                "Trade order could not be cancelled "
                 "because of a data conflict"
             ),
         ) from exc
@@ -945,7 +1058,6 @@ async def cancel_trade_document_sales_order(
         company_id=company_id,
         document_id=document_id_value,
     )
-
 
 
 @router.post(
@@ -967,56 +1079,97 @@ async def fulfill_trade_document_sales_order(
     ),
 ):
     """
-    Fulfill part or all of a confirmed Sales Order.
+    Fulfill part or all of a confirmed SALE or PURCHASE Order.
 
-    One atomic database transaction coordinates:
+    SALE:
+        persistent fulfillment -> warehouse ISSUE
+        -> reservation CONSUME -> stock/cost/accounting.
 
-        TradeFulfillment
-        warehouse ISSUE
-        reservation CONSUME
-        stock posting
-        inventory costing
-        accounting posting
-        Sales Order status
+    PURCHASE:
+        persistent fulfillment -> warehouse RECEIPT
+        -> stock/cost/accounting.
 
-    Product and warehouse are always derived from
-    the persistent source TradeDocumentLine.
+    Product and warehouse are always derived from the persistent
+    source TradeDocumentLine. The JSON request/response contract
+    remains backward compatible with the Sales Order API.
     """
-
     try:
-        execution_result = (
-            await execute_sales_order_fulfillment(
-                db,
-                company_id=company_id,
-                trade_document_id=document_id,
-                warehouse_document_number=(
-                    data.warehouse_document_number
-                ),
-                document_date=data.document_date,
-                accounting_rule_id=(
-                    data.accounting_rule_id
-                ),
-                created_by=current_user.id,
-                request_lines=[
-                    SalesOrderFulfillmentRequestLine(
-                        trade_document_line_id=(
-                            line.trade_document_line_id
-                        ),
-                        quantity=line.quantity,
-                    )
-                    for line in data.lines
-                ],
-            )
+        direction = await _get_trade_document_direction(
+            db,
+            company_id=company_id,
+            document_id=document_id,
         )
 
-        trade_document_id_value = (
-            execution_result.sales_order.id
-        )
+        if direction == TradeDirection.SALE:
+            execution_result = (
+                await execute_sales_order_fulfillment(
+                    db,
+                    company_id=company_id,
+                    trade_document_id=document_id,
+                    warehouse_document_number=(
+                        data.warehouse_document_number
+                    ),
+                    document_date=data.document_date,
+                    accounting_rule_id=(
+                        data.accounting_rule_id
+                    ),
+                    created_by=current_user.id,
+                    request_lines=[
+                        SalesOrderFulfillmentRequestLine(
+                            trade_document_line_id=(
+                                line.trade_document_line_id
+                            ),
+                            quantity=line.quantity,
+                        )
+                        for line in data.lines
+                    ],
+                )
+            )
+
+            trade_document_id_value = (
+                execution_result.sales_order.id
+            )
+
+        elif direction == TradeDirection.PURCHASE:
+            execution_result = (
+                await execute_purchase_order_fulfillment(
+                    db,
+                    company_id=company_id,
+                    trade_document_id=document_id,
+                    warehouse_document_number=(
+                        data.warehouse_document_number
+                    ),
+                    document_date=data.document_date,
+                    accounting_rule_id=(
+                        data.accounting_rule_id
+                    ),
+                    created_by=current_user.id,
+                    request_lines=[
+                        PurchaseOrderFulfillmentRequestLine(
+                            trade_document_line_id=(
+                                line.trade_document_line_id
+                            ),
+                            quantity=line.quantity,
+                        )
+                        for line in data.lines
+                    ],
+                )
+            )
+
+            trade_document_id_value = (
+                execution_result.purchase_order.id
+            )
+
+        else:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY
+                ),
+                detail="Unsupported trade document direction",
+            )
 
         warehouse_document_id = (
-            execution_result
-            .warehouse_document
-            .id
+            execution_result.warehouse_document.id
         )
 
         fulfillment_id = (
@@ -1029,7 +1182,14 @@ async def fulfill_trade_document_sales_order(
 
         await db.commit()
 
-    except SalesOrderNotFoundError as exc:
+    except HTTPException:
+        await db.rollback()
+        raise
+
+    except (
+        SalesOrderNotFoundError,
+        PurchaseOrderNotFoundError,
+    ) as exc:
         await db.rollback()
 
         raise HTTPException(
@@ -1039,6 +1199,7 @@ async def fulfill_trade_document_sales_order(
 
     except (
         SalesOrderFulfillmentError,
+        PurchaseOrderFulfillmentError,
         ReservationPersistenceError,
         DocumentPostingError,
     ) as exc:
@@ -1055,8 +1216,8 @@ async def fulfill_trade_document_sales_order(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "Sales order fulfillment could not "
-                "be completed because of a data conflict"
+                "Trade order fulfillment could not be "
+                "completed because of a data conflict"
             ),
         ) from exc
 
@@ -1072,20 +1233,14 @@ async def fulfill_trade_document_sales_order(
 
     return SalesOrderFulfillmentResponse(
         trade_document=trade_document,
-        warehouse_document_id=(
-            warehouse_document_id
-        ),
+        warehouse_document_id=warehouse_document_id,
         fulfillment_id=fulfillment_id,
         journal_entry_id=journal_entry_id,
     )
 
 
-
 @router.post(
-    (
-        "/{document_id}/fulfillments/"
-        "{fulfillment_id}/reverse"
-    ),
+    "/{document_id}/fulfillments/{fulfillment_id}/reverse",
     response_model=(
         SalesOrderFulfillmentReversalResponse
     ),
@@ -1106,28 +1261,60 @@ async def reverse_trade_document_sales_order_fulfillment(
     ),
 ):
     """
-    Reverse one exact persistent Sales Order fulfillment.
+    Reverse one exact persistent SALE or PURCHASE fulfillment.
 
-    The linked warehouse ISSUE, stock/costing,
-    accounting, reservation balance and Sales Order
-    lifecycle status are reversed atomically.
+    SALE reverses the linked ISSUE and restores reservation state.
+    PURCHASE reverses the linked RECEIPT and has no reservation
+    operations.
+
+    TradeFulfillment and mappings remain persistent audit history.
     """
-
     try:
-        result = (
-            await execute_sales_order_fulfillment_reversal(
-                db,
-                company_id=company_id,
-                trade_document_id=document_id,
-                fulfillment_id=fulfillment_id,
-                reversal_date=data.reversal_date,
-                reversed_by=current_user.id,
-            )
+        direction = await _get_trade_document_direction(
+            db,
+            company_id=company_id,
+            document_id=document_id,
         )
 
-        document_id_value = (
-            result.sales_order.id
-        )
+        if direction == TradeDirection.SALE:
+            result = (
+                await execute_sales_order_fulfillment_reversal(
+                    db,
+                    company_id=company_id,
+                    trade_document_id=document_id,
+                    fulfillment_id=fulfillment_id,
+                    reversal_date=data.reversal_date,
+                    reversed_by=current_user.id,
+                )
+            )
+
+            document_id_value = (
+                result.sales_order.id
+            )
+
+        elif direction == TradeDirection.PURCHASE:
+            result = (
+                await execute_purchase_order_fulfillment_reversal(
+                    db,
+                    company_id=company_id,
+                    trade_document_id=document_id,
+                    fulfillment_id=fulfillment_id,
+                    reversal_date=data.reversal_date,
+                    reversed_by=current_user.id,
+                )
+            )
+
+            document_id_value = (
+                result.purchase_order.id
+            )
+
+        else:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY
+                ),
+                detail="Unsupported trade document direction",
+            )
 
         warehouse_document_id = (
             result.warehouse_document.id
@@ -1139,9 +1326,15 @@ async def reverse_trade_document_sales_order_fulfillment(
 
         await db.commit()
 
+    except HTTPException:
+        await db.rollback()
+        raise
+
     except (
         SalesOrderNotFoundError,
+        PurchaseOrderNotFoundError,
         SalesOrderFulfillmentReversalNotFoundError,
+        PurchaseOrderFulfillmentReversalNotFoundError,
     ) as exc:
         await db.rollback()
 
@@ -1162,6 +1355,7 @@ async def reverse_trade_document_sales_order_fulfillment(
 
     except (
         SalesOrderFulfillmentError,
+        PurchaseOrderFulfillmentError,
         ReservationPersistenceError,
     ) as exc:
         await db.rollback()
@@ -1177,7 +1371,7 @@ async def reverse_trade_document_sales_order_fulfillment(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "Sales order fulfillment could not "
+                "Trade order fulfillment could not "
                 "be reversed because of a data conflict"
             ),
         ) from exc
@@ -1194,10 +1388,6 @@ async def reverse_trade_document_sales_order_fulfillment(
 
     return SalesOrderFulfillmentReversalResponse(
         trade_document=trade_document,
-        warehouse_document_id=(
-            warehouse_document_id
-        ),
-        fulfillment_id=(
-            fulfillment_id_value
-        ),
+        warehouse_document_id=warehouse_document_id,
+        fulfillment_id=fulfillment_id_value,
     )

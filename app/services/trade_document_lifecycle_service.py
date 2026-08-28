@@ -97,6 +97,72 @@ class SalesOrderWarehouseInvalidError(
     """One or more warehouses are missing or inactive."""
 
 
+class PurchaseOrderNotFoundError(
+    TradeDocumentLifecycleError
+):
+    """Purchase order was not found in the company."""
+
+
+class PurchaseOrderTypeError(
+    TradeDocumentLifecycleError
+):
+    """Document is not a purchase order."""
+
+
+class PurchaseOrderStatusError(
+    TradeDocumentLifecycleError
+):
+    """Purchase order is in an invalid lifecycle state."""
+
+
+class PurchaseOrderLinesRequiredError(
+    TradeDocumentLifecycleError
+):
+    """Purchase order must contain at least one line."""
+
+
+class PurchaseOrderWarehouseRequiredError(
+    TradeDocumentLifecycleError
+):
+    """Every purchase-order line must have a warehouse."""
+
+
+class PurchaseOrderReferenceError(
+    TradeDocumentLifecycleError
+):
+    """Base error for invalid purchase-order references."""
+
+
+class PurchaseOrderCompanyInvalidError(
+    PurchaseOrderReferenceError
+):
+    """Company no longer exists or is inactive."""
+
+
+class PurchaseOrderCounterpartyInvalidError(
+    PurchaseOrderReferenceError
+):
+    """Counterparty no longer exists or is inactive."""
+
+
+class PurchaseOrderContractInvalidError(
+    PurchaseOrderReferenceError
+):
+    """Contract is missing or no longer valid."""
+
+
+class PurchaseOrderProductInvalidError(
+    PurchaseOrderReferenceError
+):
+    """One or more products are missing or inactive."""
+
+
+class PurchaseOrderWarehouseInvalidError(
+    PurchaseOrderReferenceError
+):
+    """One or more warehouses are missing or inactive."""
+
+
 def validate_sales_order_confirmation(
     document: TradeDocument,
 ) -> None:
@@ -149,19 +215,25 @@ def validate_sales_order_confirmation(
         )
 
 
-async def revalidate_sales_order_references(
+async def _revalidate_order_references(
     db: AsyncSession,
     *,
     document: TradeDocument,
+    company_error: type[TradeDocumentLifecycleError],
+    counterparty_error: type[TradeDocumentLifecycleError],
+    contract_error: type[TradeDocumentLifecycleError],
+    product_error: type[TradeDocumentLifecycleError],
+    warehouse_error: type[TradeDocumentLifecycleError],
 ) -> None:
     """
-    Revalidate mutable business references at confirmation time.
+    Revalidate mutable order references immediately before
+    confirmation.
 
-    A draft may have been created while all references were valid,
-    but company/counterparty/contract/product/warehouse state may
-    have changed before confirmation.
+    Both Sales Orders and Purchase Orders use the same
+    company/counterparty/contract/product/warehouse integrity
+    rules. Direction-specific contract validation remains
+    delegated to validate_trade_document_contract().
     """
-
     company = (
         await db.execute(
             select(
@@ -175,7 +247,7 @@ async def revalidate_sales_order_references(
     ).scalar_one_or_none()
 
     if company is None:
-        raise SalesOrderCompanyInvalidError(
+        raise company_error(
             "Company is inactive or does not exist"
         )
 
@@ -194,7 +266,7 @@ async def revalidate_sales_order_references(
     ).scalar_one_or_none()
 
     if counterparty is None:
-        raise SalesOrderCounterpartyInvalidError(
+        raise counterparty_error(
             "Counterparty is inactive or does not exist"
         )
 
@@ -213,7 +285,7 @@ async def revalidate_sales_order_references(
         ).scalar_one_or_none()
 
         if contract is None:
-            raise SalesOrderContractInvalidError(
+            raise contract_error(
                 "Contract does not exist"
             )
 
@@ -232,9 +304,8 @@ async def revalidate_sales_order_references(
                     document.currency_code
                 ),
             )
-
         except TradeDocumentValidationError as exc:
-            raise SalesOrderContractInvalidError(
+            raise contract_error(
                 str(exc)
             ) from exc
 
@@ -266,7 +337,7 @@ async def revalidate_sales_order_references(
     )
 
     if invalid_product_ids:
-        raise SalesOrderProductInvalidError(
+        raise product_error(
             "Inactive, missing, or foreign products: "
             + ", ".join(
                 str(product_id)
@@ -306,7 +377,7 @@ async def revalidate_sales_order_references(
     )
 
     if invalid_warehouse_ids:
-        raise SalesOrderWarehouseInvalidError(
+        raise warehouse_error(
             "Inactive, missing, or foreign warehouses: "
             + ", ".join(
                 str(warehouse_id)
@@ -316,6 +387,58 @@ async def revalidate_sales_order_references(
                 )
             )
         )
+
+
+async def revalidate_sales_order_references(
+    db: AsyncSession,
+    *,
+    document: TradeDocument,
+) -> None:
+    await _revalidate_order_references(
+        db,
+        document=document,
+        company_error=(
+            SalesOrderCompanyInvalidError
+        ),
+        counterparty_error=(
+            SalesOrderCounterpartyInvalidError
+        ),
+        contract_error=(
+            SalesOrderContractInvalidError
+        ),
+        product_error=(
+            SalesOrderProductInvalidError
+        ),
+        warehouse_error=(
+            SalesOrderWarehouseInvalidError
+        ),
+    )
+
+
+async def revalidate_purchase_order_references(
+    db: AsyncSession,
+    *,
+    document: TradeDocument,
+) -> None:
+    await _revalidate_order_references(
+        db,
+        document=document,
+        company_error=(
+            PurchaseOrderCompanyInvalidError
+        ),
+        counterparty_error=(
+            PurchaseOrderCounterpartyInvalidError
+        ),
+        contract_error=(
+            PurchaseOrderContractInvalidError
+        ),
+        product_error=(
+            PurchaseOrderProductInvalidError
+        ),
+        warehouse_error=(
+            PurchaseOrderWarehouseInvalidError
+        ),
+    )
 
 
 def reservation_lock_order(
@@ -443,6 +566,240 @@ async def confirm_sales_order(
     )
 
     document.confirmed_at = datetime.now(
+        timezone.utc
+    )
+
+    await db.flush()
+
+    return document
+
+
+def validate_purchase_order_confirmation(
+    document: TradeDocument,
+) -> None:
+    """
+    Validate Purchase Order confirmation structure.
+
+    Purchase confirmation creates no stock reservation.
+    Warehouse is still mandatory because future receipt
+    fulfillment derives its target warehouse exclusively from
+    the persistent TradeDocumentLine.
+    """
+    if document.direction != TradeDirection.PURCHASE:
+        raise PurchaseOrderTypeError(
+            "Only purchase trade documents can be "
+            "confirmed as purchase orders"
+        )
+
+    if document.kind != TradeDocumentKind.ORDER:
+        raise PurchaseOrderTypeError(
+            "Only trade document kind 'order' can be "
+            "confirmed as a purchase order"
+        )
+
+    if document.status != TradeDocumentStatus.DRAFT:
+        raise PurchaseOrderStatusError(
+            "Only draft purchase orders can be confirmed"
+        )
+
+    if not document.lines:
+        raise PurchaseOrderLinesRequiredError(
+            "Purchase order must contain at least one line"
+        )
+
+    missing_warehouse_lines = [
+        line.line_number
+        for line in document.lines
+        if line.warehouse_id is None
+    ]
+
+    if missing_warehouse_lines:
+        raise PurchaseOrderWarehouseRequiredError(
+            "Warehouse is required before confirmation "
+            "for purchase order lines: "
+            + ", ".join(
+                str(line_number)
+                for line_number
+                in sorted(
+                    missing_warehouse_lines
+                )
+            )
+        )
+
+
+async def get_locked_purchase_order(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    document_id: int,
+) -> TradeDocument:
+    """
+    Lock one TradeDocument for Purchase Order lifecycle
+    operations.
+
+    The header lock prevents confirmation from racing with
+    draft PATCH operations.
+    """
+    result = await db.execute(
+        select(
+            TradeDocument
+        )
+        .options(
+            selectinload(
+                TradeDocument.lines
+            )
+        )
+        .where(
+            TradeDocument.id
+            == document_id,
+            TradeDocument.company_id
+            == company_id,
+        )
+        .with_for_update()
+    )
+
+    document = (
+        result.scalar_one_or_none()
+    )
+
+    if document is None:
+        raise PurchaseOrderNotFoundError(
+            "Trade document not found"
+        )
+
+    return document
+
+
+async def confirm_purchase_order(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    document_id: int,
+) -> TradeDocument:
+    """
+    Confirm one Purchase Order atomically.
+
+    Caller owns COMMIT / ROLLBACK.
+
+    Sequence:
+
+        1. lock TradeDocument header
+        2. validate purchase/order/draft structure
+        3. revalidate mutable business references
+        4. set CONFIRMED + confirmed_at
+        5. flush
+
+    Unlike Sales Order confirmation, Purchase Order
+    confirmation deliberately creates no ReservationMovement.
+    Incoming stock does not exist yet and therefore cannot be
+    reserved as warehouse inventory.
+    """
+    document = await get_locked_purchase_order(
+        db,
+        company_id=company_id,
+        document_id=document_id,
+    )
+
+    validate_purchase_order_confirmation(
+        document
+    )
+
+    await revalidate_purchase_order_references(
+        db,
+        document=document,
+    )
+
+    document.status = (
+        TradeDocumentStatus.CONFIRMED
+    )
+
+    document.confirmed_at = datetime.now(
+        timezone.utc
+    )
+
+    await db.flush()
+
+    return document
+
+
+def validate_purchase_order_cancellation(
+    document: TradeDocument,
+) -> None:
+    """
+    Validate whether a Purchase Order may be cancelled.
+
+    Allowed:
+        DRAFT
+        CONFIRMED
+
+    Rejected:
+        PARTIALLY_FULFILLED
+        FULFILLED
+        CANCELLED
+
+    Purchase Orders have no stock reservations, so cancellation
+    requires no ReservationMovement release.
+    """
+    if document.direction != TradeDirection.PURCHASE:
+        raise PurchaseOrderTypeError(
+            "Only purchase trade documents can be "
+            "cancelled as purchase orders"
+        )
+
+    if document.kind != TradeDocumentKind.ORDER:
+        raise PurchaseOrderTypeError(
+            "Only trade document kind 'order' can be "
+            "cancelled as a purchase order"
+        )
+
+    if document.status not in (
+        TradeDocumentStatus.DRAFT,
+        TradeDocumentStatus.CONFIRMED,
+    ):
+        raise PurchaseOrderStatusError(
+            "Only draft or confirmed purchase orders "
+            "can be cancelled"
+        )
+
+
+async def cancel_purchase_order(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    document_id: int,
+) -> TradeDocument:
+    """
+    Cancel one Purchase Order atomically.
+
+    Caller owns COMMIT / ROLLBACK.
+
+    DRAFT:
+        set CANCELLED
+
+    CONFIRMED:
+        set CANCELLED
+
+    No reservation movements are created or released.
+
+    PARTIALLY_FULFILLED and FULFILLED are rejected because
+    already received inventory must first be corrected through
+    Purchase Order fulfillment reversal / return semantics.
+    """
+    document = await get_locked_purchase_order(
+        db,
+        company_id=company_id,
+        document_id=document_id,
+    )
+
+    validate_purchase_order_cancellation(
+        document
+    )
+
+    document.status = (
+        TradeDocumentStatus.CANCELLED
+    )
+
+    document.cancelled_at = datetime.now(
         timezone.utc
     )
 

@@ -126,3 +126,59 @@ async def test_fulfillment_reversal_guard_error_is_business_error():
         DocumentReversalFulfillmentLinkedError,
         DocumentReversalError,
     )
+
+
+def make_posted_receipt() -> Document:
+    document = Document(
+        company_id=1,
+        accounting_rule_id=1,
+        number="FULFILL-RECEIPT-1",
+        document_type=DocumentType.RECEIPT,
+        document_date=date(
+            2026,
+            8,
+            28,
+        ),
+        status=DocumentStatus.POSTED,
+        created_by=1,
+    )
+
+    document.id = 200
+
+    return document
+
+
+@pytest.mark.asyncio
+async def test_linked_fulfillment_receipt_cannot_be_generically_reversed():
+    document = make_posted_receipt()
+
+    db = FakeDB(
+        [
+            document,
+            600,
+        ]
+    )
+
+    with pytest.raises(
+        DocumentReversalFulfillmentLinkedError,
+        match="linked to a trade fulfillment",
+    ):
+        await reverse_document(
+            db=db,
+            company_id=1,
+            document_id=200,
+            reversal_date=date(
+                2026,
+                8,
+                28,
+            ),
+            reversed_by=1,
+        )
+
+    assert db.execute_count == 2
+    assert db.flush_count == 0
+
+    assert (
+        document.status
+        == DocumentStatus.POSTED
+    )
