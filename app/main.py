@@ -5,6 +5,7 @@ from app.api.v1.accounting_periods import router as accounting_periods_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.companies import router as companies_router
 from app.api.v1.counterparties import router as counterparties_router
+from app.api.v1.counterparty_open_items import router as counterparty_open_items_router
 from app.api.v1.contracts import router as contracts_router
 from app.api.v1.company_users import router as company_users_router
 from app.api.v1.documents import router as documents_router
@@ -57,6 +58,11 @@ app.include_router(
 
 app.include_router(
     counterparties_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    counterparty_open_items_router,
     prefix="/api/v1",
 )
 

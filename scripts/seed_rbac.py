@@ -24,6 +24,7 @@ PERMISSIONS = [
     "contracts.create",
     "contracts.update",
     "trade_documents.read",
+    "counterparty_open_items.read",
     "trade_documents.create",
     "trade_documents.update",
     "trade_documents.confirm",

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,12 @@ from app.models.product import Product
 from app.models.trade_document import TradeDocument
 from app.models.trade_document_line import TradeDocumentLine
 from app.models.warehouse import Warehouse
+from app.services.counterparty_open_item_service import (
+    CounterpartyOpenItemError,
+    cancel_counterparty_open_item_for_invoice,
+    create_counterparty_open_item_for_invoice,
+)
+
 from app.services.reservation_persistence_service import (
     get_reserved_quantity_for_source_line,
     release_source_line,
@@ -215,7 +222,7 @@ def validate_sales_order_confirmation(
         )
 
 
-async def _revalidate_order_references(
+async def _revalidate_trade_document_references(
     db: AsyncSession,
     *,
     document: TradeDocument,
@@ -226,10 +233,10 @@ async def _revalidate_order_references(
     warehouse_error: type[TradeDocumentLifecycleError],
 ) -> None:
     """
-    Revalidate mutable order references immediately before
+    Revalidate mutable trade-document references immediately before
     confirmation.
 
-    Both Sales Orders and Purchase Orders use the same
+    Orders and invoices use the same
     company/counterparty/contract/product/warehouse integrity
     rules. Direction-specific contract validation remains
     delegated to validate_trade_document_contract().
@@ -394,7 +401,7 @@ async def revalidate_sales_order_references(
     *,
     document: TradeDocument,
 ) -> None:
-    await _revalidate_order_references(
+    await _revalidate_trade_document_references(
         db,
         document=document,
         company_error=(
@@ -420,7 +427,7 @@ async def revalidate_purchase_order_references(
     *,
     document: TradeDocument,
 ) -> None:
-    await _revalidate_order_references(
+    await _revalidate_trade_document_references(
         db,
         document=document,
         company_error=(
@@ -985,3 +992,461 @@ async def cancel_sales_order(
     await db.flush()
 
     return document
+
+
+
+# ============================================================
+# TRADE INVOICE LIFECYCLE
+#
+# Invoice is a commercial billing / settlement document.
+#
+# IMPORTANT:
+#     Invoice confirmation does NOT:
+#       - move warehouse stock
+#       - create ReservationMovement
+#       - create JournalEntry
+#
+# Current Ukrainian accounting recognition remains attached to
+# fulfillment:
+#
+#     SALE ISSUE       -> receivable/revenue + COGS/inventory
+#     PURCHASE RECEIPT -> inventory/payable
+#
+# A later AR/AP open-item layer will connect those recognized
+# balances with invoices and payments without double posting.
+# ============================================================
+
+
+class TradeInvoiceNotFoundError(
+    TradeDocumentLifecycleError
+):
+    """Trade invoice was not found in the company."""
+
+
+class TradeInvoiceTypeError(
+    TradeDocumentLifecycleError
+):
+    """Trade document is not the expected invoice type."""
+
+
+class TradeInvoiceStatusError(
+    TradeDocumentLifecycleError
+):
+    """Trade invoice is in an invalid lifecycle state."""
+
+
+class TradeInvoiceLinesRequiredError(
+    TradeDocumentLifecycleError
+):
+    """Trade invoice must contain at least one line."""
+
+
+class TradeInvoiceAmountError(
+    TradeDocumentLifecycleError
+):
+    """Trade invoice total must be greater than zero."""
+
+
+class TradeInvoiceOpenItemStateError(
+    TradeDocumentLifecycleError
+):
+    """Trade Invoice AR/AP obligation state is invalid."""
+
+
+class TradeInvoiceReferenceError(
+    TradeDocumentLifecycleError
+):
+    """Base error for invalid invoice references."""
+
+
+class TradeInvoiceCompanyInvalidError(
+    TradeInvoiceReferenceError
+):
+    """Company no longer exists or is inactive."""
+
+
+class TradeInvoiceCounterpartyInvalidError(
+    TradeInvoiceReferenceError
+):
+    """Counterparty no longer exists or is inactive."""
+
+
+class TradeInvoiceContractInvalidError(
+    TradeInvoiceReferenceError
+):
+    """Contract is missing or no longer valid."""
+
+
+class TradeInvoiceProductInvalidError(
+    TradeInvoiceReferenceError
+):
+    """One or more products are missing or inactive."""
+
+
+class TradeInvoiceWarehouseInvalidError(
+    TradeInvoiceReferenceError
+):
+    """
+    Optional warehouse reference exists but is invalid.
+
+    Warehouse is deliberately NOT required for invoices.
+    """
+
+
+def calculate_trade_invoice_total(
+    document: TradeDocument,
+) -> Decimal:
+    """
+    Calculate commercial invoice gross line total before tax.
+
+    Currency rounding/tax composition belongs to the later invoice
+    amount/tax layer. For lifecycle validation we only need to prove
+    that the commercial document has a positive monetary value.
+    """
+    return sum(
+        (
+            Decimal(line.quantity)
+            * Decimal(line.unit_price)
+            for line in document.lines
+        ),
+        Decimal("0"),
+    )
+
+
+def validate_trade_invoice_confirmation(
+    document: TradeDocument,
+    *,
+    expected_direction: TradeDirection,
+) -> None:
+    """
+    Validate structural requirements for confirming a trade invoice.
+
+    Both Sales and Purchase Invoices:
+        - must have the expected direction
+        - must have kind INVOICE
+        - must be DRAFT
+        - must contain lines
+        - must have positive total value
+
+    Warehouse is optional because invoice is not a warehouse movement.
+    """
+    if expected_direction not in (
+        TradeDirection.SALE,
+        TradeDirection.PURCHASE,
+    ):
+        raise ValueError(
+            "Unsupported invoice direction"
+        )
+
+    if document.direction != expected_direction:
+        raise TradeInvoiceTypeError(
+            "Trade invoice direction does not match "
+            f"expected direction '{expected_direction.value}'"
+        )
+
+    if document.kind != TradeDocumentKind.INVOICE:
+        raise TradeInvoiceTypeError(
+            "Only trade document kind 'invoice' can be "
+            "confirmed as a trade invoice"
+        )
+
+    if document.status != TradeDocumentStatus.DRAFT:
+        raise TradeInvoiceStatusError(
+            "Only draft trade invoices can be confirmed"
+        )
+
+    if not document.lines:
+        raise TradeInvoiceLinesRequiredError(
+            "Trade invoice must contain at least one line"
+        )
+
+    total = calculate_trade_invoice_total(
+        document
+    )
+
+    if total <= Decimal("0"):
+        raise TradeInvoiceAmountError(
+            "Trade invoice total must be greater than zero"
+        )
+
+
+def validate_trade_invoice_cancellation(
+    document: TradeDocument,
+    *,
+    expected_direction: TradeDirection,
+) -> None:
+    """
+    Validate invoice cancellation.
+
+    v1 allows:
+        DRAFT     -> CANCELLED
+        CONFIRMED -> CANCELLED
+
+    Once AR/AP settlement allocations exist, cancellation of a
+    financially referenced invoice will require additional checks.
+    """
+    if expected_direction not in (
+        TradeDirection.SALE,
+        TradeDirection.PURCHASE,
+    ):
+        raise ValueError(
+            "Unsupported invoice direction"
+        )
+
+    if document.direction != expected_direction:
+        raise TradeInvoiceTypeError(
+            "Trade invoice direction does not match "
+            f"expected direction '{expected_direction.value}'"
+        )
+
+    if document.kind != TradeDocumentKind.INVOICE:
+        raise TradeInvoiceTypeError(
+            "Only trade document kind 'invoice' can be "
+            "cancelled as a trade invoice"
+        )
+
+    if document.status not in (
+        TradeDocumentStatus.DRAFT,
+        TradeDocumentStatus.CONFIRMED,
+    ):
+        raise TradeInvoiceStatusError(
+            "Only draft or confirmed trade invoices "
+            "can be cancelled"
+        )
+
+
+async def get_locked_trade_invoice(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    document_id: int,
+) -> TradeDocument:
+    """
+    Lock one TradeDocument invoice header and load its lines.
+
+    The same header lock is used by draft PATCH, preventing invoice
+    confirmation/cancellation from racing with draft editing.
+    """
+    document = (
+        await db.execute(
+            select(
+                TradeDocument
+            )
+            .options(
+                selectinload(
+                    TradeDocument.lines
+                )
+            )
+            .where(
+                TradeDocument.id == document_id,
+                TradeDocument.company_id == company_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    if document is None:
+        raise TradeInvoiceNotFoundError(
+            "Trade invoice not found"
+        )
+
+    return document
+
+
+async def revalidate_trade_invoice_references(
+    db: AsyncSession,
+    *,
+    document: TradeDocument,
+) -> None:
+    """
+    Revalidate mutable invoice references immediately before confirm.
+
+    Warehouse remains optional. If a warehouse is explicitly present
+    on an invoice line it must still be active and company-scoped.
+    """
+    await _revalidate_trade_document_references(
+        db,
+        document=document,
+        company_error=(
+            TradeInvoiceCompanyInvalidError
+        ),
+        counterparty_error=(
+            TradeInvoiceCounterpartyInvalidError
+        ),
+        contract_error=(
+            TradeInvoiceContractInvalidError
+        ),
+        product_error=(
+            TradeInvoiceProductInvalidError
+        ),
+        warehouse_error=(
+            TradeInvoiceWarehouseInvalidError
+        ),
+    )
+
+
+async def _confirm_trade_invoice(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    document_id: int,
+    expected_direction: TradeDirection,
+) -> TradeDocument:
+    """
+    Confirm one Sales or Purchase Invoice atomically.
+
+    Caller owns COMMIT / ROLLBACK.
+
+    No stock, reservation or accounting movement is created.
+    """
+    document = await get_locked_trade_invoice(
+        db,
+        company_id=company_id,
+        document_id=document_id,
+    )
+
+    validate_trade_invoice_confirmation(
+        document,
+        expected_direction=expected_direction,
+    )
+
+    await revalidate_trade_invoice_references(
+        db,
+        document=document,
+    )
+
+    document.status = (
+        TradeDocumentStatus.CONFIRMED
+    )
+
+    document.confirmed_at = datetime.now(
+        timezone.utc
+    )
+
+    try:
+        await create_counterparty_open_item_for_invoice(
+            db,
+            document=document,
+        )
+    except CounterpartyOpenItemError as exc:
+        raise TradeInvoiceOpenItemStateError(
+            str(exc)
+        ) from exc
+
+    await db.flush()
+
+    return document
+
+
+async def confirm_sales_invoice(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    document_id: int,
+) -> TradeDocument:
+    """Confirm a SALE / INVOICE document."""
+    return await _confirm_trade_invoice(
+        db,
+        company_id=company_id,
+        document_id=document_id,
+        expected_direction=TradeDirection.SALE,
+    )
+
+
+async def confirm_purchase_invoice(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    document_id: int,
+) -> TradeDocument:
+    """Confirm a PURCHASE / INVOICE document."""
+    return await _confirm_trade_invoice(
+        db,
+        company_id=company_id,
+        document_id=document_id,
+        expected_direction=TradeDirection.PURCHASE,
+    )
+
+
+async def _cancel_trade_invoice(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    document_id: int,
+    expected_direction: TradeDirection,
+) -> TradeDocument:
+    """
+    Cancel one Sales or Purchase Invoice atomically.
+
+    Caller owns COMMIT / ROLLBACK.
+
+    No references are revalidated on cancellation because an inactive
+    counterparty/product must not prevent correction of an existing
+    invoice.
+    """
+    document = await get_locked_trade_invoice(
+        db,
+        company_id=company_id,
+        document_id=document_id,
+    )
+
+    validate_trade_invoice_cancellation(
+        document,
+        expected_direction=expected_direction,
+    )
+
+    if (
+        document.status
+        == TradeDocumentStatus.CONFIRMED
+    ):
+        try:
+            await cancel_counterparty_open_item_for_invoice(
+                db,
+                document=document,
+            )
+        except CounterpartyOpenItemError as exc:
+            raise TradeInvoiceOpenItemStateError(
+                str(exc)
+            ) from exc
+
+    document.status = (
+        TradeDocumentStatus.CANCELLED
+    )
+
+    document.cancelled_at = datetime.now(
+        timezone.utc
+    )
+
+    await db.flush()
+
+    return document
+
+
+async def cancel_sales_invoice(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    document_id: int,
+) -> TradeDocument:
+    """Cancel a SALE / INVOICE document."""
+    return await _cancel_trade_invoice(
+        db,
+        company_id=company_id,
+        document_id=document_id,
+        expected_direction=TradeDirection.SALE,
+    )
+
+
+async def cancel_purchase_invoice(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    document_id: int,
+) -> TradeDocument:
+    """Cancel a PURCHASE / INVOICE document."""
+    return await _cancel_trade_invoice(
+        db,
+        company_id=company_id,
+        document_id=document_id,
+        expected_direction=TradeDirection.PURCHASE,
+    )

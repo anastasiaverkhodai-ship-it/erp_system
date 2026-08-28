@@ -42,3 +42,7 @@ from app.models.trade_document import TradeDocument
 from app.models.trade_document_line import TradeDocumentLine
 from app.models.trade_fulfillment import TradeFulfillment
 from app.models.trade_fulfillment_line import TradeFulfillmentLine
+
+from app.models.counterparty_open_item import (
+    CounterpartyOpenItem,
+)

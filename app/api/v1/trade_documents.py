@@ -31,6 +31,7 @@ from app.schemas.trade_document import (
 )
 from app.services.trade_document_types import (
     TradeDirection,
+    TradeDocumentKind,
     TradeDocumentStatus,
 )
 from app.services.trade_document_validation import (
@@ -71,9 +72,20 @@ from app.services.trade_document_lifecycle_service import (
     SalesOrderStatusError,
     SalesOrderTypeError,
     SalesOrderWarehouseRequiredError,
+    TradeInvoiceAmountError,
+    TradeInvoiceLinesRequiredError,
+    TradeInvoiceNotFoundError,
+    TradeInvoiceOpenItemStateError,
+    TradeInvoiceReferenceError,
+    TradeInvoiceStatusError,
+    TradeInvoiceTypeError,
+    cancel_purchase_invoice,
     cancel_purchase_order,
+    cancel_sales_invoice,
     cancel_sales_order,
+    confirm_purchase_invoice,
     confirm_purchase_order,
+    confirm_sales_invoice,
     confirm_sales_order,
 )
 
@@ -172,7 +184,7 @@ async def _validate_contract(
     except TradeDocumentValidationError as exc:
         raise HTTPException(
             status_code=(
-                status.HTTP_422_UNPROCESSABLE_ENTITY
+                status.HTTP_422_UNPROCESSABLE_CONTENT
             ),
             detail=str(exc),
         ) from exc
@@ -331,6 +343,45 @@ async def _load_trade_document(
 
 
 
+async def _get_trade_document_lifecycle_identity(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    document_id: int,
+) -> tuple[
+    TradeDirection,
+    TradeDocumentKind,
+]:
+    """
+    Resolve direction + kind for lifecycle API dispatch.
+
+    Domain services still acquire row locks and revalidate the
+    document before mutating state. This query is dispatch metadata.
+    """
+    row = (
+        await db.execute(
+            select(
+                TradeDocument.direction,
+                TradeDocument.kind,
+            ).where(
+                TradeDocument.id == document_id,
+                TradeDocument.company_id == company_id,
+            )
+        )
+    ).one_or_none()
+
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trade document not found",
+        )
+
+    return (
+        row[0],
+        row[1],
+    )
+
+
 async def _get_trade_document_direction(
     db: AsyncSession,
     *,
@@ -338,30 +389,18 @@ async def _get_trade_document_direction(
     document_id: int,
 ) -> TradeDirection:
     """
-    Resolve TradeDocument direction for API lifecycle dispatch.
-
-    Domain services still lock and revalidate the document before
-    performing any state transition, so this lookup is dispatch
-    metadata only.
+    Compatibility helper retained for existing internal imports/tests.
     """
-    direction = (
-        await db.execute(
-            select(
-                TradeDocument.direction
-            ).where(
-                TradeDocument.id == document_id,
-                TradeDocument.company_id == company_id,
-            )
+    direction, _kind = (
+        await _get_trade_document_lifecycle_identity(
+            db,
+            company_id=company_id,
+            document_id=document_id,
         )
-    ).scalar_one_or_none()
-
-    if direction is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Trade document not found",
-        )
+    )
 
     return direction
+
 
 
 @router.get(
@@ -627,7 +666,7 @@ async def update_trade_document(
         if invalid_null_fields:
             raise HTTPException(
                 status_code=(
-                    status.HTTP_422_UNPROCESSABLE_ENTITY
+                    status.HTTP_422_UNPROCESSABLE_CONTENT
                 ),
                 detail=(
                     "Fields cannot be null: "
@@ -710,7 +749,7 @@ async def update_trade_document(
             if data.lines is None:
                 raise HTTPException(
                     status_code=(
-                        status.HTTP_422_UNPROCESSABLE_ENTITY
+                        status.HTTP_422_UNPROCESSABLE_CONTENT
                     ),
                     detail=(
                         "Trade document lines "
@@ -826,38 +865,72 @@ async def confirm_trade_document_sales_order(
     ),
 ):
     """
-    Confirm a draft SALE or PURCHASE Order atomically.
+    Confirm a draft Trade Order or Trade Invoice atomically.
 
-    The public route is direction-neutral. The existing function
-    name is retained for backward compatibility.
+    Compatibility function name is retained.
     """
     try:
-        direction = await _get_trade_document_direction(
+        (
+            direction,
+            kind,
+        ) = await _get_trade_document_lifecycle_identity(
             db,
             company_id=company_id,
             document_id=document_id,
         )
 
-        if direction == TradeDirection.SALE:
-            document = await confirm_sales_order(
-                db,
-                company_id=company_id,
-                document_id=document_id,
-            )
+        if kind == TradeDocumentKind.ORDER:
+            if direction == TradeDirection.SALE:
+                document = await confirm_sales_order(
+                    db,
+                    company_id=company_id,
+                    document_id=document_id,
+                )
 
-        elif direction == TradeDirection.PURCHASE:
-            document = await confirm_purchase_order(
-                db,
-                company_id=company_id,
-                document_id=document_id,
-            )
+            elif direction == TradeDirection.PURCHASE:
+                document = await confirm_purchase_order(
+                    db,
+                    company_id=company_id,
+                    document_id=document_id,
+                )
+
+            else:
+                raise HTTPException(
+                    status_code=(
+                        status.HTTP_422_UNPROCESSABLE_CONTENT
+                    ),
+                    detail="Unsupported trade document direction",
+                )
+
+        elif kind == TradeDocumentKind.INVOICE:
+            if direction == TradeDirection.SALE:
+                document = await confirm_sales_invoice(
+                    db,
+                    company_id=company_id,
+                    document_id=document_id,
+                )
+
+            elif direction == TradeDirection.PURCHASE:
+                document = await confirm_purchase_invoice(
+                    db,
+                    company_id=company_id,
+                    document_id=document_id,
+                )
+
+            else:
+                raise HTTPException(
+                    status_code=(
+                        status.HTTP_422_UNPROCESSABLE_CONTENT
+                    ),
+                    detail="Unsupported trade document direction",
+                )
 
         else:
             raise HTTPException(
                 status_code=(
-                    status.HTTP_422_UNPROCESSABLE_ENTITY
+                    status.HTTP_422_UNPROCESSABLE_CONTENT
                 ),
-                detail="Unsupported trade document direction",
+                detail="Unsupported trade document kind",
             )
 
         document_id_value = document.id
@@ -871,6 +944,7 @@ async def confirm_trade_document_sales_order(
     except (
         SalesOrderNotFoundError,
         PurchaseOrderNotFoundError,
+        TradeInvoiceNotFoundError,
     ) as exc:
         await db.rollback()
 
@@ -882,6 +956,8 @@ async def confirm_trade_document_sales_order(
     except (
         SalesOrderStatusError,
         PurchaseOrderStatusError,
+        TradeInvoiceStatusError,
+        TradeInvoiceOpenItemStateError,
     ) as exc:
         await db.rollback()
 
@@ -899,12 +975,16 @@ async def confirm_trade_document_sales_order(
         PurchaseOrderLinesRequiredError,
         PurchaseOrderWarehouseRequiredError,
         PurchaseOrderReferenceError,
+        TradeInvoiceTypeError,
+        TradeInvoiceLinesRequiredError,
+        TradeInvoiceAmountError,
+        TradeInvoiceReferenceError,
     ) as exc:
         await db.rollback()
 
         raise HTTPException(
             status_code=(
-                status.HTTP_422_UNPROCESSABLE_ENTITY
+                status.HTTP_422_UNPROCESSABLE_CONTENT
             ),
             detail=str(exc),
         ) from exc
@@ -923,7 +1003,7 @@ async def confirm_trade_document_sales_order(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "Trade order could not be confirmed "
+                "Trade document could not be confirmed "
                 "because of a data conflict"
             ),
         ) from exc
@@ -954,39 +1034,72 @@ async def cancel_trade_document_sales_order(
     ),
 ):
     """
-    Cancel a SALE or PURCHASE Order atomically.
+    Cancel a Trade Order or Trade Invoice atomically.
 
-    SALE confirmation reservations are released by the Sales
-    lifecycle service. PURCHASE cancellation never creates or
-    releases reservation movements.
+    Compatibility function name is retained.
     """
     try:
-        direction = await _get_trade_document_direction(
+        (
+            direction,
+            kind,
+        ) = await _get_trade_document_lifecycle_identity(
             db,
             company_id=company_id,
             document_id=document_id,
         )
 
-        if direction == TradeDirection.SALE:
-            document = await cancel_sales_order(
-                db,
-                company_id=company_id,
-                document_id=document_id,
-            )
+        if kind == TradeDocumentKind.ORDER:
+            if direction == TradeDirection.SALE:
+                document = await cancel_sales_order(
+                    db,
+                    company_id=company_id,
+                    document_id=document_id,
+                )
 
-        elif direction == TradeDirection.PURCHASE:
-            document = await cancel_purchase_order(
-                db,
-                company_id=company_id,
-                document_id=document_id,
-            )
+            elif direction == TradeDirection.PURCHASE:
+                document = await cancel_purchase_order(
+                    db,
+                    company_id=company_id,
+                    document_id=document_id,
+                )
+
+            else:
+                raise HTTPException(
+                    status_code=(
+                        status.HTTP_422_UNPROCESSABLE_CONTENT
+                    ),
+                    detail="Unsupported trade document direction",
+                )
+
+        elif kind == TradeDocumentKind.INVOICE:
+            if direction == TradeDirection.SALE:
+                document = await cancel_sales_invoice(
+                    db,
+                    company_id=company_id,
+                    document_id=document_id,
+                )
+
+            elif direction == TradeDirection.PURCHASE:
+                document = await cancel_purchase_invoice(
+                    db,
+                    company_id=company_id,
+                    document_id=document_id,
+                )
+
+            else:
+                raise HTTPException(
+                    status_code=(
+                        status.HTTP_422_UNPROCESSABLE_CONTENT
+                    ),
+                    detail="Unsupported trade document direction",
+                )
 
         else:
             raise HTTPException(
                 status_code=(
-                    status.HTTP_422_UNPROCESSABLE_ENTITY
+                    status.HTTP_422_UNPROCESSABLE_CONTENT
                 ),
-                detail="Unsupported trade document direction",
+                detail="Unsupported trade document kind",
             )
 
         document_id_value = document.id
@@ -1000,6 +1113,7 @@ async def cancel_trade_document_sales_order(
     except (
         SalesOrderNotFoundError,
         PurchaseOrderNotFoundError,
+        TradeInvoiceNotFoundError,
     ) as exc:
         await db.rollback()
 
@@ -1012,6 +1126,8 @@ async def cancel_trade_document_sales_order(
         SalesOrderStatusError,
         SalesOrderReservationStateError,
         PurchaseOrderStatusError,
+        TradeInvoiceStatusError,
+        TradeInvoiceOpenItemStateError,
         ReservationPersistenceError,
     ) as exc:
         await db.rollback()
@@ -1028,12 +1144,16 @@ async def cancel_trade_document_sales_order(
         PurchaseOrderTypeError,
         PurchaseOrderLinesRequiredError,
         PurchaseOrderWarehouseRequiredError,
+        TradeInvoiceTypeError,
+        TradeInvoiceLinesRequiredError,
+        TradeInvoiceAmountError,
+        TradeInvoiceReferenceError,
     ) as exc:
         await db.rollback()
 
         raise HTTPException(
             status_code=(
-                status.HTTP_422_UNPROCESSABLE_ENTITY
+                status.HTTP_422_UNPROCESSABLE_CONTENT
             ),
             detail=str(exc),
         ) from exc
@@ -1044,7 +1164,7 @@ async def cancel_trade_document_sales_order(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "Trade order could not be cancelled "
+                "Trade document could not be cancelled "
                 "because of a data conflict"
             ),
         ) from exc
@@ -1079,26 +1199,33 @@ async def fulfill_trade_document_sales_order(
     ),
 ):
     """
-    Fulfill part or all of a confirmed SALE or PURCHASE Order.
+    Fulfill part or all of a confirmed Trade ORDER.
 
-    SALE:
-        persistent fulfillment -> warehouse ISSUE
-        -> reservation CONSUME -> stock/cost/accounting.
+    SALE ORDER     -> warehouse ISSUE.
+    PURCHASE ORDER -> warehouse RECEIPT.
 
-    PURCHASE:
-        persistent fulfillment -> warehouse RECEIPT
-        -> stock/cost/accounting.
-
-    Product and warehouse are always derived from the persistent
-    source TradeDocumentLine. The JSON request/response contract
-    remains backward compatible with the Sales Order API.
+    Trade INVOICE is not a warehouse fulfillment source.
     """
     try:
-        direction = await _get_trade_document_direction(
+        (
+            direction,
+            kind,
+        ) = await _get_trade_document_lifecycle_identity(
             db,
             company_id=company_id,
             document_id=document_id,
         )
+
+        if kind != TradeDocumentKind.ORDER:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT
+                ),
+                detail=(
+                    "Only trade document kind 'order' "
+                    "can be fulfilled"
+                ),
+            )
 
         if direction == TradeDirection.SALE:
             execution_result = (
@@ -1163,7 +1290,7 @@ async def fulfill_trade_document_sales_order(
         else:
             raise HTTPException(
                 status_code=(
-                    status.HTTP_422_UNPROCESSABLE_ENTITY
+                    status.HTTP_422_UNPROCESSABLE_CONTENT
                 ),
                 detail="Unsupported trade document direction",
             )
@@ -1261,20 +1388,30 @@ async def reverse_trade_document_sales_order_fulfillment(
     ),
 ):
     """
-    Reverse one exact persistent SALE or PURCHASE fulfillment.
+    Reverse one exact persistent Trade ORDER fulfillment.
 
-    SALE reverses the linked ISSUE and restores reservation state.
-    PURCHASE reverses the linked RECEIPT and has no reservation
-    operations.
-
-    TradeFulfillment and mappings remain persistent audit history.
+    Trade INVOICE has no warehouse fulfillment to reverse.
     """
     try:
-        direction = await _get_trade_document_direction(
+        (
+            direction,
+            kind,
+        ) = await _get_trade_document_lifecycle_identity(
             db,
             company_id=company_id,
             document_id=document_id,
         )
+
+        if kind != TradeDocumentKind.ORDER:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT
+                ),
+                detail=(
+                    "Only trade document kind 'order' "
+                    "can have fulfillment reversal"
+                ),
+            )
 
         if direction == TradeDirection.SALE:
             result = (
@@ -1311,7 +1448,7 @@ async def reverse_trade_document_sales_order_fulfillment(
         else:
             raise HTTPException(
                 status_code=(
-                    status.HTTP_422_UNPROCESSABLE_ENTITY
+                    status.HTTP_422_UNPROCESSABLE_CONTENT
                 ),
                 detail="Unsupported trade document direction",
             )
@@ -1348,7 +1485,7 @@ async def reverse_trade_document_sales_order_fulfillment(
 
         raise HTTPException(
             status_code=(
-                status.HTTP_422_UNPROCESSABLE_ENTITY
+                status.HTTP_422_UNPROCESSABLE_CONTENT
             ),
             detail=str(exc),
         ) from exc
