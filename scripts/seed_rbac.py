@@ -29,6 +29,7 @@ PERMISSIONS = [
     "trade_documents.confirm",
     "trade_documents.cancel",
     "trade_documents.fulfill",
+    "trade_documents.fulfillments.reverse",
     "warehouse.read",
     "warehouse.create",
     "warehouse.update",

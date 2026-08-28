@@ -25,6 +25,11 @@ FULFILL_PATH = (
     f"{DETAIL_PATH}/fulfill"
 )
 
+FULFILLMENT_REVERSE_PATH = (
+    f"{DETAIL_PATH}/fulfillments/"
+    "{fulfillment_id}/reverse"
+)
+
 
 def _paths():
     return app.openapi()["paths"]
@@ -104,6 +109,7 @@ def test_only_expected_trade_document_paths() -> None:
         CONFIRM_PATH,
         CANCEL_PATH,
         FULFILL_PATH,
+        FULFILLMENT_REVERSE_PATH,
     }
 
 

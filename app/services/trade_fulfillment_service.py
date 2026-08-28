@@ -23,10 +23,16 @@ from app.models.trade_fulfillment_line import (
 )
 from app.services.reservation_persistence_service import (
     consume_source_line_reservation,
+    get_locked_source_line,
     get_reserved_quantity_for_source_line,
+    reserve_source_line,
 )
 from app.services.document_posting import (
     post_document,
+)
+from app.services.document_reversal import (
+    DocumentReversalError,
+    reverse_document_for_trade_fulfillment,
 )
 from app.services.trade_document_lifecycle_service import (
     get_locked_trade_document,
@@ -1061,4 +1067,575 @@ async def execute_sales_order_fulfillment(
         warehouse_document=posted_document,
         fulfillment=fulfillment,
         journal_entry=journal_entry,
+    )
+
+
+class SalesOrderFulfillmentReversalNotFoundError(
+    SalesOrderFulfillmentError
+):
+    """Requested persistent fulfillment does not exist."""
+
+
+class SalesOrderFulfillmentReversalStatusError(
+    SalesOrderFulfillmentError
+):
+    """Sales Order cannot reverse fulfillment in this state."""
+
+
+class SalesOrderFulfillmentReversalStateError(
+    SalesOrderFulfillmentError
+):
+    """Persistent fulfillment reversal state is invalid."""
+
+
+@dataclass(
+    frozen=True,
+    slots=True,
+)
+class SalesOrderFulfillmentReversalExecutionResult:
+    """
+    Result of one atomic Sales Order fulfillment reversal.
+
+    Caller owns COMMIT / ROLLBACK.
+    """
+
+    sales_order: TradeDocument
+    warehouse_document: Document
+    fulfillment: TradeFulfillment
+
+
+def validate_sales_order_fulfillment_reversal_state(
+    document: TradeDocument,
+) -> None:
+    """
+    A fulfillment can only be reversed from an order that
+    currently has active posted fulfillment.
+    """
+
+    if document.direction != TradeDirection.SALE:
+        raise SalesOrderFulfillmentTypeError(
+            "Only sale trade documents can reverse "
+            "sales-order fulfillment"
+        )
+
+    if document.kind != TradeDocumentKind.ORDER:
+        raise SalesOrderFulfillmentTypeError(
+            "Only trade document kind 'order' can reverse "
+            "sales-order fulfillment"
+        )
+
+    if document.status not in (
+        TradeDocumentStatus.PARTIALLY_FULFILLED,
+        TradeDocumentStatus.FULFILLED,
+    ):
+        raise SalesOrderFulfillmentReversalStatusError(
+            "Only partially fulfilled or fulfilled "
+            "sales orders can reverse fulfillment"
+        )
+
+    if not document.lines:
+        raise SalesOrderFulfillmentLinesRequiredError(
+            "Sales order must contain at least one line"
+        )
+
+
+async def get_locked_trade_fulfillment(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    trade_document_id: int,
+    fulfillment_id: int,
+) -> TradeFulfillment:
+    """
+    Lock one exact fulfillment header belonging to the
+    requested Sales Order and company.
+    """
+
+    result = await db.execute(
+        select(
+            TradeFulfillment
+        )
+        .where(
+            TradeFulfillment.id
+            == fulfillment_id,
+            TradeFulfillment.company_id
+            == company_id,
+            TradeFulfillment.trade_document_id
+            == trade_document_id,
+        )
+        .with_for_update()
+    )
+
+    fulfillment = (
+        result.scalar_one_or_none()
+    )
+
+    if fulfillment is None:
+        raise (
+            SalesOrderFulfillmentReversalNotFoundError(
+                "Trade fulfillment not found"
+            )
+        )
+
+    return fulfillment
+
+
+async def get_trade_fulfillment_lines_for_reversal(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    trade_document_id: int,
+    fulfillment_id: int,
+) -> tuple[TradeFulfillmentLine, ...]:
+    """
+    Lock persistent fulfillment mappings in deterministic
+    source stock-key order.
+    """
+
+    result = await db.execute(
+        select(
+            TradeFulfillmentLine
+        )
+        .where(
+            TradeFulfillmentLine.company_id
+            == company_id,
+            TradeFulfillmentLine.trade_document_id
+            == trade_document_id,
+            TradeFulfillmentLine.fulfillment_id
+            == fulfillment_id,
+        )
+        .order_by(
+            TradeFulfillmentLine.product_id,
+            TradeFulfillmentLine.warehouse_id,
+            TradeFulfillmentLine.trade_document_line_id,
+            TradeFulfillmentLine.id,
+        )
+        .with_for_update()
+    )
+
+    return tuple(
+        result.scalars().all()
+    )
+
+
+def validate_sales_order_reversal_balances(
+    document: TradeDocument,
+    *,
+    fulfilled_quantities: Mapping[
+        int,
+        Decimal,
+    ],
+    reserved_quantities: Mapping[
+        int,
+        Decimal,
+    ],
+) -> None:
+    """
+    Sales Order invariant:
+
+        active posted fulfillment
+        + outstanding reservation
+        == source quantity
+
+    The invariant must hold before and after reversal.
+    """
+
+    for line in document.lines:
+        if line.id is None or line.id <= 0:
+            raise SalesOrderFulfillmentReversalStateError(
+                "Sales order contains an unpersisted "
+                "source line"
+            )
+
+        source_quantity = Decimal(
+            line.quantity
+        )
+
+        fulfilled_quantity = Decimal(
+            fulfilled_quantities.get(
+                line.id,
+                ZERO,
+            )
+        )
+
+        reserved_quantity = Decimal(
+            reserved_quantities.get(
+                line.id,
+                ZERO,
+            )
+        )
+
+        if fulfilled_quantity < ZERO:
+            raise SalesOrderFulfillmentReversalStateError(
+                "Fulfilled quantity cannot be negative"
+            )
+
+        if reserved_quantity < ZERO:
+            raise SalesOrderFulfillmentReversalStateError(
+                "Reserved quantity cannot be negative"
+            )
+
+        if fulfilled_quantity > source_quantity:
+            raise SalesOrderFulfillmentReversalStateError(
+                "Persisted fulfillment exceeds "
+                "source quantity"
+            )
+
+        if reserved_quantity > source_quantity:
+            raise SalesOrderFulfillmentReversalStateError(
+                "Reservation exceeds source quantity"
+            )
+
+        if (
+            fulfilled_quantity
+            + reserved_quantity
+            != source_quantity
+        ):
+            raise SalesOrderFulfillmentReversalStateError(
+                "Sales order fulfillment/reservation "
+                "balance is inconsistent: "
+                f"line_id={line.id}, "
+                f"source={source_quantity}, "
+                f"fulfilled={fulfilled_quantity}, "
+                f"reserved={reserved_quantity}"
+            )
+
+
+async def execute_sales_order_fulfillment_reversal(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    trade_document_id: int,
+    fulfillment_id: int,
+    reversal_date: date,
+    reversed_by: int,
+) -> SalesOrderFulfillmentReversalExecutionResult:
+    """
+    Reverse one persistent Sales Order fulfillment atomically.
+
+    Sequence:
+
+        1. lock Sales Order header
+        2. validate Sales Order lifecycle
+        3. lock fulfillment header + mappings
+        4. validate persistent fulfillment state
+        5. lock source TradeDocumentLines deterministically
+        6. validate fulfillment/reservation invariant
+        7. reverse linked warehouse ISSUE
+        8. restore reservation with RESERVE movements
+        9. recalculate active POSTED fulfillment
+       10. recalculate Sales Order lifecycle status
+       11. validate restored invariant
+       12. flush
+
+    No commit occurs here.
+    """
+
+    if fulfillment_id <= 0:
+        raise ValueError(
+            "Fulfillment ID must be greater than zero"
+        )
+
+    # ---------------------------------------------------------
+    # 1. LOCK SALES ORDER
+    # ---------------------------------------------------------
+
+    sales_order = await get_locked_trade_document(
+        db,
+        company_id=company_id,
+        document_id=trade_document_id,
+    )
+
+    validate_sales_order_fulfillment_reversal_state(
+        sales_order
+    )
+
+    # ---------------------------------------------------------
+    # 2. LOCK FULFILLMENT
+    # ---------------------------------------------------------
+
+    fulfillment = await get_locked_trade_fulfillment(
+        db,
+        company_id=company_id,
+        trade_document_id=sales_order.id,
+        fulfillment_id=fulfillment_id,
+    )
+
+    mappings = (
+        await get_trade_fulfillment_lines_for_reversal(
+            db,
+            company_id=company_id,
+            trade_document_id=sales_order.id,
+            fulfillment_id=fulfillment.id,
+        )
+    )
+
+    if not mappings:
+        raise SalesOrderFulfillmentReversalStateError(
+            "Trade fulfillment has no line mappings"
+        )
+
+    # ---------------------------------------------------------
+    # 3. VALIDATE / AGGREGATE MAPPINGS
+    # ---------------------------------------------------------
+
+    source_lines_by_id = {
+        line.id: line
+        for line in sales_order.lines
+        if line.id is not None
+    }
+
+    quantities_to_restore: dict[
+        int,
+        Decimal,
+    ] = {}
+
+    for mapping in mappings:
+        if (
+            mapping.warehouse_document_id
+            != fulfillment.warehouse_document_id
+        ):
+            raise SalesOrderFulfillmentReversalStateError(
+                "Fulfillment line points to a different "
+                "warehouse document"
+            )
+
+        source_line = source_lines_by_id.get(
+            mapping.trade_document_line_id
+        )
+
+        if source_line is None:
+            raise SalesOrderFulfillmentReversalStateError(
+                "Fulfillment mapping references a source "
+                "line outside the Sales Order"
+            )
+
+        if (
+            source_line.product_id
+            != mapping.product_id
+        ):
+            raise SalesOrderFulfillmentReversalStateError(
+                "Fulfillment mapping product does not "
+                "match the source line"
+            )
+
+        if (
+            source_line.warehouse_id
+            != mapping.warehouse_id
+        ):
+            raise SalesOrderFulfillmentReversalStateError(
+                "Fulfillment mapping warehouse does not "
+                "match the source line"
+            )
+
+        quantity = Decimal(
+            mapping.quantity
+        )
+
+        if quantity <= ZERO:
+            raise SalesOrderFulfillmentReversalStateError(
+                "Fulfillment mapping quantity must be "
+                "greater than zero"
+            )
+
+        quantities_to_restore[
+            source_line.id
+        ] = (
+            quantities_to_restore.get(
+                source_line.id,
+                ZERO,
+            )
+            + quantity
+        )
+
+    ordered_source_lines = tuple(
+        sorted(
+            (
+                source_lines_by_id[line_id]
+                for line_id
+                in quantities_to_restore
+            ),
+            key=lambda line: (
+                line.product_id,
+                line.warehouse_id,
+                line.id,
+            ),
+        )
+    )
+
+    # ---------------------------------------------------------
+    # 4. PRELOCK SOURCE LINES
+    # ---------------------------------------------------------
+    #
+    # Reservation operations lock:
+    #
+    #     TradeDocumentLine -> StockBalance
+    #
+    # Prelocking source lines before document reversal avoids
+    # introducing the opposite lock order.
+    # ---------------------------------------------------------
+
+    for source_line in ordered_source_lines:
+        locked_line = await get_locked_source_line(
+            db,
+            company_id=company_id,
+            source_document_id=sales_order.id,
+            source_document_line_id=source_line.id,
+        )
+
+        if (
+            locked_line.product_id
+            != source_line.product_id
+            or locked_line.warehouse_id
+            != source_line.warehouse_id
+        ):
+            raise SalesOrderFulfillmentReversalStateError(
+                "Locked source line does not match "
+                "fulfillment mapping"
+            )
+
+    # ---------------------------------------------------------
+    # 5. VALIDATE CURRENT PERSISTENT BALANCE
+    # ---------------------------------------------------------
+
+    all_source_line_ids = [
+        line.id
+        for line in sales_order.lines
+        if line.id is not None
+    ]
+
+    fulfilled_before = (
+        await get_persisted_fulfilled_quantities(
+            db,
+            company_id=company_id,
+            trade_document_id=sales_order.id,
+            source_line_ids=all_source_line_ids,
+        )
+    )
+
+    reserved_before = (
+        await get_outstanding_reservation_quantities(
+            db,
+            company_id=company_id,
+            trade_document_id=sales_order.id,
+            source_line_ids=all_source_line_ids,
+        )
+    )
+
+    validate_sales_order_reversal_balances(
+        sales_order,
+        fulfilled_quantities=fulfilled_before,
+        reserved_quantities=reserved_before,
+    )
+
+    for (
+        source_line_id,
+        reversal_quantity,
+    ) in quantities_to_restore.items():
+        if (
+            reversal_quantity
+            > fulfilled_before.get(
+                source_line_id,
+                ZERO,
+            )
+        ):
+            raise SalesOrderFulfillmentReversalStateError(
+                "Fulfillment reversal quantity exceeds "
+                "currently posted fulfilled quantity"
+            )
+
+    # ---------------------------------------------------------
+    # 6. REVERSE EXACT LINKED WAREHOUSE ISSUE
+    # ---------------------------------------------------------
+
+    try:
+        reversed_document = (
+            await reverse_document_for_trade_fulfillment(
+                db,
+                company_id=company_id,
+                document_id=(
+                    fulfillment.warehouse_document_id
+                ),
+                fulfillment_id=fulfillment.id,
+                reversal_date=reversal_date,
+                reversed_by=reversed_by,
+            )
+        )
+
+    except DocumentReversalError as exc:
+        raise SalesOrderFulfillmentReversalStateError(
+            str(exc)
+        ) from exc
+
+    if (
+        reversed_document.status
+        != DocumentStatus.REVERSED
+    ):
+        raise SalesOrderFulfillmentReversalStateError(
+            "Warehouse fulfillment document "
+            "was not reversed"
+        )
+
+    # ---------------------------------------------------------
+    # 7. RESTORE RESERVATIONS
+    # ---------------------------------------------------------
+    #
+    # Physical stock has now been restored, so RESERVE can
+    # validate against the post-reversal StockBalance.
+    # ---------------------------------------------------------
+
+    for source_line in ordered_source_lines:
+        await reserve_source_line(
+            db,
+            company_id=company_id,
+            source_document_id=sales_order.id,
+            source_document_line_id=source_line.id,
+            quantity=quantities_to_restore[
+                source_line.id
+            ],
+        )
+
+    # ---------------------------------------------------------
+    # 8. RECALCULATE ACTIVE FULFILLMENT
+    # ---------------------------------------------------------
+
+    fulfilled_after = (
+        await get_persisted_fulfilled_quantities(
+            db,
+            company_id=company_id,
+            trade_document_id=sales_order.id,
+            source_line_ids=all_source_line_ids,
+        )
+    )
+
+    reserved_after = (
+        await get_outstanding_reservation_quantities(
+            db,
+            company_id=company_id,
+            trade_document_id=sales_order.id,
+            source_line_ids=all_source_line_ids,
+        )
+    )
+
+    validate_sales_order_reversal_balances(
+        sales_order,
+        fulfilled_quantities=fulfilled_after,
+        reserved_quantities=reserved_after,
+    )
+
+    sales_order.status = (
+        calculate_sales_order_fulfillment_status(
+            sales_order,
+            fulfilled_after,
+        )
+    )
+
+    await db.flush()
+
+    return (
+        SalesOrderFulfillmentReversalExecutionResult(
+            sales_order=sales_order,
+            warehouse_document=reversed_document,
+            fulfillment=fulfillment,
+        )
     )

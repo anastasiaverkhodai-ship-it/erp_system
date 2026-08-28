@@ -23,6 +23,8 @@ from app.models.warehouse import Warehouse
 from app.schemas.trade_document import (
     SalesOrderFulfillmentRequest,
     SalesOrderFulfillmentResponse,
+    SalesOrderFulfillmentReversalRequest,
+    SalesOrderFulfillmentReversalResponse,
     TradeDocumentCreate,
     TradeDocumentResponse,
     TradeDocumentUpdate,
@@ -46,6 +48,8 @@ from app.services.trade_fulfillment_service import (
     SalesOrderFulfillmentError,
     SalesOrderFulfillmentRequestLine,
     execute_sales_order_fulfillment,
+    execute_sales_order_fulfillment_reversal,
+    SalesOrderFulfillmentReversalNotFoundError,
 )
 from app.services.trade_document_lifecycle_service import (
     SalesOrderLinesRequiredError,
@@ -1073,4 +1077,127 @@ async def fulfill_trade_document_sales_order(
         ),
         fulfillment_id=fulfillment_id,
         journal_entry_id=journal_entry_id,
+    )
+
+
+
+@router.post(
+    (
+        "/{document_id}/fulfillments/"
+        "{fulfillment_id}/reverse"
+    ),
+    response_model=(
+        SalesOrderFulfillmentReversalResponse
+    ),
+)
+async def reverse_trade_document_sales_order_fulfillment(
+    company_id: int,
+    document_id: int,
+    fulfillment_id: int,
+    data: SalesOrderFulfillmentReversalRequest,
+    current_user: User = Depends(
+        get_current_user
+    ),
+    db: AsyncSession = Depends(get_db),
+    _permission=Depends(
+        require_company_permission(
+            "trade_documents.fulfillments.reverse"
+        )
+    ),
+):
+    """
+    Reverse one exact persistent Sales Order fulfillment.
+
+    The linked warehouse ISSUE, stock/costing,
+    accounting, reservation balance and Sales Order
+    lifecycle status are reversed atomically.
+    """
+
+    try:
+        result = (
+            await execute_sales_order_fulfillment_reversal(
+                db,
+                company_id=company_id,
+                trade_document_id=document_id,
+                fulfillment_id=fulfillment_id,
+                reversal_date=data.reversal_date,
+                reversed_by=current_user.id,
+            )
+        )
+
+        document_id_value = (
+            result.sales_order.id
+        )
+
+        warehouse_document_id = (
+            result.warehouse_document.id
+        )
+
+        fulfillment_id_value = (
+            result.fulfillment.id
+        )
+
+        await db.commit()
+
+    except (
+        SalesOrderNotFoundError,
+        SalesOrderFulfillmentReversalNotFoundError,
+    ) as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=(
+                status.HTTP_422_UNPROCESSABLE_ENTITY
+            ),
+            detail=str(exc),
+        ) from exc
+
+    except (
+        SalesOrderFulfillmentError,
+        ReservationPersistenceError,
+    ) as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except IntegrityError as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Sales order fulfillment could not "
+                "be reversed because of a data conflict"
+            ),
+        ) from exc
+
+    except Exception:
+        await db.rollback()
+        raise
+
+    trade_document = await _load_trade_document(
+        db,
+        company_id=company_id,
+        document_id=document_id_value,
+    )
+
+    return SalesOrderFulfillmentReversalResponse(
+        trade_document=trade_document,
+        warehouse_document_id=(
+            warehouse_document_id
+        ),
+        fulfillment_id=(
+            fulfillment_id_value
+        ),
     )

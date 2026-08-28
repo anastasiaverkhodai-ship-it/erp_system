@@ -45,12 +45,14 @@ class DocumentReversalFulfillmentLinkedError(
     """Raised for warehouse documents linked to fulfillment."""
 
 
-async def reverse_document(
+async def _reverse_document_internal(
     db: AsyncSession,
     company_id: int,
     document_id: int,
     reversal_date: date,
     reversed_by: int,
+    *,
+    fulfillment_id: int | None,
 ) -> Document:
     # ---------------------------------------------------------
     # LOCK DOCUMENT
@@ -109,15 +111,30 @@ async def reverse_document(
         )
     )
 
-    if (
+    linked_fulfillment_id = (
         fulfillment_result.scalar_one_or_none()
-        is not None
-    ):
-        raise DocumentReversalFulfillmentLinkedError(
-            "Warehouse document is linked to a trade "
-            "fulfillment and cannot be reversed through "
-            "the generic document reversal flow"
-        )
+    )
+
+    if fulfillment_id is None:
+        if linked_fulfillment_id is not None:
+            raise DocumentReversalFulfillmentLinkedError(
+                "Warehouse document is linked to a trade "
+                "fulfillment and cannot be reversed through "
+                "the generic document reversal flow"
+            )
+
+    else:
+        if linked_fulfillment_id is None:
+            raise DocumentReversalError(
+                "Warehouse document is not linked "
+                "to a trade fulfillment"
+            )
+
+        if linked_fulfillment_id != fulfillment_id:
+            raise DocumentReversalError(
+                "Warehouse document is linked to a "
+                "different trade fulfillment"
+            )
 
     # ---------------------------------------------------------
     # CHECK REVERSAL ACCOUNTING PERIOD
@@ -213,3 +230,58 @@ async def reverse_document(
     await db.flush()
 
     return document
+
+
+async def reverse_document(
+    db: AsyncSession,
+    company_id: int,
+    document_id: int,
+    reversal_date: date,
+    reversed_by: int,
+) -> Document:
+    """
+    Generic warehouse-document reversal.
+
+    Fulfillment-linked targets remain protected.
+    """
+
+    return await _reverse_document_internal(
+        db=db,
+        company_id=company_id,
+        document_id=document_id,
+        reversal_date=reversal_date,
+        reversed_by=reversed_by,
+        fulfillment_id=None,
+    )
+
+
+async def reverse_document_for_trade_fulfillment(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    document_id: int,
+    fulfillment_id: int,
+    reversal_date: date,
+    reversed_by: int,
+) -> Document:
+    """
+    Controlled reversal entry point for one exact
+    persistent TradeFulfillment target.
+
+    This is intentionally not exposed by the generic
+    warehouse Documents API.
+    """
+
+    if fulfillment_id <= 0:
+        raise ValueError(
+            "Fulfillment ID must be greater than zero"
+        )
+
+    return await _reverse_document_internal(
+        db=db,
+        company_id=company_id,
+        document_id=document_id,
+        reversal_date=reversal_date,
+        reversed_by=reversed_by,
+        fulfillment_id=fulfillment_id,
+    )

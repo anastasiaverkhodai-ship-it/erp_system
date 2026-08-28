@@ -356,3 +356,19 @@ class SalesOrderFulfillmentResponse(BaseModel):
     warehouse_document_id: int
     fulfillment_id: int
     journal_entry_id: int
+
+
+
+class SalesOrderFulfillmentReversalRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+    reversal_date: date
+
+
+class SalesOrderFulfillmentReversalResponse(BaseModel):
+    trade_document: TradeDocumentResponse
+
+    warehouse_document_id: int
+    fulfillment_id: int
