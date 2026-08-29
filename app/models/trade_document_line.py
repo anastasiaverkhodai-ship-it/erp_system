@@ -3,10 +3,12 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
+    Enum as SQLEnum,
     ForeignKey,
     ForeignKeyConstraint,
     Integer,
     Numeric,
+    String,
     UniqueConstraint,
 )
 from sqlalchemy.orm import (
@@ -16,6 +18,12 @@ from sqlalchemy.orm import (
 )
 
 from app.core.database import Base
+from app.services.tax_price_types import (
+    TaxPriceMode,
+)
+from app.services.tax_recognition_types import (
+    TaxRecognitionMethod,
+)
 
 if TYPE_CHECKING:
     from app.models.trade_document import TradeDocument
@@ -120,6 +128,64 @@ class TradeDocumentLine(Base):
                 "unit_price_nonnegative"
             ),
         ),
+        CheckConstraint(
+            (
+                "(tax_rate_code IS NULL "
+                "AND tax_recognition_method IS NULL) "
+                "OR "
+                "(tax_rate_code IS NOT NULL "
+                "AND tax_recognition_method IS NOT NULL)"
+            ),
+            name=(
+                "ck_trade_document_line_"
+                "tax_config_pair"
+            ),
+        ),
+        CheckConstraint(
+            (
+                "tax_rate_code IS NULL "
+                "OR length(trim(tax_rate_code)) > 0"
+            ),
+            name=(
+                "ck_trade_document_line_"
+                "tax_rate_code_nonempty"
+            ),
+        ),
+        CheckConstraint(
+            (
+                "tax_recognition_method IS NULL "
+                "OR tax_recognition_method IN "
+                "('first_event', 'cash_method', 'manual')"
+            ),
+            name=(
+                "ck_trade_document_line_"
+                "tax_recognition_method"
+            ),
+        ),
+        CheckConstraint(
+            (
+                "(tax_rate_code IS NULL "
+                "AND tax_price_mode IS NULL) "
+                "OR "
+                "(tax_rate_code IS NOT NULL "
+                "AND tax_price_mode IS NOT NULL)"
+            ),
+            name=(
+                "ck_trade_document_line_"
+                "tax_price_config_pair"
+            ),
+        ),
+        CheckConstraint(
+            (
+                "tax_price_mode IS NULL "
+                "OR tax_price_mode IN "
+                "('exclusive', 'inclusive')"
+            ),
+            name=(
+                "ck_trade_document_line_"
+                "tax_price_mode"
+            ),
+        ),
     )
 
     id: Mapped[int] = mapped_column(
@@ -167,6 +233,53 @@ class TradeDocumentLine(Base):
         Numeric(18, 4),
         default=Decimal("0"),
         nullable=False,
+    )
+
+    tax_rate_code: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+
+    tax_recognition_method: Mapped[
+        TaxRecognitionMethod | None
+    ] = mapped_column(
+        SQLEnum(
+            TaxRecognitionMethod,
+            name=(
+                "trade_document_line_"
+                "tax_recognition_method_enum"
+            ),
+            native_enum=False,
+            create_constraint=False,
+            validate_strings=True,
+            values_callable=lambda enum_class: [
+                item.value
+                for item in enum_class
+            ],
+            length=20,
+        ),
+        nullable=True,
+    )
+
+    tax_price_mode: Mapped[
+        TaxPriceMode | None
+    ] = mapped_column(
+        SQLEnum(
+            TaxPriceMode,
+            name=(
+                "trade_document_line_"
+                "tax_price_mode_enum"
+            ),
+            native_enum=False,
+            create_constraint=False,
+            validate_strings=True,
+            values_callable=lambda enum_class: [
+                item.value
+                for item in enum_class
+            ],
+            length=20,
+        ),
+        nullable=True,
     )
 
     trade_document: Mapped["TradeDocument"] = relationship(

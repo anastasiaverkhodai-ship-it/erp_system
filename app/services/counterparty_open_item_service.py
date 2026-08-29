@@ -12,6 +12,10 @@ from app.services.counterparty_open_item_types import (
     CounterpartyOpenItemStatus,
     CounterpartyOpenItemType,
 )
+from app.services.invoice_tax_calculation_service import (
+    InvoiceTaxCalculationError,
+    calculate_invoice_payable_total,
+)
 from app.services.money_rounding import (
     round_currency_amount,
 )
@@ -93,30 +97,28 @@ def calculate_invoice_open_item_amount(
     document: TradeDocument,
 ) -> Decimal:
     """
-    Calculate and currency-round the immutable invoice obligation.
+    Calculate immutable tax-inclusive AR/AP obligation.
 
-    Tax composition will be integrated later. At this stage the
-    commercial amount is quantity * unit_price for all invoice lines.
+    VAT-exclusive invoice lines add VAT on top.
+    VAT-inclusive invoice lines already contain VAT.
+    Lines without tax configuration preserve their
+    existing commercial amount behavior.
     """
+
     if document.kind != TradeDocumentKind.INVOICE:
         raise CounterpartyOpenItemSourceTypeError(
             "Only Trade Invoice can create "
             "an AR/AP obligation"
         )
 
-    raw_amount = sum(
-        (
-            Decimal(line.quantity)
-            * Decimal(line.unit_price)
-            for line in document.lines
-        ),
-        Decimal("0"),
-    )
-
-    amount = round_currency_amount(
-        amount=raw_amount,
-        currency_code=document.currency_code,
-    )
+    try:
+        amount = calculate_invoice_payable_total(
+            document
+        )
+    except InvoiceTaxCalculationError as exc:
+        raise CounterpartyOpenItemAmountError(
+            str(exc)
+        ) from exc
 
     if amount <= Decimal("0"):
         raise CounterpartyOpenItemAmountError(
@@ -125,7 +127,6 @@ def calculate_invoice_open_item_amount(
         )
 
     return amount
-
 
 def calculate_invoice_due_date(
     document: TradeDocument,

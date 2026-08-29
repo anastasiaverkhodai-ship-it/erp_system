@@ -27,6 +27,10 @@ from app.services.reservation_persistence_service import (
     release_source_line,
     reserve_source_line,
 )
+from app.services.invoice_tax_calculation_service import (
+    InvoiceTaxCalculationError,
+    create_tax_calculations_for_invoice,
+)
 from app.services.trade_document_types import (
     TradeDirection,
     TradeDocumentKind,
@@ -1326,6 +1330,16 @@ async def _confirm_trade_invoice(
     document.confirmed_at = datetime.now(
         timezone.utc
     )
+
+    try:
+        await create_tax_calculations_for_invoice(
+            db,
+            document=document,
+        )
+    except InvoiceTaxCalculationError as exc:
+        raise TradeInvoiceAmountError(
+            str(exc)
+        ) from exc
 
     try:
         await create_counterparty_open_item_for_invoice(

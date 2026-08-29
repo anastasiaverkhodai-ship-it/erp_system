@@ -52,3 +52,5 @@ from app.models.payment import Payment
 from app.models.payment_settlement_allocation import (
     PaymentSettlementAllocation,
 )
+from app.models.tax_calculation import TaxCalculation
+from app.models.tax_recognition_event import TaxRecognitionEvent

@@ -579,6 +579,15 @@ async def create_trade_document(
                     ),
                     quantity=line_data.quantity,
                     unit_price=line_data.unit_price,
+                    tax_rate_code=(
+                        line_data.tax_rate_code
+                    ),
+                    tax_recognition_method=(
+                        line_data.tax_recognition_method
+                    ),
+                    tax_price_mode=(
+                        line_data.tax_price_mode
+                    ),
                 )
             )
 
@@ -848,6 +857,16 @@ async def update_trade_document(
                         ),
                         unit_price=(
                             line_data.unit_price
+                        ),
+                        tax_rate_code=(
+                            line_data.tax_rate_code
+                        ),
+                        tax_recognition_method=(
+                            line_data
+                            .tax_recognition_method
+                        ),
+                        tax_price_mode=(
+                            line_data.tax_price_mode
                         ),
                     )
                 )

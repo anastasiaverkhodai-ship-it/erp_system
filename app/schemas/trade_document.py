@@ -7,11 +7,18 @@ from pydantic import (
     ConfigDict,
     Field,
     field_validator,
+    model_validator,
 )
 
 from app.services.currency_catalog_service import (
     CurrencyNotFoundError,
     SYSTEM_CURRENCY_CATALOG,
+)
+from app.services.tax_price_types import (
+    TaxPriceMode,
+)
+from app.services.tax_recognition_types import (
+    TaxRecognitionMethod,
 )
 from app.services.trade_document_types import (
     TradeDirection,
@@ -62,6 +69,73 @@ class TradeDocumentLineCreate(BaseModel):
         max_digits=18,
         decimal_places=4,
     )
+
+    tax_rate_code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=50,
+    )
+
+    tax_recognition_method: (
+        TaxRecognitionMethod | None
+    ) = None
+
+    tax_price_mode: TaxPriceMode | None = None
+
+    @field_validator(
+        "tax_rate_code",
+        mode="before",
+    )
+    @classmethod
+    def normalize_tax_rate_code(
+        cls,
+        value: Any,
+    ) -> Any:
+        if value is None:
+            return None
+
+        if not isinstance(value, str):
+            return value
+
+        code = value.strip().upper()
+
+        if not code:
+            raise ValueError(
+                "Tax rate code cannot be blank"
+            )
+
+        return code
+
+    @model_validator(
+        mode="after",
+    )
+    def validate_tax_configuration(
+        self,
+    ):
+        has_rate = (
+            self.tax_rate_code is not None
+        )
+        has_method = (
+            self.tax_recognition_method
+            is not None
+        )
+        has_price_mode = (
+            self.tax_price_mode is not None
+        )
+
+        if not (
+            has_rate
+            == has_method
+            == has_price_mode
+        ):
+            raise ValueError(
+                "tax_rate_code, "
+                "tax_recognition_method and "
+                "tax_price_mode must be "
+                "provided together"
+            )
+
+        return self
 
 
 class TradeDocumentCreate(BaseModel):
@@ -233,6 +307,12 @@ class TradeDocumentLineResponse(BaseModel):
 
     quantity: Decimal
     unit_price: Decimal
+
+    tax_rate_code: str | None
+    tax_recognition_method: (
+        TaxRecognitionMethod | None
+    )
+    tax_price_mode: TaxPriceMode | None
 
 
 class TradeDocumentResponse(BaseModel):
