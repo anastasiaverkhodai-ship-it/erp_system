@@ -1,10 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-)
+from pydantic import BaseModel
 
 from app.services.counterparty_open_item_types import (
     CounterpartyOpenItemStatus,
@@ -14,16 +11,16 @@ from app.services.counterparty_open_item_types import (
 
 class CounterpartyOpenItemResponse(BaseModel):
     """
-    Persistent AR/AP obligation.
+    Persistent AR/AP obligation enriched with
+    settlement-derived balances.
 
-    open_amount is deliberately absent until persistent settlement
-    allocations exist. original_amount is the immutable invoice
-    obligation amount.
+    original_amount remains immutable persistence.
+
+    settled_amount and open_amount are read-model
+    values derived from ACTIVE settlement allocations.
+
+    For CANCELLED obligations open_amount is zero.
     """
-
-    model_config = ConfigDict(
-        from_attributes=True,
-    )
 
     id: int
     company_id: int
@@ -38,6 +35,9 @@ class CounterpartyOpenItemResponse(BaseModel):
     due_date: date
 
     currency_code: str
+
     original_amount: Decimal
+    settled_amount: Decimal
+    open_amount: Decimal
 
     created_at: datetime

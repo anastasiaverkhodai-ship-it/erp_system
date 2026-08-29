@@ -59,6 +59,10 @@ ROLE_PERMISSIONS = {
         "accounting_rules.update",
         "trade_documents.allocations.read",
         "trade_documents.allocations.manage",
+        "payments.read",
+        "payments.manage",
+        "payments.settlements.read",
+        "payments.settlements.manage",
     ],
 
     "director": [
@@ -102,6 +106,10 @@ ROLE_PERMISSIONS = {
         "accounting_rules.read",
         "trade_documents.allocations.read",
         "trade_documents.allocations.manage",
+        "payments.read",
+        "payments.manage",
+        "payments.settlements.read",
+        "payments.settlements.manage",
     ],
 
     "accountant": [
@@ -141,6 +149,10 @@ ROLE_PERMISSIONS = {
         "accounting_rules.update",
         "trade_documents.allocations.read",
         "trade_documents.allocations.manage",
+        "payments.read",
+        "payments.manage",
+        "payments.settlements.read",
+        "payments.settlements.manage",
     ],
 
     "manager": [
@@ -168,6 +180,8 @@ ROLE_PERMISSIONS = {
         "accounts.read",
         "trade_documents.allocations.read",
         "trade_documents.allocations.manage",
+        "payments.read",
+        "payments.settlements.read",
     ],
 
     "seller": [

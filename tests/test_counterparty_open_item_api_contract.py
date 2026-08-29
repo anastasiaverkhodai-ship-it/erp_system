@@ -143,16 +143,18 @@ def test_open_item_api_uses_read_permission():
     )
 
 
-def test_open_item_response_has_no_fake_balance_fields():
+def test_open_item_response_exposes_derived_settlement_balances():
     text = Path(
         "app/schemas/"
         "counterparty_open_item.py"
     ).read_text()
 
+    assert "original_amount: Decimal" in text
+    assert "settled_amount: Decimal" in text
+    assert "open_amount: Decimal" in text
+
     for forbidden in (
-        "open_amount:",
         "paid_amount:",
-        "settled_amount:",
         "balance_due:",
     ):
         assert forbidden not in text

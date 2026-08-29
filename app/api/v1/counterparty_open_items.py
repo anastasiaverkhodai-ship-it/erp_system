@@ -24,6 +24,58 @@ from app.services.counterparty_open_item_types import (
     CounterpartyOpenItemStatus,
     CounterpartyOpenItemType,
 )
+from app.services.payment_settlement_service import (
+    PaymentSettlementDataIntegrityError,
+    calculate_open_item_open_amount,
+    get_active_open_item_settled_amounts,
+)
+
+
+def _open_item_response(
+    item: CounterpartyOpenItem,
+    *,
+    settled_amount,
+) -> CounterpartyOpenItemResponse:
+    try:
+        open_amount = (
+            calculate_open_item_open_amount(
+                original_amount=(
+                    item.original_amount
+                ),
+                settled_amount=settled_amount,
+                status=item.status,
+            )
+        )
+    except PaymentSettlementDataIntegrityError as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=str(exc),
+        ) from exc
+
+    return CounterpartyOpenItemResponse(
+        id=item.id,
+        company_id=item.company_id,
+        trade_document_id=(
+            item.trade_document_id
+        ),
+        counterparty_id=(
+            item.counterparty_id
+        ),
+        contract_id=item.contract_id,
+        item_type=item.item_type,
+        status=item.status,
+        document_date=item.document_date,
+        due_date=item.due_date,
+        currency_code=item.currency_code,
+        original_amount=(
+            item.original_amount
+        ),
+        settled_amount=settled_amount,
+        open_amount=open_amount,
+        created_at=item.created_at,
+    )
 
 
 router = APIRouter(
@@ -193,9 +245,31 @@ async def list_counterparty_open_items(
         statement
     )
 
-    return list(
+    items = list(
         result.scalars().all()
     )
+
+    settled = (
+        await get_active_open_item_settled_amounts(
+            db,
+            company_id=company_id,
+            open_item_ids=tuple(
+                item.id
+                for item in items
+            ),
+        )
+    )
+
+    return [
+        _open_item_response(
+            item,
+            settled_amount=settled.get(
+                item.id,
+                0,
+            ),
+        )
+        for item in items
+    ]
 
 
 @router.get(
@@ -236,4 +310,20 @@ async def get_counterparty_open_item(
             ),
         )
 
-    return item
+    settled = (
+        await get_active_open_item_settled_amounts(
+            db,
+            company_id=company_id,
+            open_item_ids=(
+                item.id,
+            ),
+        )
+    )
+
+    return _open_item_response(
+        item,
+        settled_amount=settled.get(
+            item.id,
+            0,
+        ),
+    )
