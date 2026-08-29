@@ -19,6 +19,13 @@ from app.services.counterparty_open_item_types import (
 from app.services.money_rounding import (
     round_currency_amount,
 )
+from app.services.payment_journal_service import (
+    PaymentJournalCurrencyError,
+    PaymentJournalError,
+    generate_and_post_settlement_journal_entry,
+    reverse_settlement_journal_entry,
+)
+
 from app.services.payment_types import (
     PaymentDirection,
     PaymentSettlementAllocationStatus,
@@ -707,6 +714,23 @@ async def create_payment_settlement_allocation(
 
     await db.flush()
 
+    try:
+        await generate_and_post_settlement_journal_entry(
+            db,
+            payment=payment,
+            allocation=allocation,
+            created_by=created_by,
+        )
+    except PaymentJournalCurrencyError as exc:
+        raise PaymentSettlementCurrencyError(
+            str(exc)
+        ) from exc
+    except PaymentJournalError as exc:
+        raise PaymentSettlementDataIntegrityError(
+            "Settlement accounting failed: "
+            f"{exc}"
+        ) from exc
+
     return allocation
 
 
@@ -871,6 +895,24 @@ async def reverse_payment_settlement_allocation(
         open_item_settled_before
         - allocation_amount
     )
+
+    try:
+        await reverse_settlement_journal_entry(
+            db,
+            company_id=company_id,
+            allocation_id=allocation.id,
+            reversal_date=(
+                datetime.now(
+                    timezone.utc
+                ).date()
+            ),
+            reversed_by=reversed_by,
+        )
+    except PaymentJournalError as exc:
+        raise PaymentSettlementDataIntegrityError(
+            "Settlement accounting reversal "
+            f"failed: {exc}"
+        ) from exc
 
     allocation.status = (
         PaymentSettlementAllocationStatus.REVERSED

@@ -487,6 +487,7 @@ def test_confirm_payment(
             db,
             company_id=1,
             payment_id=10,
+            confirmed_by=99,
         )
     )
 
@@ -641,3 +642,20 @@ def test_cancel_payment_blocked_by_active_settlement(
     )
 
     db.flush.assert_not_awaited()
+
+
+@pytest.fixture(autouse=True)
+def _default_payment_accounting_side_effects(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        service,
+        "generate_and_post_payment_journal_entry",
+        AsyncMock(),
+    )
+
+    monkeypatch.setattr(
+        service,
+        "reverse_payment_journal_entry",
+        AsyncMock(),
+    )

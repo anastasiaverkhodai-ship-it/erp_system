@@ -2,10 +2,12 @@ from datetime import date, datetime
 from enum import Enum
 
 from sqlalchemy import (
+    CheckConstraint,
     Date,
     DateTime,
     Enum as SQLEnum,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     String,
     UniqueConstraint,
@@ -27,20 +29,95 @@ class JournalEntry(Base):
 
 
     __table_args__ = (
-    UniqueConstraint(
-        "reversal_of_id",
-        name="uq_journal_entry_reversal_of",
-    ),
-    Index(
-        "uq_journal_entry_original_document",
-        "document_id",
-        unique=True,
-        postgresql_where=text(
-            "reversal_of_id IS NULL "
-            "AND document_id IS NOT NULL"
+        UniqueConstraint(
+            "reversal_of_id",
+            name="uq_journal_entry_reversal_of",
         ),
-    ),
-)
+        Index(
+            "uq_journal_entry_original_document",
+            "document_id",
+            unique=True,
+            postgresql_where=text(
+                "reversal_of_id IS NULL "
+                "AND document_id IS NOT NULL"
+            ),
+        ),
+        ForeignKeyConstraint(
+            [
+                "company_id",
+                "payment_id",
+            ],
+            [
+                "payments.company_id",
+                "payments.id",
+            ],
+            name=(
+                "fk_journal_entries_"
+                "company_payment"
+            ),
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "company_id",
+                "payment_settlement_allocation_id",
+            ],
+            [
+                "payment_settlement_allocations.company_id",
+                "payment_settlement_allocations.id",
+            ],
+            name=(
+                "fk_journal_entries_"
+                "company_payment_settlement_allocation"
+            ),
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            """
+            (
+                document_id IS NULL
+                OR payment_id IS NULL
+            )
+            AND
+            (
+                document_id IS NULL
+                OR payment_settlement_allocation_id IS NULL
+            )
+            AND
+            (
+                payment_id IS NULL
+                OR payment_settlement_allocation_id IS NULL
+            )
+            """,
+            name=(
+                "ck_journal_entries_"
+                "at_most_one_business_source"
+            ),
+        ),
+        Index(
+            "uq_journal_entry_original_payment",
+            "payment_id",
+            unique=True,
+            postgresql_where=text(
+                "reversal_of_id IS NULL "
+                "AND payment_id IS NOT NULL"
+            ),
+        ),
+        Index(
+            (
+                "uq_journal_entry_original_"
+                "payment_settlement_allocation"
+            ),
+            "payment_settlement_allocation_id",
+            unique=True,
+            postgresql_where=text(
+                "reversal_of_id IS NULL "
+                "AND payment_settlement_allocation_id "
+                "IS NOT NULL"
+            ),
+        ),
+    )
+
     id: Mapped[int] = mapped_column(
         primary_key=True,
     )
@@ -62,6 +139,20 @@ class JournalEntry(Base):
         nullable=True,
         index=True,
     )
+
+
+    payment_id: Mapped[int | None] = mapped_column(
+        nullable=True,
+        index=True,
+    )
+
+    payment_settlement_allocation_id: Mapped[
+        int | None
+    ] = mapped_column(
+        nullable=True,
+        index=True,
+    )
+
 
     accounting_rule_id: Mapped[int | None] = mapped_column(
     ForeignKey(

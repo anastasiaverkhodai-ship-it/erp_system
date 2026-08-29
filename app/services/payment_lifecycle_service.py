@@ -13,6 +13,13 @@ from app.services.payment_types import (
     PaymentDirection,
     PaymentStatus,
 )
+from app.services.payment_journal_service import (
+    PaymentJournalCurrencyError,
+    PaymentJournalError,
+    generate_and_post_payment_journal_entry,
+    reverse_payment_journal_entry,
+)
+
 from app.services.payment_settlement_service import (
     has_active_payment_settlement_allocations,
 )
@@ -425,15 +432,19 @@ async def confirm_payment(
     *,
     company_id: int,
     payment_id: int,
+    confirmed_by: int,
 ) -> Payment:
     """
     Confirm one Payment atomically.
 
-    Caller owns COMMIT / ROLLBACK.
-
-    No GL, stock, VAT or settlement side effect
-    exists in STEP 16A.
+    Payment status and GL posting belong to the
+    same caller-owned transaction.
     """
+
+    if confirmed_by <= 0:
+        raise PaymentActorError(
+            "confirmed_by must be greater than zero"
+        )
 
     payment = await get_locked_payment(
         db,
@@ -445,7 +456,6 @@ async def confirm_payment(
         payment
     )
 
-    # Persist canonical forms before confirmation.
     payment.number = (
         normalize_payment_number(
             payment.number
@@ -487,6 +497,22 @@ async def confirm_payment(
 
     await db.flush()
 
+    try:
+        await generate_and_post_payment_journal_entry(
+            db,
+            payment=payment,
+            created_by=confirmed_by,
+        )
+    except PaymentJournalCurrencyError as exc:
+        raise PaymentCurrencyError(
+            str(exc)
+        ) from exc
+    except PaymentJournalError as exc:
+        raise PaymentStatusError(
+            "Payment accounting failed: "
+            f"{exc}"
+        ) from exc
+
     return payment
 
 
@@ -500,13 +526,10 @@ async def cancel_payment(
     """
     Cancel one DRAFT or CONFIRMED Payment.
 
-    Caller owns COMMIT / ROLLBACK.
+    DRAFT cancellation has no GL effect.
 
-    References are deliberately NOT revalidated on
-    cancellation: an inactive counterparty/contract
-    must not prevent correction of an existing Payment.
-
-    ACTIVE settlement guard is added in STEP 16.2.3.
+    CONFIRMED cancellation reverses its Payment
+    JournalEntry in the same caller-owned transaction.
     """
 
     if cancelled_by <= 0:
@@ -524,6 +547,11 @@ async def cancel_payment(
         payment
     )
 
+    was_confirmed = (
+        payment.status
+        == PaymentStatus.CONFIRMED
+    )
+
     if await has_active_payment_settlement_allocations(
         db,
         company_id=company_id,
@@ -536,6 +564,27 @@ async def cancel_payment(
             "cancellation"
         )
 
+    cancellation_time = datetime.now(
+        timezone.utc
+    )
+
+    if was_confirmed:
+        try:
+            await reverse_payment_journal_entry(
+                db,
+                company_id=company_id,
+                payment_id=payment.id,
+                reversal_date=(
+                    cancellation_time.date()
+                ),
+                reversed_by=cancelled_by,
+            )
+        except PaymentJournalError as exc:
+            raise PaymentStatusError(
+                "Payment accounting reversal "
+                f"failed: {exc}"
+            ) from exc
+
     payment.status = (
         PaymentStatus.CANCELLED
     )
@@ -545,9 +594,7 @@ async def cancel_payment(
     )
 
     payment.cancelled_at = (
-        datetime.now(
-            timezone.utc
-        )
+        cancellation_time
     )
 
     await db.flush()

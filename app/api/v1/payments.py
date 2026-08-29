@@ -430,6 +430,9 @@ async def create_payment(
 async def confirm_payment_endpoint(
     company_id: int,
     payment_id: int,
+    current_user: User = Depends(
+        get_current_user
+    ),
     db: AsyncSession = Depends(
         get_db
     ),
@@ -445,6 +448,7 @@ async def confirm_payment_endpoint(
                 db,
                 company_id=company_id,
                 payment_id=payment_id,
+                confirmed_by=current_user.id,
             )
         )
 

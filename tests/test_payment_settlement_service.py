@@ -644,3 +644,25 @@ def test_open_item_status_drift_is_rejected():
                 CounterpartyOpenItemStatus.OPEN
             ),
         )
+
+
+@pytest.fixture(autouse=True)
+def _default_settlement_creation_accounting(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        service,
+        "generate_and_post_settlement_journal_entry",
+        AsyncMock(),
+    )
+
+
+@pytest.fixture(autouse=True)
+def _default_settlement_reversal_accounting(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        service,
+        "reverse_settlement_journal_entry",
+        AsyncMock(),
+    )

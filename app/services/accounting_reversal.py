@@ -122,6 +122,10 @@ async def reverse_journal_entry(
     reversal_entry = JournalEntry(
         company_id=company_id,
         document_id=original_entry.document_id,
+        payment_id=original_entry.payment_id,
+        payment_settlement_allocation_id=(
+            original_entry.payment_settlement_allocation_id
+        ),
         accounting_rule_id=original_entry.accounting_rule_id,
         entry_date=reversal_date,
         description=(
