@@ -20,6 +20,14 @@ from app.models.trade_document import TradeDocument
 from app.models.trade_document_line import TradeDocumentLine
 from app.models.user import User
 from app.models.warehouse import Warehouse
+from app.schemas.invoice_fulfillment_allocation import (
+    InvoiceFulfillmentAllocationCreateRequest,
+    InvoiceFulfillmentAllocationResponse,
+    InvoiceFulfillmentReconciliationAllocationResponse,
+    InvoiceFulfillmentReconciliationLineResponse,
+    InvoiceFulfillmentReconciliationResponse,
+)
+
 from app.schemas.trade_document import (
     SalesOrderFulfillmentRequest,
     SalesOrderFulfillmentResponse,
@@ -29,6 +37,28 @@ from app.schemas.trade_document import (
     TradeDocumentResponse,
     TradeDocumentUpdate,
 )
+from app.services.invoice_fulfillment_allocation_service import (
+    DuplicateActiveInvoiceFulfillmentAllocationError,
+    FulfillmentOverAllocationError,
+    InvoiceFulfillmentAllocationContractError,
+    InvoiceFulfillmentAllocationCounterpartyError,
+    InvoiceFulfillmentAllocationCurrencyError,
+    InvoiceFulfillmentAllocationDirectionError,
+    InvoiceFulfillmentAllocationError,
+    InvoiceFulfillmentAllocationNotFoundError,
+    InvoiceFulfillmentAllocationProductError,
+    InvoiceFulfillmentAllocationQuantityError,
+    InvoiceFulfillmentAllocationReversalStateError,
+    InvoiceFulfillmentAllocationStatusError,
+    InvoiceFulfillmentAllocationTypeError,
+    InvoiceFulfillmentAllocationWarehouseError,
+    InvoiceOverAllocationError,
+    create_invoice_fulfillment_allocation,
+    get_invoice_fulfillment_allocation_history,
+    get_invoice_fulfillment_reconciliation,
+    reverse_invoice_fulfillment_allocation,
+)
+
 from app.services.trade_document_types import (
     TradeDirection,
     TradeDocumentKind,
@@ -1527,4 +1557,342 @@ async def reverse_trade_document_sales_order_fulfillment(
         trade_document=trade_document,
         warehouse_document_id=warehouse_document_id,
         fulfillment_id=fulfillment_id_value,
+    )
+
+
+# ============================================================
+# STEP 15.5 - INVOICE FULFILLMENT ALLOCATION API
+# ============================================================
+
+
+def _invoice_fulfillment_http_exception(
+    exc: InvoiceFulfillmentAllocationError,
+) -> HTTPException:
+    if isinstance(
+        exc,
+        InvoiceFulfillmentAllocationNotFoundError,
+    ):
+        return HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
+
+    if isinstance(
+        exc,
+        (
+            InvoiceFulfillmentAllocationTypeError,
+            InvoiceFulfillmentAllocationDirectionError,
+            InvoiceFulfillmentAllocationCounterpartyError,
+            InvoiceFulfillmentAllocationContractError,
+            InvoiceFulfillmentAllocationCurrencyError,
+            InvoiceFulfillmentAllocationProductError,
+            InvoiceFulfillmentAllocationWarehouseError,
+            InvoiceFulfillmentAllocationQuantityError,
+        ),
+    ):
+        return HTTPException(
+            status_code=(
+                status.HTTP_422_UNPROCESSABLE_CONTENT
+            ),
+            detail=str(exc),
+        )
+
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=str(exc),
+    )
+
+
+@router.post(
+    "/{invoice_id}/fulfillment-allocations",
+    response_model=(
+        InvoiceFulfillmentAllocationResponse
+    ),
+)
+async def create_trade_invoice_fulfillment_allocation(
+    company_id: int,
+    invoice_id: int,
+    data: InvoiceFulfillmentAllocationCreateRequest,
+    current_user: User = Depends(
+        get_current_user
+    ),
+    db: AsyncSession = Depends(get_db),
+    _permission=Depends(
+        require_company_permission(
+            "trade_documents.allocations.manage"
+        )
+    ),
+):
+    """
+    Create one ACTIVE quantity match between a Trade Invoice
+    line and one persistent Trade Fulfillment line.
+    """
+
+    try:
+        allocation = (
+            await create_invoice_fulfillment_allocation(
+                db,
+                company_id=company_id,
+                invoice_id=invoice_id,
+                invoice_line_id=data.invoice_line_id,
+                fulfillment_id=data.fulfillment_id,
+                fulfillment_line_id=(
+                    data.fulfillment_line_id
+                ),
+                quantity=data.quantity,
+                created_by=current_user.id,
+            )
+        )
+
+        await db.commit()
+
+        return allocation
+
+    except InvoiceFulfillmentAllocationError as exc:
+        await db.rollback()
+
+        raise _invoice_fulfillment_http_exception(
+            exc
+        ) from exc
+
+    except IntegrityError as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Invoice Fulfillment allocation could not "
+                "be created because of a data conflict"
+            ),
+        ) from exc
+
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.get(
+    "/{invoice_id}/fulfillment-allocations",
+    response_model=list[
+        InvoiceFulfillmentAllocationResponse
+    ],
+)
+async def list_trade_invoice_fulfillment_allocations(
+    company_id: int,
+    invoice_id: int,
+    db: AsyncSession = Depends(get_db),
+    _permission=Depends(
+        require_company_permission(
+            "trade_documents.allocations.read"
+        )
+    ),
+):
+    """
+    Return complete allocation history for one Trade Invoice.
+
+    ACTIVE and REVERSED records are both retained.
+    """
+
+    try:
+        (
+            _invoice,
+            allocations,
+        ) = (
+            await get_invoice_fulfillment_allocation_history(
+                db,
+                company_id=company_id,
+                invoice_id=invoice_id,
+            )
+        )
+
+        return list(
+            allocations
+        )
+
+    except InvoiceFulfillmentAllocationError as exc:
+        raise _invoice_fulfillment_http_exception(
+            exc
+        ) from exc
+
+
+@router.post(
+    "/{invoice_id}/fulfillment-allocations/"
+    "{allocation_id}/reverse",
+    response_model=(
+        InvoiceFulfillmentAllocationResponse
+    ),
+)
+async def reverse_trade_invoice_fulfillment_allocation(
+    company_id: int,
+    invoice_id: int,
+    allocation_id: int,
+    current_user: User = Depends(
+        get_current_user
+    ),
+    db: AsyncSession = Depends(get_db),
+    _permission=Depends(
+        require_company_permission(
+            "trade_documents.allocations.manage"
+        )
+    ),
+):
+    """
+    Reverse one ACTIVE Invoice/Fulfillment allocation.
+
+    The persistent row remains as historical REVERSED audit
+    evidence.
+    """
+
+    try:
+        allocation = (
+            await reverse_invoice_fulfillment_allocation(
+                db,
+                company_id=company_id,
+                invoice_id=invoice_id,
+                allocation_id=allocation_id,
+                reversed_by=current_user.id,
+            )
+        )
+
+        await db.commit()
+
+        return allocation
+
+    except InvoiceFulfillmentAllocationError as exc:
+        await db.rollback()
+
+        raise _invoice_fulfillment_http_exception(
+            exc
+        ) from exc
+
+    except IntegrityError as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Invoice Fulfillment allocation could not "
+                "be reversed because of a data conflict"
+            ),
+        ) from exc
+
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.get(
+    "/{invoice_id}/reconciliation",
+    response_model=(
+        InvoiceFulfillmentReconciliationResponse
+    ),
+)
+async def get_trade_invoice_fulfillment_reconciliation(
+    company_id: int,
+    invoice_id: int,
+    db: AsyncSession = Depends(get_db),
+    _permission=Depends(
+        require_company_permission(
+            "trade_documents.allocations.read"
+        )
+    ),
+):
+    """
+    Return quantity-based commercial recognition
+    reconciliation for one Trade Invoice.
+    """
+
+    try:
+        reconciliation = (
+            await get_invoice_fulfillment_reconciliation(
+                db,
+                company_id=company_id,
+                invoice_id=invoice_id,
+            )
+        )
+
+    except InvoiceFulfillmentAllocationError as exc:
+        raise _invoice_fulfillment_http_exception(
+            exc
+        ) from exc
+
+    invoice = reconciliation.invoice
+
+    lines = []
+
+    for line in reconciliation.lines:
+        allocation_responses = []
+
+        for item in line.allocations:
+            allocation = item.allocation
+
+            allocation_responses.append(
+                InvoiceFulfillmentReconciliationAllocationResponse(
+                    id=allocation.id,
+                    invoice_line_id=(
+                        allocation.invoice_line_id
+                    ),
+                    fulfillment_id=(
+                        allocation.fulfillment_id
+                    ),
+                    fulfillment_line_id=(
+                        allocation.fulfillment_line_id
+                    ),
+                    order_id=allocation.order_id,
+                    order_line_id=(
+                        allocation.order_line_id
+                    ),
+                    product_id=allocation.product_id,
+                    quantity=allocation.quantity,
+                    status=allocation.status,
+                    fulfillment_line_quantity=(
+                        item.fulfillment_line_quantity
+                    ),
+                    fulfillment_line_active_allocated_quantity=(
+                        item
+                        .fulfillment_line_active_allocated_quantity
+                    ),
+                    fulfillment_line_remaining_quantity=(
+                        item
+                        .fulfillment_line_remaining_quantity
+                    ),
+                    created_by=allocation.created_by,
+                    created_at=allocation.created_at,
+                    reversed_by=allocation.reversed_by,
+                    reversed_at=allocation.reversed_at,
+                )
+            )
+
+        invoice_line = line.invoice_line
+
+        lines.append(
+            InvoiceFulfillmentReconciliationLineResponse(
+                invoice_line_id=invoice_line.id,
+                line_number=invoice_line.line_number,
+                product_id=invoice_line.product_id,
+                warehouse_id=invoice_line.warehouse_id,
+                invoice_quantity=invoice_line.quantity,
+                active_allocated_quantity=(
+                    line.active_allocated_quantity
+                ),
+                remaining_quantity=(
+                    line.remaining_quantity
+                ),
+                fully_allocated=line.fully_allocated,
+                allocations=allocation_responses,
+            )
+        )
+
+    return InvoiceFulfillmentReconciliationResponse(
+        company_id=invoice.company_id,
+        invoice_id=invoice.id,
+        direction=invoice.direction,
+        status=invoice.status,
+        counterparty_id=invoice.counterparty_id,
+        contract_id=invoice.contract_id,
+        currency_code=invoice.currency_code,
+        fully_allocated=(
+            reconciliation.fully_allocated
+        ),
+        lines=lines,
     )

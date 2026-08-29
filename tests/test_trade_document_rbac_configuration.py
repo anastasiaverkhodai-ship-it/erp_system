@@ -6,6 +6,8 @@ from scripts.seed_role_permissions import (
 
 TRADE_PERMISSIONS = {
     "trade_documents.read",
+    "trade_documents.allocations.read",
+    "trade_documents.allocations.manage",
     "trade_documents.create",
     "trade_documents.update",
     "trade_documents.confirm",

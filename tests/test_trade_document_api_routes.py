@@ -31,6 +31,27 @@ FULFILLMENT_REVERSE_PATH = (
 )
 
 
+INVOICE_DETAIL_PATH = (
+    BASE_PATH
+    + "/{invoice_id}"
+)
+
+ALLOCATION_PATH = (
+    INVOICE_DETAIL_PATH
+    + "/fulfillment-allocations"
+)
+
+ALLOCATION_REVERSE_PATH = (
+    ALLOCATION_PATH
+    + "/{allocation_id}/reverse"
+)
+
+RECONCILIATION_PATH = (
+    INVOICE_DETAIL_PATH
+    + "/reconciliation"
+)
+
+
 def _paths():
     return app.openapi()["paths"]
 
@@ -110,6 +131,9 @@ def test_only_expected_trade_document_paths() -> None:
         CANCEL_PATH,
         FULFILL_PATH,
         FULFILLMENT_REVERSE_PATH,
+        ALLOCATION_PATH,
+        ALLOCATION_REVERSE_PATH,
+        RECONCILIATION_PATH,
     }
 
 

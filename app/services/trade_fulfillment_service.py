@@ -6,6 +6,10 @@ from decimal import Decimal
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.invoice_fulfillment_allocation_service import (
+    has_active_fulfillment_allocations,
+)
+
 from app.models.document import (
     Document,
     DocumentStatus,
@@ -2142,6 +2146,18 @@ async def execute_sales_order_fulfillment_reversal(
         fulfillment_id=fulfillment_id,
     )
 
+    if await has_active_fulfillment_allocations(
+        db,
+        company_id=company_id,
+        fulfillment_id=fulfillment.id,
+        lock_rows=True,
+    ):
+        raise SalesOrderFulfillmentReversalStateError(
+            "Trade fulfillment has ACTIVE Invoice "
+            "allocations; reverse matching allocations "
+            "before fulfillment reversal"
+        )
+
     mappings = (
         await get_trade_fulfillment_lines_for_reversal(
             db,
@@ -2695,6 +2711,18 @@ async def execute_purchase_order_fulfillment_reversal(
             fulfillment_id=fulfillment_id,
         )
     )
+
+    if await has_active_fulfillment_allocations(
+        db,
+        company_id=company_id,
+        fulfillment_id=fulfillment.id,
+        lock_rows=True,
+    ):
+        raise PurchaseOrderFulfillmentReversalStateError(
+            "Trade fulfillment has ACTIVE Invoice "
+            "allocations; reverse matching allocations "
+            "before fulfillment reversal"
+        )
 
     if (
         fulfillment.warehouse_document_type

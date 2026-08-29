@@ -42,6 +42,18 @@ class TradeFulfillmentLine(Base):
 
     __table_args__ = (
         UniqueConstraint(
+            "company_id",
+            "fulfillment_id",
+            "trade_document_id",
+            "trade_document_line_id",
+            "id",
+            "product_id",
+            name=(
+                "uq_trade_fulfillment_lines_"
+                "invoice_matching_target"
+            ),
+        ),
+        UniqueConstraint(
             "warehouse_document_line_id",
             name=(
                 "uq_trade_fulfillment_lines_"

@@ -654,3 +654,22 @@ async def test_purchase_reversal_requires_exact_fulfillment_delta(
         )
 
     db.flush.assert_not_awaited()
+
+# ------------------------------------------------------------
+# STEP 15.4 compatibility:
+# Existing fulfillment reversal tests predate
+# Invoice/Fulfillment matching. Unless explicitly tested
+# otherwise, there are no ACTIVE Invoice allocations.
+# ------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _default_no_active_fulfillment_allocations(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        service,
+        "has_active_fulfillment_allocations",
+        AsyncMock(
+            return_value=False
+        ),
+    )

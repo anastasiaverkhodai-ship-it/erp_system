@@ -2,6 +2,8 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+import app.services.trade_fulfillment_service as service
+from unittest.mock import AsyncMock
 
 from app.models.document import (
     DocumentStatus,
@@ -486,4 +488,23 @@ async def test_reversal_from_fulfilled_returns_partial(
     assert (
         order.status
         == TradeDocumentStatus.PARTIALLY_FULFILLED
+    )
+
+# ------------------------------------------------------------
+# STEP 15.4 compatibility:
+# Existing fulfillment reversal tests predate
+# Invoice/Fulfillment matching. Unless explicitly tested
+# otherwise, there are no ACTIVE Invoice allocations.
+# ------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _default_no_active_fulfillment_allocations(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        service,
+        "has_active_fulfillment_allocations",
+        AsyncMock(
+            return_value=False
+        ),
     )

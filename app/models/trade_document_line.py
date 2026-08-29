@@ -26,6 +26,16 @@ class TradeDocumentLine(Base):
 
     __table_args__ = (
         UniqueConstraint(
+            "company_id",
+            "trade_document_id",
+            "id",
+            "product_id",
+            name=(
+                "uq_trade_document_lines_"
+                "invoice_matching_source"
+            ),
+        ),
+        UniqueConstraint(
             "trade_document_id",
             "line_number",
             name=(

@@ -57,6 +57,8 @@ ROLE_PERMISSIONS = {
         "accounting_rules.read",
         "accounting_rules.create",
         "accounting_rules.update",
+        "trade_documents.allocations.read",
+        "trade_documents.allocations.manage",
     ],
 
     "director": [
@@ -98,6 +100,8 @@ ROLE_PERMISSIONS = {
         "journal_entries.approve",
         "journal_entries.reverse",
         "accounting_rules.read",
+        "trade_documents.allocations.read",
+        "trade_documents.allocations.manage",
     ],
 
     "accountant": [
@@ -135,6 +139,8 @@ ROLE_PERMISSIONS = {
         "accounting_rules.read",
         "accounting_rules.create",
         "accounting_rules.update",
+        "trade_documents.allocations.read",
+        "trade_documents.allocations.manage",
     ],
 
     "manager": [
@@ -160,6 +166,8 @@ ROLE_PERMISSIONS = {
         "documents.read",
         "documents.create",
         "accounts.read",
+        "trade_documents.allocations.read",
+        "trade_documents.allocations.manage",
     ],
 
     "seller": [
@@ -170,6 +178,7 @@ ROLE_PERMISSIONS = {
         "counterparties.create",
         "documents.read",
         "documents.create",
+        "trade_documents.allocations.read",
     ],
 }
 

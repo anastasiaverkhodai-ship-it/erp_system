@@ -443,3 +443,22 @@ def test_invoice_lifecycle_has_no_financial_or_stock_side_effects():
 
     for token in forbidden:
         assert token not in block, token
+
+# ------------------------------------------------------------
+# STEP 15.4 compatibility:
+# Existing invoice lifecycle tests predate Invoice/Fulfillment
+# matching. Unless a test explicitly exercises the new guard,
+# assume no ACTIVE matching allocations exist.
+# ------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _default_no_active_invoice_allocations(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        service,
+        "has_active_invoice_allocations",
+        AsyncMock(
+            return_value=False
+        ),
+    )

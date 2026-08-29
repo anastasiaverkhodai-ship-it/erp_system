@@ -46,3 +46,4 @@ from app.models.trade_fulfillment_line import TradeFulfillmentLine
 from app.models.counterparty_open_item import (
     CounterpartyOpenItem,
 )
+from app.models.invoice_fulfillment_allocation import InvoiceFulfillmentAllocation

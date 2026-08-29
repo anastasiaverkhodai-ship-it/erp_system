@@ -3,6 +3,10 @@ from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.services.invoice_fulfillment_allocation_service import (
+    has_active_invoice_allocations,
+)
 from sqlalchemy.orm import selectinload
 
 from app.models.company import Company
@@ -1399,6 +1403,18 @@ async def _cancel_trade_invoice(
         document.status
         == TradeDocumentStatus.CONFIRMED
     ):
+        if await has_active_invoice_allocations(
+            db,
+            company_id=company_id,
+            invoice_id=document.id,
+            lock_rows=True,
+        ):
+            raise TradeInvoiceStatusError(
+                "Trade Invoice has ACTIVE fulfillment "
+                "allocations; reverse matching allocations "
+                "before cancellation"
+            )
+
         try:
             await cancel_counterparty_open_item_for_invoice(
                 db,
