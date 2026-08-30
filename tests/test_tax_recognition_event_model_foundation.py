@@ -261,19 +261,19 @@ def test_check_constraints():
     }.issubset(names)
 
 
-def test_original_fulfillment_source_index():
+def test_fulfillment_source_index():
     index = next(
         index
         for index
         in TaxRecognitionEvent.__table__.indexes
         if index.name
         == (
-            "uq_tax_recognition_events_"
-            "original_fulfillment_source"
+            "ix_tax_recognition_events_"
+            "fulfillment_source"
         )
     )
 
-    assert index.unique is True
+    assert index.unique is False
 
     assert tuple(
         column.name
@@ -299,19 +299,19 @@ def test_original_fulfillment_source_index():
     )
 
 
-def test_original_settlement_source_index():
+def test_settlement_source_index():
     index = next(
         index
         for index
         in TaxRecognitionEvent.__table__.indexes
         if index.name
         == (
-            "uq_tax_recognition_events_"
-            "original_settlement_source"
+            "ix_tax_recognition_events_"
+            "settlement_source"
         )
     )
 
-    assert index.unique is True
+    assert index.unique is False
 
     assert tuple(
         column.name

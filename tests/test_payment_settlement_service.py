@@ -359,6 +359,7 @@ def test_create_allocation_partial(
     item = open_item(
         amount=Decimal("100")
     )
+    item.trade_document_id = 40
 
     monkeypatch.setattr(
         service,
@@ -501,6 +502,7 @@ def test_reverse_allocation_restores_open_status(
             CounterpartyOpenItemStatus.PARTIALLY_SETTLED
         )
     )
+    item.trade_document_id = 40
 
     allocation = SimpleNamespace(
         id=50,
@@ -666,3 +668,26 @@ def _default_settlement_reversal_accounting(
         "reverse_settlement_journal_entry",
         AsyncMock(),
     )
+
+
+# STEP17B_AUTOUSE_SETTLEMENT_VAT_STUB
+import pytest as _step17b_pytest
+from unittest.mock import AsyncMock as _Step17BAsyncMock
+import app.services.payment_settlement_service as _step17b_settlement_service
+
+
+@_step17b_pytest.fixture(autouse=True)
+def _step17b_stub_settlement_vat_recognition(
+    monkeypatch,
+):
+    stub = _Step17BAsyncMock(
+        return_value=()
+    )
+
+    monkeypatch.setattr(
+        _step17b_settlement_service,
+        "reconcile_output_tax_for_invoice",
+        stub,
+    )
+
+    return stub

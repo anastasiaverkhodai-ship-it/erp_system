@@ -32,6 +32,11 @@ from app.services.payment_types import (
     PaymentStatus,
 )
 
+from app.services.tax_recognition_lifecycle_service import (
+    TaxRecognitionLifecycleError,
+    reconcile_output_tax_for_invoice,
+)
+
 
 ZERO = Decimal("0")
 
@@ -731,6 +736,27 @@ async def create_payment_settlement_allocation(
             f"{exc}"
         ) from exc
 
+    try:
+        await reconcile_output_tax_for_invoice(
+            db,
+            company_id=company_id,
+            invoice_id=(
+                open_item.trade_document_id
+            ),
+            adjustment_date=(
+                datetime.now(
+                    timezone.utc
+                ).date()
+            ),
+            created_by=created_by,
+        )
+    except TaxRecognitionLifecycleError as exc:
+        raise PaymentSettlementDataIntegrityError(
+            "VAT recognition reconciliation "
+            "failed: "
+            f"{exc}"
+        ) from exc
+
     return allocation
 
 
@@ -940,6 +966,25 @@ async def reverse_payment_settlement_allocation(
     )
 
     await db.flush()
+
+    try:
+        await reconcile_output_tax_for_invoice(
+            db,
+            company_id=company_id,
+            invoice_id=(
+                open_item.trade_document_id
+            ),
+            adjustment_date=(
+                allocation.reversed_at.date()
+            ),
+            created_by=reversed_by,
+        )
+    except TaxRecognitionLifecycleError as exc:
+        raise PaymentSettlementDataIntegrityError(
+            "VAT recognition reconciliation "
+            "failed: "
+            f"{exc}"
+        ) from exc
 
     return allocation
 

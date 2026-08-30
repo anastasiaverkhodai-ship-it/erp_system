@@ -39,6 +39,8 @@ async def test_reverse_active_allocation():
         reversed_by=None,
         reversed_at=None,
     )
+    allocation.invoice_id = 5
+    allocation.invoice_line_id = 50
 
     db = SimpleNamespace(
         execute=AsyncMock(
@@ -220,3 +222,26 @@ async def test_active_fulfillment_guard_false():
         fulfillment_id=2,
         lock_rows=True,
     )
+
+
+# STEP17B_AUTOUSE_FULFILLMENT_VAT_STUB
+import pytest as _step17b_pytest
+from unittest.mock import AsyncMock as _Step17BAsyncMock
+import app.services.invoice_fulfillment_allocation_service as _step17b_fulfillment_service
+
+
+@_step17b_pytest.fixture(autouse=True)
+def _step17b_stub_fulfillment_vat_recognition(
+    monkeypatch,
+):
+    stub = _Step17BAsyncMock(
+        return_value=()
+    )
+
+    monkeypatch.setattr(
+        _step17b_fulfillment_service,
+        "reconcile_output_tax_for_invoice_line",
+        stub,
+    )
+
+    return stub

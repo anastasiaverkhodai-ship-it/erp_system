@@ -206,13 +206,13 @@ class TaxRecognitionEvent(Base):
         ),
         Index(
             (
-                "uq_tax_recognition_events_"
-                "original_fulfillment_source"
+                "ix_tax_recognition_events_"
+                "fulfillment_source"
             ),
             "company_id",
             "tax_calculation_id",
             "invoice_fulfillment_allocation_id",
-            unique=True,
+            unique=False,
             postgresql_where=text(
                 "reversal_of_id IS NULL "
                 "AND invoice_fulfillment_allocation_id "
@@ -221,13 +221,13 @@ class TaxRecognitionEvent(Base):
         ),
         Index(
             (
-                "uq_tax_recognition_events_"
-                "original_settlement_source"
+                "ix_tax_recognition_events_"
+                "settlement_source"
             ),
             "company_id",
             "tax_calculation_id",
             "payment_settlement_allocation_id",
-            unique=True,
+            unique=False,
             postgresql_where=text(
                 "reversal_of_id IS NULL "
                 "AND payment_settlement_allocation_id "

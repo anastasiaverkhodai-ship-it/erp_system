@@ -30,6 +30,11 @@ from app.services.trade_document_types import (
     TradeDocumentStatus,
 )
 
+from app.services.tax_recognition_lifecycle_service import (
+    TaxRecognitionLifecycleError,
+    reconcile_output_tax_for_invoice_line,
+)
+
 
 ZERO = Decimal("0")
 
@@ -959,6 +964,26 @@ async def create_invoice_fulfillment_allocation(
 
     await db.flush()
 
+    try:
+        await reconcile_output_tax_for_invoice_line(
+            db,
+            company_id=company_id,
+            invoice_id=invoice.id,
+            invoice_line_id=invoice_line.id,
+            adjustment_date=(
+                datetime.now(
+                    timezone.utc
+                ).date()
+            ),
+            created_by=created_by,
+        )
+    except TaxRecognitionLifecycleError as exc:
+        raise InvoiceFulfillmentAllocationError(
+            "VAT recognition reconciliation "
+            "failed: "
+            f"{exc}"
+        ) from exc
+
     return allocation
 
 
@@ -1142,6 +1167,26 @@ async def reverse_invoice_fulfillment_allocation(
     )
 
     await db.flush()
+
+    try:
+        await reconcile_output_tax_for_invoice_line(
+            db,
+            company_id=company_id,
+            invoice_id=invoice_id,
+            invoice_line_id=(
+                allocation.invoice_line_id
+            ),
+            adjustment_date=(
+                allocation.reversed_at.date()
+            ),
+            created_by=reversed_by,
+        )
+    except TaxRecognitionLifecycleError as exc:
+        raise InvoiceFulfillmentAllocationError(
+            "VAT recognition reconciliation "
+            "failed: "
+            f"{exc}"
+        ) from exc
 
     return allocation
 
