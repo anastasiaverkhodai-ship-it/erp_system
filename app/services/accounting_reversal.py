@@ -126,6 +126,9 @@ async def reverse_journal_entry(
         payment_settlement_allocation_id=(
             original_entry.payment_settlement_allocation_id
         ),
+        tax_recognition_event_id=(
+            original_entry.tax_recognition_event_id
+        ),
         accounting_rule_id=original_entry.accounting_rule_id,
         entry_date=reversal_date,
         description=(
