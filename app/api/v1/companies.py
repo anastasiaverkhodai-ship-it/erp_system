@@ -29,6 +29,9 @@ from app.schemas.company import (
 from app.services.company_chart_of_accounts_seeding_service import (
     seed_company_chart_of_accounts,
 )
+from app.services.company_default_accounting_rules_service import (
+    seed_company_default_accounting_rules,
+)
 
 
 router = APIRouter(
@@ -148,6 +151,13 @@ async def create_company(
     # Створюємо системний план рахунків компанії
     # в тій самій транзакції.
     await seed_company_chart_of_accounts(
+        session=db,
+        company_id=company.id,
+    )
+
+    # Створюємо стандартні бухгалтерські правила
+    # після плану рахунків і в тій самій транзакції.
+    await seed_company_default_accounting_rules(
         session=db,
         company_id=company.id,
     )

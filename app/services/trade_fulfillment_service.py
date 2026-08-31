@@ -5,11 +5,24 @@ from decimal import Decimal
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.services.invoice_fulfillment_allocation_service import (
     has_active_fulfillment_allocations,
 )
+from app.services.accounting_account_role_resolver import (
+    AccountingAccountRoleResolutionError,
+    resolve_company_account_roles,
+)
+from app.services.accounting_account_roles import (
+    AccountingAccountRole,
+)
 
+from app.models.accounting_rule import AccountingRule
+from app.services.sales_fulfillment_accounting_rule import (
+    SalesFulfillmentAccountingRuleValidationError,
+    validate_sales_fulfillment_accounting_rule,
+)
 from app.models.document import (
     Document,
     DocumentStatus,
@@ -120,6 +133,100 @@ class SalesOrderInsufficientReservationError(
     SalesOrderFulfillmentError
 ):
     """Requested fulfillment exceeds outstanding reservation."""
+
+
+class SalesOrderFulfillmentAccountingRuleError(
+    SalesOrderFulfillmentError
+):
+    """Accounting rule is unsafe for Sales Order fulfillment."""
+
+
+async def validate_sales_fulfillment_accounting_rule_for_company(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    accounting_rule_id: int,
+) -> AccountingRule:
+    """
+    Validate the accounting rule selected for Sales Order
+    warehouse fulfillment.
+
+    The warehouse ISSUE may recognize only COGS and inventory
+    reduction. Commercial receivables, revenue and VAT are
+    handled by their separate business lifecycles.
+    """
+
+    if company_id <= 0:
+        raise ValueError(
+            "company_id must be greater than zero"
+        )
+
+    if accounting_rule_id <= 0:
+        raise ValueError(
+            "accounting_rule_id must be greater than zero"
+        )
+
+    accounting_rule = (
+        await db.execute(
+            select(AccountingRule)
+            .options(
+                selectinload(
+                    AccountingRule.lines
+                )
+            )
+            .where(
+                AccountingRule.id
+                == accounting_rule_id,
+                AccountingRule.company_id
+                == company_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    if accounting_rule is None:
+        raise SalesOrderFulfillmentAccountingRuleError(
+            "Sales fulfillment accounting rule not found"
+        )
+
+    try:
+        accounts = await resolve_company_account_roles(
+            db,
+            company_id=company_id,
+            roles=(
+                AccountingAccountRole.GOODS_COGS,
+                AccountingAccountRole.INVENTORY_GOODS,
+            ),
+        )
+    except AccountingAccountRoleResolutionError as exc:
+        raise SalesOrderFulfillmentAccountingRuleError(
+            "Sales fulfillment accounting roles "
+            f"cannot be resolved: {exc}"
+        ) from exc
+
+    try:
+        validate_sales_fulfillment_accounting_rule(
+            accounting_rule=accounting_rule,
+            cogs_account_id=(
+                accounts[
+                    AccountingAccountRole.GOODS_COGS
+                ].id
+            ),
+            inventory_account_id=(
+                accounts[
+                    AccountingAccountRole.INVENTORY_GOODS
+                ].id
+            ),
+        )
+    except (
+        SalesFulfillmentAccountingRuleValidationError
+    ) as exc:
+        raise SalesOrderFulfillmentAccountingRuleError(
+            str(exc)
+        ) from exc
+
+    return accounting_rule
+
 
 
 @dataclass(
@@ -1622,6 +1729,16 @@ async def execute_sales_order_fulfillment(
         db,
         company_id=company_id,
         document_id=trade_document_id,
+    )
+
+    # ---------------------------------------------------------
+    # VALIDATE INVENTORY-ONLY ACCOUNTING RULE
+    # ---------------------------------------------------------
+
+    await validate_sales_fulfillment_accounting_rule_for_company(
+        db,
+        company_id=company_id,
+        accounting_rule_id=accounting_rule_id,
     )
 
     # ---------------------------------------------------------

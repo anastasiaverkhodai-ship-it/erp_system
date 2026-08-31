@@ -627,6 +627,19 @@ async def test_execute_fulfillment_orchestrates_one_transaction(
 
         return plan
 
+    async def fake_validate_accounting_rule(
+        db,
+        *,
+        company_id,
+        accounting_rule_id,
+    ):
+        events.append(
+            "validate-accounting-rule"
+        )
+        assert company_id == 1
+        assert accounting_rule_id == 77
+        return object()
+
     consume_calls = []
 
     async def fake_consume(
@@ -688,6 +701,12 @@ async def test_execute_fulfillment_orchestrates_one_transaction(
         service,
         "build_sales_order_fulfillment_plan",
         fake_build_plan,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "validate_sales_fulfillment_accounting_rule_for_company",
+        fake_validate_accounting_rule,
     )
 
     monkeypatch.setattr(
@@ -825,6 +844,15 @@ async def test_execute_fulfillment_orchestrates_one_transaction(
         fulfillment_lines[0]
         .warehouse_document_line_id
         == warehouse_lines[0].id
+    )
+
+    assert (
+        events.index(
+            "validate-accounting-rule"
+        )
+        < events.index(
+            "build-plan"
+        )
     )
 
     assert consume_calls == [

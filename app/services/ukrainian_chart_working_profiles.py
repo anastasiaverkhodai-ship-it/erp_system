@@ -71,7 +71,12 @@ SIMPLIFIED_186_WORKING_PROFILE = (
         template_type=(
             ChartOfAccountsTemplateType.SIMPLIFIED_186
         ),
-        role_to_code={},
+        role_to_code={
+            AccountingAccountRole.INVENTORY_GOODS:
+                "26",
+            AccountingAccountRole.GOODS_COGS:
+                "90",
+        },
     )
 )
 

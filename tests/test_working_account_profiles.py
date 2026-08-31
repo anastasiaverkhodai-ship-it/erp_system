@@ -69,12 +69,21 @@ def test_general_291_working_profile_mapping() -> None:
     ) == expected
 
 
-def test_simplified_186_has_no_fake_defaults() -> None:
+def test_simplified_186_inventory_roles() -> None:
     profile = get_ukrainian_chart_working_profile(
         ChartOfAccountsTemplateType.SIMPLIFIED_186
     )
 
-    assert profile.count == 0
+    assert profile.count == 2
+
+    assert dict(
+        profile.role_to_code
+    ) == {
+        AccountingAccountRole.INVENTORY_GOODS:
+            "26",
+        AccountingAccountRole.GOODS_COGS:
+            "90",
+    }
 
 
 def test_simplified_missing_role_rejected() -> None:
