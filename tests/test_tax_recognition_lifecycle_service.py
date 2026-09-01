@@ -1,4 +1,5 @@
 from datetime import date
+from types import SimpleNamespace
 from unittest.mock import (
     AsyncMock,
     Mock,
@@ -81,7 +82,9 @@ async def test_invoice_line_reconciles_output_calculation(
         101
     )
 
-    expected = object()
+    expected = SimpleNamespace(
+        created_events=()
+    )
 
     reconcile = AsyncMock(
         return_value=expected
@@ -134,8 +137,12 @@ async def test_invoice_reconciles_all_output_tax_lines(
         102,
     )
 
-    first = object()
-    second = object()
+    first = SimpleNamespace(
+        created_events=()
+    )
+    second = SimpleNamespace(
+        created_events=()
+    )
 
     reconcile = AsyncMock(
         side_effect=[
@@ -244,3 +251,222 @@ async def test_invalid_context_fails_before_database():
         )
 
     db.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_original_created_event_posts_vat_journal(
+    monkeypatch,
+):
+    db = _db_with_ids(
+        101
+    )
+
+    event = SimpleNamespace(
+        reversal_of_id=None
+    )
+    expected = SimpleNamespace(
+        created_events=(
+            event,
+        )
+    )
+
+    monkeypatch.setattr(
+        service,
+        "reconcile_output_tax_calculation_from_active_sources",
+        AsyncMock(
+            return_value=expected
+        ),
+    )
+
+    generate = AsyncMock()
+    reverse = AsyncMock()
+
+    monkeypatch.setattr(
+        service,
+        "generate_and_post_output_vat_recognition_journal_entry",
+        generate,
+    )
+    monkeypatch.setattr(
+        service,
+        "reverse_output_vat_recognition_journal_entry",
+        reverse,
+    )
+
+    result = (
+        await reconcile_output_tax_for_invoice_line(
+            db,
+            company_id=1,
+            invoice_id=10,
+            invoice_line_id=20,
+            adjustment_date=date(
+                2026,
+                8,
+                30,
+            ),
+            created_by=99,
+        )
+    )
+
+    assert result == (
+        expected,
+    )
+
+    generate.assert_awaited_once_with(
+        db,
+        event=event,
+        created_by=99,
+    )
+    reverse.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reversal_then_replacement_preserves_event_order(
+    monkeypatch,
+):
+    db = _db_with_ids(
+        101
+    )
+
+    reversal_event = SimpleNamespace(
+        reversal_of_id=5
+    )
+    replacement_event = SimpleNamespace(
+        reversal_of_id=None
+    )
+
+    expected = SimpleNamespace(
+        created_events=(
+            reversal_event,
+            replacement_event,
+        )
+    )
+
+    monkeypatch.setattr(
+        service,
+        "reconcile_output_tax_calculation_from_active_sources",
+        AsyncMock(
+            return_value=expected
+        ),
+    )
+
+    calls = []
+
+    async def fake_reverse(
+        db_arg,
+        *,
+        reversal_event,
+        reversed_by,
+    ):
+        assert db_arg is db
+        calls.append(
+            (
+                "reverse",
+                reversal_event,
+                reversed_by,
+            )
+        )
+
+    async def fake_generate(
+        db_arg,
+        *,
+        event,
+        created_by,
+    ):
+        assert db_arg is db
+        calls.append(
+            (
+                "generate",
+                event,
+                created_by,
+            )
+        )
+
+    monkeypatch.setattr(
+        service,
+        "reverse_output_vat_recognition_journal_entry",
+        fake_reverse,
+    )
+    monkeypatch.setattr(
+        service,
+        "generate_and_post_output_vat_recognition_journal_entry",
+        fake_generate,
+    )
+
+    await reconcile_output_tax_for_invoice_line(
+        db,
+        company_id=1,
+        invoice_id=10,
+        invoice_line_id=20,
+        adjustment_date=date(
+            2026,
+            8,
+            30,
+        ),
+        created_by=99,
+    )
+
+    assert calls == [
+        (
+            "reverse",
+            reversal_event,
+            99,
+        ),
+        (
+            "generate",
+            replacement_event,
+            99,
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_vat_journal_error_is_wrapped(
+    monkeypatch,
+):
+    db = _db_with_ids(
+        101
+    )
+
+    event = SimpleNamespace(
+        reversal_of_id=None
+    )
+
+    monkeypatch.setattr(
+        service,
+        "reconcile_output_tax_calculation_from_active_sources",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                created_events=(
+                    event,
+                )
+            )
+        ),
+    )
+
+    monkeypatch.setattr(
+        service,
+        "generate_and_post_output_vat_recognition_journal_entry",
+        AsyncMock(
+            side_effect=(
+                service.TaxRecognitionJournalError(
+                    "broken VAT journal"
+                )
+            )
+        ),
+    )
+
+    with pytest.raises(
+        TaxRecognitionLifecycleError,
+        match="broken VAT journal",
+    ):
+        await reconcile_output_tax_for_invoice(
+            db,
+            company_id=1,
+            invoice_id=10,
+            adjustment_date=date(
+                2026,
+                8,
+                30,
+            ),
+            created_by=99,
+        )

@@ -14,6 +14,11 @@ from app.services.tax_recognition_reconciliation_service import (
     OutputTaxRecognitionReconciliationResult,
     reconcile_output_tax_calculation_from_active_sources,
 )
+from app.services.tax_recognition_journal_service import (
+    TaxRecognitionJournalError,
+    generate_and_post_output_vat_recognition_journal_entry,
+    reverse_output_vat_recognition_journal_entry,
+)
 from app.services.tax_types import TaxDirection
 
 
@@ -99,6 +104,46 @@ async def _get_output_tax_calculation_ids(
     )
 
 
+async def _post_created_output_vat_recognition_events(
+    db: AsyncSession,
+    *,
+    result: OutputTaxRecognitionReconciliationResult,
+    created_by: int,
+) -> None:
+    """
+    Post GL effects for newly persisted immutable OUTPUT VAT events.
+
+    created_events is consumed exactly in reconciliation /
+    persistence order.
+
+    Original fulfillment event:
+        Dr GOODS_REVENUE / Cr TAX_SETTLEMENT
+
+    Original settlement event:
+        Dr VAT_OUTPUT / Cr TAX_SETTLEMENT
+
+    Reversal event:
+        reverse the original VAT JournalEntry and bind the
+        reversal JournalEntry to this reversal TaxRecognitionEvent.
+
+    Zero-tax events are intentionally GL no-ops.
+    """
+    for event in result.created_events:
+        if event.reversal_of_id is None:
+            await generate_and_post_output_vat_recognition_journal_entry(
+                db,
+                event=event,
+                created_by=created_by,
+            )
+            continue
+
+        await reverse_output_vat_recognition_journal_entry(
+            db,
+            reversal_event=event,
+            reversed_by=created_by,
+        )
+
+
 async def _reconcile_ids(
     db: AsyncSession,
     *,
@@ -135,6 +180,19 @@ async def _reconcile_ids(
             raise TaxRecognitionLifecycleError(
                 "OUTPUT VAT recognition "
                 "reconciliation failed: "
+                f"{exc}"
+            ) from exc
+
+        try:
+            await _post_created_output_vat_recognition_events(
+                db,
+                result=result,
+                created_by=created_by,
+            )
+        except TaxRecognitionJournalError as exc:
+            raise TaxRecognitionLifecycleError(
+                "OUTPUT VAT recognition "
+                "journal posting failed: "
                 f"{exc}"
             ) from exc
 

@@ -25,6 +25,35 @@ class JournalEntryReversalNotFoundError(
     pass
 
 
+def _resolve_reversal_tax_recognition_event_id(
+    *,
+    original_tax_recognition_event_id: int | None,
+    override: int | None,
+) -> int | None:
+    """
+    Preserve the original Tax Recognition typed source by default.
+
+    OUTPUT VAT reversal accounting may override it with the
+    immutable reversal TaxRecognitionEvent ID.
+    """
+    if override is None:
+        return original_tax_recognition_event_id
+
+    if override <= 0:
+        raise AccountingReversalError(
+            "Tax recognition event source override "
+            "must be greater than zero"
+        )
+
+    if original_tax_recognition_event_id is None:
+        raise AccountingReversalError(
+            "Tax recognition event source override "
+            "requires an original Tax Recognition source"
+        )
+
+    return override
+
+
 def _resolve_reversal_sales_recognition_event_id(
     *,
     original_sales_recognition_event_id: int | None,
@@ -62,6 +91,7 @@ async def reverse_journal_entry(
     journal_entry_id: int,
     reversal_date: date,
     reversed_by: int,
+    tax_recognition_event_id_override: int | None = None,
     sales_recognition_event_id_override: int | None = None,
 ) -> JournalEntry:
     result = await db.execute(
@@ -159,7 +189,14 @@ async def reverse_journal_entry(
             original_entry.payment_settlement_allocation_id
         ),
         tax_recognition_event_id=(
-            original_entry.tax_recognition_event_id
+            _resolve_reversal_tax_recognition_event_id(
+                original_tax_recognition_event_id=(
+                    original_entry.tax_recognition_event_id
+                ),
+                override=(
+                    tax_recognition_event_id_override
+                ),
+            )
         ),
         sales_recognition_event_id=(
             _resolve_reversal_sales_recognition_event_id(
