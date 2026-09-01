@@ -54,3 +54,4 @@ from app.models.payment_settlement_allocation import (
 )
 from app.models.tax_calculation import TaxCalculation
 from app.models.tax_recognition_event import TaxRecognitionEvent
+from app.models.sales_recognition_event import SalesRecognitionEvent

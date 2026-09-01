@@ -30,8 +30,9 @@ class InvoiceFulfillmentAllocation(Base):
     The record stores quantity only.
 
     Invoice commercial value is derived from the immutable confirmed
-    invoice line. Recognized fulfillment value is derived from the
-    posted warehouse DocumentLine created by the fulfillment.
+    invoice line. Commercial Sales recognition is persisted
+    separately through immutable SalesRecognitionEvent rows and must
+    never be derived from the warehouse DocumentLine price.
 
     Reversal never deletes the original allocation.
     """

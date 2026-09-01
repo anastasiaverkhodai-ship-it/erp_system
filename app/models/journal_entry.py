@@ -87,6 +87,21 @@ class JournalEntry(Base):
             ),
             ondelete="RESTRICT",
         ),
+        ForeignKeyConstraint(
+            [
+                "company_id",
+                "sales_recognition_event_id",
+            ],
+            [
+                "sales_recognition_events.company_id",
+                "sales_recognition_events.id",
+            ],
+            name=(
+                "fk_journal_entries_"
+                "company_sales_recognition_event"
+            ),
+            ondelete="RESTRICT",
+        ),
         CheckConstraint(
             """
             (
@@ -105,6 +120,11 @@ class JournalEntry(Base):
             )
             AND
             (
+                document_id IS NULL
+                OR sales_recognition_event_id IS NULL
+            )
+            AND
+            (
                 payment_id IS NULL
                 OR payment_settlement_allocation_id IS NULL
             )
@@ -115,8 +135,23 @@ class JournalEntry(Base):
             )
             AND
             (
+                payment_id IS NULL
+                OR sales_recognition_event_id IS NULL
+            )
+            AND
+            (
                 payment_settlement_allocation_id IS NULL
                 OR tax_recognition_event_id IS NULL
+            )
+            AND
+            (
+                payment_settlement_allocation_id IS NULL
+                OR sales_recognition_event_id IS NULL
+            )
+            AND
+            (
+                tax_recognition_event_id IS NULL
+                OR sales_recognition_event_id IS NULL
             )
             """,
             name=(
@@ -156,6 +191,19 @@ class JournalEntry(Base):
             postgresql_where=text(
                 "reversal_of_id IS NULL "
                 "AND tax_recognition_event_id "
+                "IS NOT NULL"
+            ),
+        ),
+        Index(
+            (
+                "uq_journal_entry_original_"
+                "sales_recognition_event"
+            ),
+            "sales_recognition_event_id",
+            unique=True,
+            postgresql_where=text(
+                "reversal_of_id IS NULL "
+                "AND sales_recognition_event_id "
                 "IS NOT NULL"
             ),
         ),
@@ -203,6 +251,13 @@ class JournalEntry(Base):
     )
 
 
+
+    sales_recognition_event_id: Mapped[
+        int | None
+    ] = mapped_column(
+        nullable=True,
+        index=True,
+    )
 
     accounting_rule_id: Mapped[int | None] = mapped_column(
     ForeignKey(

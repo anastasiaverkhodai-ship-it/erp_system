@@ -25,12 +25,44 @@ class JournalEntryReversalNotFoundError(
     pass
 
 
+def _resolve_reversal_sales_recognition_event_id(
+    *,
+    original_sales_recognition_event_id: int | None,
+    override: int | None,
+) -> int | None:
+    """
+    Preserve the original Sales typed source by default.
+
+    Sales Recognition reversal accounting may override it
+    with the immutable reversal SalesRecognitionEvent ID.
+    """
+
+    if override is None:
+        return original_sales_recognition_event_id
+
+    if override <= 0:
+        raise AccountingReversalError(
+            "Sales recognition event source override "
+            "must be greater than zero"
+        )
+
+    if original_sales_recognition_event_id is None:
+        raise AccountingReversalError(
+            "Sales recognition event source override "
+            "requires a Sales Recognition original "
+            "journal entry"
+        )
+
+    return override
+
+
 async def reverse_journal_entry(
     db: AsyncSession,
     company_id: int,
     journal_entry_id: int,
     reversal_date: date,
     reversed_by: int,
+    sales_recognition_event_id_override: int | None = None,
 ) -> JournalEntry:
     result = await db.execute(
         select(JournalEntry)
@@ -128,6 +160,16 @@ async def reverse_journal_entry(
         ),
         tax_recognition_event_id=(
             original_entry.tax_recognition_event_id
+        ),
+        sales_recognition_event_id=(
+            _resolve_reversal_sales_recognition_event_id(
+                original_sales_recognition_event_id=(
+                    original_entry.sales_recognition_event_id
+                ),
+                override=(
+                    sales_recognition_event_id_override
+                ),
+            )
         ),
         accounting_rule_id=original_entry.accounting_rule_id,
         entry_date=reversal_date,

@@ -245,3 +245,25 @@ def _step17b_stub_fulfillment_vat_recognition(
     )
 
     return stub
+
+
+# STEP17B_AUTOUSE_FULFILLMENT_SALES_RECOGNITION_STUB
+
+@_step17b_pytest.fixture(autouse=True)
+def _step17b_stub_fulfillment_sales_recognition(
+    monkeypatch,
+):
+    stub = _Step17BAsyncMock(
+        return_value=None
+    )
+
+    monkeypatch.setattr(
+        _step17b_fulfillment_service,
+        (
+            "reconcile_sales_recognition_"
+            "lifecycle_for_invoice_line"
+        ),
+        stub,
+    )
+
+    return stub
