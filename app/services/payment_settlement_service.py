@@ -34,7 +34,7 @@ from app.services.payment_types import (
 
 from app.services.tax_recognition_lifecycle_service import (
     TaxRecognitionLifecycleError,
-    reconcile_output_tax_for_invoice,
+    reconcile_tax_for_invoice,
 )
 
 
@@ -737,7 +737,7 @@ async def create_payment_settlement_allocation(
         ) from exc
 
     try:
-        await reconcile_output_tax_for_invoice(
+        await reconcile_tax_for_invoice(
             db,
             company_id=company_id,
             invoice_id=(
@@ -968,7 +968,7 @@ async def reverse_payment_settlement_allocation(
     await db.flush()
 
     try:
-        await reconcile_output_tax_for_invoice(
+        await reconcile_tax_for_invoice(
             db,
             company_id=company_id,
             invoice_id=(

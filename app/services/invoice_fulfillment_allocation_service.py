@@ -36,7 +36,7 @@ from app.services.sales_recognition_lifecycle_service import (
 )
 from app.services.tax_recognition_lifecycle_service import (
     TaxRecognitionLifecycleError,
-    reconcile_output_tax_for_invoice_line,
+    reconcile_tax_for_invoice_line,
 )
 
 
@@ -993,7 +993,7 @@ async def create_invoice_fulfillment_allocation(
         ) from exc
 
     try:
-        await reconcile_output_tax_for_invoice_line(
+        await reconcile_tax_for_invoice_line(
             db,
             company_id=company_id,
             invoice_id=invoice.id,
@@ -1217,7 +1217,7 @@ async def reverse_invoice_fulfillment_allocation(
         ) from exc
 
     try:
-        await reconcile_output_tax_for_invoice_line(
+        await reconcile_tax_for_invoice_line(
             db,
             company_id=company_id,
             invoice_id=invoice_id,

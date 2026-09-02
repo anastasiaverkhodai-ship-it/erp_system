@@ -686,7 +686,7 @@ def _step17b_stub_settlement_vat_recognition(
 
     monkeypatch.setattr(
         _step17b_settlement_service,
-        "reconcile_output_tax_for_invoice",
+        "reconcile_tax_for_invoice",
         stub,
     )
 

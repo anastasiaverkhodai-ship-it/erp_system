@@ -12,7 +12,7 @@ SALES_CALL = (
 )
 
 VAT_CALL = (
-    "reconcile_output_tax_for_invoice_line"
+    "reconcile_tax_for_invoice_line"
 )
 
 

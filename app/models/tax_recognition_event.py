@@ -36,6 +36,10 @@ class TaxRecognitionEvent(Base):
     - payment_settlement_allocation_id:
       payment amount durably allocated to an AR/AP obligation.
 
+    - tax_credit_evidence_id:
+        immutable legal evidence supporting INPUT VAT
+        tax-credit recognition.
+
     At most one typed recognition source may be populated.
 
     A source-less event is reserved for explicit MANUAL
@@ -136,6 +140,23 @@ class TaxRecognitionEvent(Base):
         ForeignKeyConstraint(
             [
                 "company_id",
+                "tax_credit_evidence_id",
+                "tax_calculation_id",
+            ],
+            [
+                "tax_credit_evidence.company_id",
+                "tax_credit_evidence.id",
+                "tax_credit_evidence.tax_calculation_id",
+            ],
+            name=(
+                "fk_tax_recognition_events_"
+                "company_tax_credit_evidence"
+            ),
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "company_id",
                 "reversal_of_id",
                 "tax_calculation_id",
             ],
@@ -155,8 +176,18 @@ class TaxRecognitionEvent(Base):
         ),
         CheckConstraint(
             """
-            invoice_fulfillment_allocation_id IS NULL
-            OR payment_settlement_allocation_id IS NULL
+            (
+                invoice_fulfillment_allocation_id IS NULL
+                OR payment_settlement_allocation_id IS NULL
+            )
+            AND (
+                invoice_fulfillment_allocation_id IS NULL
+                OR tax_credit_evidence_id IS NULL
+            )
+            AND (
+                payment_settlement_allocation_id IS NULL
+                OR tax_credit_evidence_id IS NULL
+            )
             """,
             name=(
                 "ck_tax_recognition_events_"
@@ -237,6 +268,20 @@ class TaxRecognitionEvent(Base):
         Index(
             (
                 "ix_tax_recognition_events_"
+                "tax_credit_evidence_source"
+            ),
+            "company_id",
+            "tax_calculation_id",
+            "tax_credit_evidence_id",
+            unique=False,
+            postgresql_where=text(
+                "reversal_of_id IS NULL "
+                "AND tax_credit_evidence_id IS NOT NULL"
+            ),
+        ),
+        Index(
+            (
+                "ix_tax_recognition_events_"
                 "tax_calculation_original"
             ),
             "company_id",
@@ -276,6 +321,14 @@ class TaxRecognitionEvent(Base):
     )
 
     payment_settlement_allocation_id: Mapped[
+        int | None
+    ] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+    )
+
+    tax_credit_evidence_id: Mapped[
         int | None
     ] = mapped_column(
         Integer,

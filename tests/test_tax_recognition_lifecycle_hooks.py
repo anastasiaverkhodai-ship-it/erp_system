@@ -11,7 +11,7 @@ def test_fulfillment_create_has_vat_hook():
     )
 
     assert (
-        "reconcile_output_tax_for_invoice_line"
+        "reconcile_tax_for_invoice_line"
         in source
     )
 
@@ -28,7 +28,7 @@ def test_fulfillment_reverse_has_vat_hook():
     )
 
     assert (
-        "reconcile_output_tax_for_invoice_line"
+        "reconcile_tax_for_invoice_line"
         in source
     )
 
@@ -45,7 +45,7 @@ def test_settlement_create_has_vat_hook():
     )
 
     assert (
-        "reconcile_output_tax_for_invoice"
+        "reconcile_tax_for_invoice"
         in source
     )
 
@@ -62,7 +62,7 @@ def test_settlement_reverse_has_vat_hook():
     )
 
     assert (
-        "reconcile_output_tax_for_invoice"
+        "reconcile_tax_for_invoice"
         in source
     )
 
@@ -83,7 +83,7 @@ def test_settlement_accounting_still_precedes_vat_hook():
     )
 
     vat_position = source.index(
-        "reconcile_output_tax_for_invoice"
+        "reconcile_tax_for_invoice"
     )
 
     assert (

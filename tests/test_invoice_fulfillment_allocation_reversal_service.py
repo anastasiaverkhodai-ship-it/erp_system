@@ -240,7 +240,7 @@ def _step17b_stub_fulfillment_vat_recognition(
 
     monkeypatch.setattr(
         _step17b_fulfillment_service,
-        "reconcile_output_tax_for_invoice_line",
+        "reconcile_tax_for_invoice_line",
         stub,
     )
 

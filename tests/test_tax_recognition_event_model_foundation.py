@@ -28,6 +28,7 @@ def test_columns():
         "tax_calculation_id",
         "invoice_fulfillment_allocation_id",
         "payment_settlement_allocation_id",
+        "tax_credit_evidence_id",
         "recognition_date",
         "recognized_taxable_base",
         "recognized_tax_amount",

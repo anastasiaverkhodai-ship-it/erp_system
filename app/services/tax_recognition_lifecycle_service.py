@@ -4,6 +4,27 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tax_calculation import TaxCalculation
+from app.models.trade_document import (
+    TradeDocument,
+)
+from app.services.input_tax_recognition_calculation_service import (
+    InputTaxRecognitionCalculationError,
+)
+from app.services.input_tax_recognition_candidate_loader_service import (
+    InputTaxRecognitionCandidateLoaderError,
+)
+from app.services.input_tax_recognition_evidence_allocation_service import (
+    InputTaxRecognitionEvidenceAllocationError,
+)
+from app.services.input_tax_recognition_persistence_service import (
+    InputTaxRecognitionPersistenceError,
+)
+from app.services.input_tax_recognition_reconciliation_service import (
+    InputTaxRecognitionReconciliationError,
+    InputTaxRecognitionReconciliationResult,
+    reconcile_input_tax_calculation_from_active_sources,
+)
+
 from app.services.tax_recognition_orchestration_service import (
     TaxRecognitionOrchestrationError,
 )
@@ -24,6 +45,9 @@ from app.services.vat_advance_bridge_lifecycle_service import (
     reconcile_vat_advance_bridge_lifecycle_for_tax_calculation,
 )
 from app.services.tax_types import TaxDirection
+from app.services.trade_document_types import (
+    TradeDirection,
+)
 
 
 class TaxRecognitionLifecycleError(Exception):
@@ -323,4 +347,392 @@ async def reconcile_output_tax_for_invoice(
         calculation_ids=calculation_ids,
         adjustment_date=adjustment_date,
         created_by=created_by,
+    )
+
+async def _get_input_tax_calculation_ids(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    invoice_id: int,
+    invoice_line_id: int | None,
+) -> tuple[int, ...]:
+    """
+    Return persistent INPUT VAT TaxCalculation IDs affected by
+    one Purchase Invoice or one Purchase Invoice line.
+
+    Non-VAT and Sales Invoice sources naturally return no rows.
+    """
+
+    statement = (
+        select(
+            TaxCalculation.id
+        )
+        .where(
+            TaxCalculation.company_id
+            == company_id,
+            TaxCalculation.trade_document_id
+            == invoice_id,
+            TaxCalculation.direction
+            == TaxDirection.INPUT,
+        )
+        .order_by(
+            TaxCalculation.id
+        )
+    )
+
+    if invoice_line_id is not None:
+        if invoice_line_id <= 0:
+            raise ValueError(
+                "invoice_line_id must be "
+                "greater than zero"
+            )
+
+        statement = statement.where(
+            TaxCalculation.trade_document_line_id
+            == invoice_line_id
+        )
+
+    result = await db.execute(
+        statement
+    )
+
+    return tuple(
+        int(calculation_id)
+        for calculation_id
+        in result.scalars().all()
+    )
+
+
+async def _reconcile_input_ids(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    calculation_ids: tuple[int, ...],
+    adjustment_date: date,
+    created_by: int,
+) -> tuple[
+    InputTaxRecognitionReconciliationResult,
+    ...,
+]:
+    """
+    Reconcile automatic INPUT VAT calculations.
+
+    INPUT recognition is evidence-gated and currently writes only
+    immutable TaxRecognitionEvent rows. INPUT GL posting is a
+    separate milestone and is deliberately not performed here.
+    """
+
+    results = []
+
+    for calculation_id in calculation_ids:
+        try:
+            result = (
+                await reconcile_input_tax_calculation_from_active_sources(
+                    db,
+                    company_id=company_id,
+                    tax_calculation_id=(
+                        calculation_id
+                    ),
+                    adjustment_date=(
+                        adjustment_date
+                    ),
+                    created_by=created_by,
+                )
+            )
+
+        except (
+            InputTaxRecognitionCalculationError,
+            InputTaxRecognitionCandidateLoaderError,
+            InputTaxRecognitionEvidenceAllocationError,
+            InputTaxRecognitionPersistenceError,
+            InputTaxRecognitionReconciliationError,
+        ) as exc:
+            raise TaxRecognitionLifecycleError(
+                "INPUT VAT recognition "
+                "reconciliation failed: "
+                f"{exc}"
+            ) from exc
+
+        results.append(
+            result
+        )
+
+    return tuple(
+        results
+    )
+
+
+async def reconcile_input_tax_for_invoice_line(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    invoice_id: int,
+    invoice_line_id: int,
+    adjustment_date: date,
+    created_by: int,
+) -> tuple[
+    InputTaxRecognitionReconciliationResult,
+    ...,
+]:
+    """
+    Reconcile INPUT VAT affected by one Purchase Invoice line.
+
+    Sales OUTPUT VAT and non-VAT lines naturally produce no INPUT
+    TaxCalculation IDs and therefore no INPUT recognition effect.
+    """
+
+    _validate_context(
+        company_id=company_id,
+        invoice_id=invoice_id,
+        adjustment_date=adjustment_date,
+        created_by=created_by,
+    )
+
+    if invoice_line_id <= 0:
+        raise ValueError(
+            "invoice_line_id must be "
+            "greater than zero"
+        )
+
+    calculation_ids = (
+        await _get_input_tax_calculation_ids(
+            db,
+            company_id=company_id,
+            invoice_id=invoice_id,
+            invoice_line_id=(
+                invoice_line_id
+            ),
+        )
+    )
+
+    return await _reconcile_input_ids(
+        db,
+        company_id=company_id,
+        calculation_ids=calculation_ids,
+        adjustment_date=adjustment_date,
+        created_by=created_by,
+    )
+
+
+async def reconcile_input_tax_for_invoice(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    invoice_id: int,
+    adjustment_date: date,
+    created_by: int,
+) -> tuple[
+    InputTaxRecognitionReconciliationResult,
+    ...,
+]:
+    """
+    Reconcile every INPUT VAT calculation for one Purchase Invoice.
+
+    Settlement allocation is invoice-level, therefore all INPUT VAT
+    lines are recalculated against current receipt/payment economics
+    and current TaxCreditEvidence capacity.
+    """
+
+    _validate_context(
+        company_id=company_id,
+        invoice_id=invoice_id,
+        adjustment_date=adjustment_date,
+        created_by=created_by,
+    )
+
+    calculation_ids = (
+        await _get_input_tax_calculation_ids(
+            db,
+            company_id=company_id,
+            invoice_id=invoice_id,
+            invoice_line_id=None,
+        )
+    )
+
+    return await _reconcile_input_ids(
+        db,
+        company_id=company_id,
+        calculation_ids=calculation_ids,
+        adjustment_date=adjustment_date,
+        created_by=created_by,
+    )
+
+async def _get_tax_invoice_direction(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    invoice_id: int,
+) -> TradeDirection:
+    """
+    Load immutable business direction used to dispatch VAT
+    recognition lifecycle:
+
+        SALE     -> OUTPUT VAT
+        PURCHASE -> INPUT VAT
+    """
+
+    direction = (
+        await db.execute(
+            select(
+                TradeDocument.direction
+            ).where(
+                TradeDocument.company_id
+                == company_id,
+                TradeDocument.id
+                == invoice_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if direction is None:
+        raise TaxRecognitionLifecycleError(
+            "Trade Invoice not found during "
+            "VAT recognition lifecycle"
+        )
+
+    try:
+        return TradeDirection(
+            direction
+        )
+
+    except ValueError as exc:
+        raise TaxRecognitionLifecycleError(
+            "Trade Invoice has unsupported "
+            "direction during VAT recognition lifecycle"
+        ) from exc
+
+
+async def reconcile_tax_for_invoice_line(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    invoice_id: int,
+    invoice_line_id: int,
+    adjustment_date: date,
+    created_by: int,
+) -> tuple[
+    OutputTaxRecognitionReconciliationResult
+    | InputTaxRecognitionReconciliationResult,
+    ...,
+]:
+    """
+    Direction-aware VAT lifecycle entry point for one invoice line.
+
+    SALE:
+        reconcile OUTPUT VAT.
+
+    PURCHASE:
+        reconcile evidence-gated INPUT VAT.
+    """
+
+    _validate_context(
+        company_id=company_id,
+        invoice_id=invoice_id,
+        adjustment_date=adjustment_date,
+        created_by=created_by,
+    )
+
+    if invoice_line_id <= 0:
+        raise ValueError(
+            "invoice_line_id must be "
+            "greater than zero"
+        )
+
+    direction = (
+        await _get_tax_invoice_direction(
+            db,
+            company_id=company_id,
+            invoice_id=invoice_id,
+        )
+    )
+
+    if direction == TradeDirection.SALE:
+        return (
+            await reconcile_output_tax_for_invoice_line(
+                db,
+                company_id=company_id,
+                invoice_id=invoice_id,
+                invoice_line_id=invoice_line_id,
+                adjustment_date=adjustment_date,
+                created_by=created_by,
+            )
+        )
+
+    if direction == TradeDirection.PURCHASE:
+        return (
+            await reconcile_input_tax_for_invoice_line(
+                db,
+                company_id=company_id,
+                invoice_id=invoice_id,
+                invoice_line_id=invoice_line_id,
+                adjustment_date=adjustment_date,
+                created_by=created_by,
+            )
+        )
+
+    raise TaxRecognitionLifecycleError(
+        "Unsupported Trade Invoice direction "
+        "during VAT recognition lifecycle"
+    )
+
+
+async def reconcile_tax_for_invoice(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    invoice_id: int,
+    adjustment_date: date,
+    created_by: int,
+) -> tuple[
+    OutputTaxRecognitionReconciliationResult
+    | InputTaxRecognitionReconciliationResult,
+    ...,
+]:
+    """
+    Direction-aware VAT lifecycle entry point for one invoice.
+
+    Used by PaymentSettlementAllocation lifecycle because settlement
+    changes economic capacity for the whole invoice.
+    """
+
+    _validate_context(
+        company_id=company_id,
+        invoice_id=invoice_id,
+        adjustment_date=adjustment_date,
+        created_by=created_by,
+    )
+
+    direction = (
+        await _get_tax_invoice_direction(
+            db,
+            company_id=company_id,
+            invoice_id=invoice_id,
+        )
+    )
+
+    if direction == TradeDirection.SALE:
+        return (
+            await reconcile_output_tax_for_invoice(
+                db,
+                company_id=company_id,
+                invoice_id=invoice_id,
+                adjustment_date=adjustment_date,
+                created_by=created_by,
+            )
+        )
+
+    if direction == TradeDirection.PURCHASE:
+        return (
+            await reconcile_input_tax_for_invoice(
+                db,
+                company_id=company_id,
+                invoice_id=invoice_id,
+                adjustment_date=adjustment_date,
+                created_by=created_by,
+            )
+        )
+
+    raise TaxRecognitionLifecycleError(
+        "Unsupported Trade Invoice direction "
+        "during VAT recognition lifecycle"
     )
