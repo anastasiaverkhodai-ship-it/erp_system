@@ -19,6 +19,10 @@ from app.services.tax_recognition_journal_service import (
     generate_and_post_output_vat_recognition_journal_entry,
     reverse_output_vat_recognition_journal_entry,
 )
+from app.services.vat_advance_bridge_lifecycle_service import (
+    VatAdvanceBridgeLifecycleError,
+    reconcile_vat_advance_bridge_lifecycle_for_tax_calculation,
+)
 from app.services.tax_types import TaxDirection
 
 
@@ -193,6 +197,26 @@ async def _reconcile_ids(
             raise TaxRecognitionLifecycleError(
                 "OUTPUT VAT recognition "
                 "journal posting failed: "
+                f"{exc}"
+            ) from exc
+
+        try:
+            await (
+                reconcile_vat_advance_bridge_lifecycle_for_tax_calculation(
+                    db,
+                    company_id=company_id,
+                    tax_calculation_id=(
+                        calculation_id
+                    ),
+                    adjustment_date=(
+                        adjustment_date
+                    ),
+                    created_by=created_by,
+                )
+            )
+        except VatAdvanceBridgeLifecycleError as exc:
+            raise TaxRecognitionLifecycleError(
+                "VAT advance bridge lifecycle failed: "
                 f"{exc}"
             ) from exc
 

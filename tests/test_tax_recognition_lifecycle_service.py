@@ -470,3 +470,25 @@ async def test_vat_journal_error_is_wrapped(
             ),
             created_by=99,
         )
+
+# VAT_ADVANCE_BRIDGE_AUTOUSE_LIFECYCLE_STUB
+import pytest as _bridge_pytest
+from unittest.mock import AsyncMock as _BridgeAsyncMock
+import app.services.tax_recognition_lifecycle_service as _bridge_tax_lifecycle
+
+
+@_bridge_pytest.fixture(autouse=True)
+def _stub_vat_advance_bridge_lifecycle(
+    monkeypatch,
+):
+    stub = _BridgeAsyncMock(
+        return_value=None
+    )
+
+    monkeypatch.setattr(
+        _bridge_tax_lifecycle,
+        "reconcile_vat_advance_bridge_lifecycle_for_tax_calculation",
+        stub,
+    )
+
+    return stub

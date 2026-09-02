@@ -85,6 +85,38 @@ def _resolve_reversal_sales_recognition_event_id(
     return override
 
 
+def _resolve_reversal_vat_advance_bridge_event_id(
+    *,
+    original_vat_advance_bridge_event_id: int | None,
+    override: int | None,
+) -> int | None:
+    """
+    Preserve the original VAT Advance Bridge typed source
+    by default.
+
+    VAT Advance Bridge reversal accounting may override it
+    with the immutable reversal VatAdvanceBridgeEvent ID.
+    """
+
+    if override is None:
+        return original_vat_advance_bridge_event_id
+
+    if override <= 0:
+        raise AccountingReversalError(
+            "VAT advance bridge event source override "
+            "must be greater than zero"
+        )
+
+    if original_vat_advance_bridge_event_id is None:
+        raise AccountingReversalError(
+            "VAT advance bridge event source override "
+            "requires a VAT Advance Bridge original "
+            "journal entry"
+        )
+
+    return override
+
+
 async def reverse_journal_entry(
     db: AsyncSession,
     company_id: int,
@@ -93,6 +125,7 @@ async def reverse_journal_entry(
     reversed_by: int,
     tax_recognition_event_id_override: int | None = None,
     sales_recognition_event_id_override: int | None = None,
+    vat_advance_bridge_event_id_override: int | None = None,
 ) -> JournalEntry:
     result = await db.execute(
         select(JournalEntry)
@@ -205,6 +238,16 @@ async def reverse_journal_entry(
                 ),
                 override=(
                     sales_recognition_event_id_override
+                ),
+            )
+        ),
+        vat_advance_bridge_event_id=(
+            _resolve_reversal_vat_advance_bridge_event_id(
+                original_vat_advance_bridge_event_id=(
+                    original_entry.vat_advance_bridge_event_id
+                ),
+                override=(
+                    vat_advance_bridge_event_id_override
                 ),
             )
         ),
