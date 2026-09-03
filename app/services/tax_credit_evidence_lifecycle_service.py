@@ -24,6 +24,12 @@ from app.services.input_tax_recognition_reconciliation_service import (
     InputTaxRecognitionReconciliationResult,
     reconcile_input_tax_calculation_from_active_sources,
 )
+from app.services.tax_recognition_journal_service import (
+    TaxRecognitionJournalError,
+)
+from app.services.tax_recognition_lifecycle_service import (
+    post_created_input_vat_recognition_events,
+)
 from app.services.tax_credit_evidence_persistence_service import (
     create_tax_credit_evidence,
     reverse_tax_credit_evidence,
@@ -86,11 +92,11 @@ async def _reconcile_after_evidence_mutation(
 ) -> InputTaxRecognitionReconciliationResult:
     """
     Recalculate one INPUT VAT TaxCalculation after immutable legal
-    evidence capacity changes.
+    evidence capacity changes and post every newly persisted
+    TaxRecognitionEvent to GL in the same caller-owned transaction.
     """
-
     try:
-        return (
+        result = (
             await reconcile_input_tax_calculation_from_active_sources(
                 db,
                 company_id=evidence.company_id,
@@ -103,13 +109,27 @@ async def _reconcile_after_evidence_mutation(
                 created_by=created_by,
             )
         )
-
     except _INPUT_RECOGNITION_ERRORS as exc:
         raise TaxCreditEvidenceLifecycleError(
             "INPUT VAT recognition reconciliation "
             "failed after TaxCreditEvidence mutation: "
             f"{exc}"
         ) from exc
+
+    try:
+        await post_created_input_vat_recognition_events(
+            db,
+            result=result,
+            created_by=created_by,
+        )
+    except TaxRecognitionJournalError as exc:
+        raise TaxCreditEvidenceLifecycleError(
+            "INPUT VAT recognition journal posting "
+            "failed after TaxCreditEvidence mutation: "
+            f"{exc}"
+        ) from exc
+
+    return result
 
 
 async def create_tax_credit_evidence_and_reconcile(

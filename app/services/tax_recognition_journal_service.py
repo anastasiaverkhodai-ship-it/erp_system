@@ -26,6 +26,10 @@ from app.services.accounting_reversal import (
     AccountingReversalError,
     reverse_journal_entry,
 )
+from app.services.input_vat_accounting_service import (
+    InputVatAccountingError,
+    create_input_vat_recognition_accounting_plan,
+)
 from app.services.tax_recognition_accounting_service import (
     OutputVatRecognitionSourceKind,
     TaxRecognitionAccountingError,
@@ -127,6 +131,45 @@ def resolve_output_vat_recognition_source_kind(
     )
 
 
+def validate_input_vat_recognition_accounting_currency(
+    event: TaxRecognitionEvent,
+) -> None:
+    if event.currency_code != "UAH":
+        raise TaxRecognitionJournalCurrencyError(
+            "INPUT VAT recognition accounting currently "
+            "supports UAH only"
+        )
+
+
+def validate_input_vat_recognition_source(
+    event: TaxRecognitionEvent,
+) -> None:
+    """
+    INPUT VAT tax-credit GL recognition must originate from
+    immutable legal TaxCreditEvidence.
+
+    Fulfillment / settlement are economic timing sources and must
+    never be used directly as the legal INPUT VAT GL source.
+    """
+    if (
+        event.invoice_fulfillment_allocation_id
+        is not None
+        or event.payment_settlement_allocation_id
+        is not None
+        or event.tax_credit_evidence_id
+        is None
+    ):
+        raise TaxRecognitionJournalSourceStateError(
+            "Automatic INPUT VAT recognition event must have "
+            "TaxCreditEvidence as its only typed source"
+        )
+
+    if event.tax_credit_evidence_id <= 0:
+        raise TaxRecognitionJournalSourceStateError(
+            "Tax Credit Evidence source must be greater than zero"
+        )
+
+
 def _validate_event_identity(
     event: TaxRecognitionEvent,
 ) -> None:
@@ -154,9 +197,10 @@ async def _build_journal_lines(
         accounts = await resolve_company_account_roles(
             db,
             company_id=company_id,
-            roles=(
-                required_roles_for_output_vat_plan(
-                    plan
+            roles=tuple(
+                dict.fromkeys(
+                    line.role
+                    for line in plan.lines
                 )
             ),
         )
@@ -483,6 +527,259 @@ async def reverse_output_vat_recognition_journal_entry(
 
     original = (
         await get_original_output_vat_recognition_journal_entry(
+            db,
+            company_id=reversal_event.company_id,
+            tax_recognition_event_id=(
+                reversal_event.reversal_of_id
+            ),
+            lock=True,
+        )
+    )
+
+    try:
+        return await reverse_journal_entry(
+            db=db,
+            company_id=reversal_event.company_id,
+            journal_entry_id=original.id,
+            reversal_date=(
+                reversal_event.recognition_date
+            ),
+            reversed_by=reversed_by,
+            tax_recognition_event_id_override=(
+                reversal_event.id
+            ),
+        )
+    except AccountingReversalError as exc:
+        raise TaxRecognitionJournalError(
+            str(exc)
+        ) from exc
+
+async def generate_and_post_input_vat_recognition_journal_entry(
+    db: AsyncSession,
+    *,
+    event: TaxRecognitionEvent,
+    created_by: int,
+) -> JournalEntry | None:
+    """
+    Post one original immutable INPUT VAT tax-credit recognition.
+
+        Dr TAX_SETTLEMENT
+        Cr VAT_INPUT
+
+    GENERAL working profile:
+        Dr 641
+        Cr 644
+
+    Zero recognized VAT is intentionally a GL no-op.
+    """
+    if created_by <= 0:
+        raise TaxRecognitionJournalSourceStateError(
+            "created_by must be greater than zero"
+        )
+
+    _validate_event_identity(
+        event
+    )
+
+    if event.reversal_of_id is not None:
+        raise TaxRecognitionJournalSourceStateError(
+            "A Tax Recognition reversal event "
+            "cannot generate an original journal entry"
+        )
+
+    validate_input_vat_recognition_accounting_currency(
+        event
+    )
+    validate_input_vat_recognition_source(
+        event
+    )
+
+    amount = Decimal(
+        str(
+            event.recognized_tax_amount
+        )
+    )
+
+    if amount < ZERO:
+        raise TaxRecognitionJournalSourceStateError(
+            "Recognized INPUT VAT amount cannot be negative"
+        )
+
+    if amount == ZERO:
+        return None
+
+    existing_id = (
+        await db.execute(
+            select(
+                JournalEntry.id
+            ).where(
+                JournalEntry.company_id
+                == event.company_id,
+                JournalEntry.tax_recognition_event_id
+                == event.id,
+                JournalEntry.reversal_of_id.is_(
+                    None
+                ),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if existing_id is not None:
+        raise TaxRecognitionJournalDuplicateError(
+            "Original journal entry already exists "
+            "for this INPUT Tax Recognition event"
+        )
+
+    try:
+        plan = (
+            create_input_vat_recognition_accounting_plan(
+                amount=amount,
+            )
+        )
+    except InputVatAccountingError as exc:
+        raise TaxRecognitionJournalError(
+            str(exc)
+        ) from exc
+
+    description = (
+        "INPUT VAT Recognition event "
+        f"{event.id}"
+    )
+
+    lines = await _build_journal_lines(
+        db,
+        company_id=event.company_id,
+        plan=plan,
+        description=description,
+    )
+
+    journal_entry = JournalEntry(
+        company_id=event.company_id,
+        document_id=None,
+        payment_id=None,
+        payment_settlement_allocation_id=None,
+        tax_recognition_event_id=event.id,
+        sales_recognition_event_id=None,
+        accounting_rule_id=None,
+        entry_date=event.recognition_date,
+        description=description,
+        status=JournalEntryStatus.DRAFT,
+        created_by=created_by,
+    )
+
+    journal_entry.lines = lines
+
+    return await _validate_and_post(
+        db,
+        journal_entry=journal_entry,
+    )
+
+
+async def get_original_input_vat_recognition_journal_entry(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    tax_recognition_event_id: int,
+    lock: bool = False,
+) -> JournalEntry:
+    """
+    Load the original JournalEntry bound to one immutable
+    INPUT TaxRecognitionEvent.
+
+    JournalEntry.tax_recognition_event_id is direction-neutral,
+    therefore the durable lookup semantics are identical to OUTPUT.
+    """
+    return await get_original_output_vat_recognition_journal_entry(
+        db,
+        company_id=company_id,
+        tax_recognition_event_id=(
+            tax_recognition_event_id
+        ),
+        lock=lock,
+    )
+
+
+async def reverse_input_vat_recognition_journal_entry(
+    db: AsyncSession,
+    *,
+    reversal_event: TaxRecognitionEvent,
+    reversed_by: int,
+) -> JournalEntry | None:
+    """
+    Account for one immutable INPUT VAT recognition reversal.
+
+    Original:
+        Dr TAX_SETTLEMENT / Cr VAT_INPUT
+
+    Reversal:
+        Dr VAT_INPUT / Cr TAX_SETTLEMENT
+
+    The generic accounting reversal keeps the reversal JournalEntry
+    bound to the immutable reversal TaxRecognitionEvent.
+    """
+    if reversed_by <= 0:
+        raise TaxRecognitionJournalSourceStateError(
+            "reversed_by must be greater than zero"
+        )
+
+    _validate_event_identity(
+        reversal_event
+    )
+
+    if reversal_event.reversal_of_id is None:
+        raise TaxRecognitionJournalSourceStateError(
+            "Only a Tax Recognition reversal event "
+            "can reverse INPUT VAT accounting"
+        )
+
+    if reversal_event.reversal_of_id <= 0:
+        raise TaxRecognitionJournalSourceStateError(
+            "Tax Recognition reversal_of_id "
+            "must be greater than zero"
+        )
+
+    validate_input_vat_recognition_accounting_currency(
+        reversal_event
+    )
+    validate_input_vat_recognition_source(
+        reversal_event
+    )
+
+    amount = Decimal(
+        str(
+            reversal_event.recognized_tax_amount
+        )
+    )
+
+    if amount < ZERO:
+        raise TaxRecognitionJournalSourceStateError(
+            "Recognized INPUT VAT amount cannot be negative"
+        )
+
+    if amount == ZERO:
+        return None
+
+    existing_reversal_id = (
+        await db.execute(
+            select(
+                JournalEntry.id
+            ).where(
+                JournalEntry.company_id
+                == reversal_event.company_id,
+                JournalEntry.tax_recognition_event_id
+                == reversal_event.id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if existing_reversal_id is not None:
+        raise TaxRecognitionJournalDuplicateError(
+            "Journal entry already exists for this "
+            "INPUT Tax Recognition reversal event"
+        )
+
+    original = (
+        await get_original_input_vat_recognition_journal_entry(
             db,
             company_id=reversal_event.company_id,
             tax_recognition_event_id=(

@@ -183,6 +183,14 @@ def test_input_reconcile_ids_calls_active_source_wrapper(
         wrapper,
     )
 
+    post_created_events = AsyncMock()
+
+    monkeypatch.setattr(
+        lifecycle,
+        "_post_created_input_vat_recognition_events",
+        post_created_events,
+    )
+
     result = asyncio.run(
         lifecycle._reconcile_input_ids(
             db,

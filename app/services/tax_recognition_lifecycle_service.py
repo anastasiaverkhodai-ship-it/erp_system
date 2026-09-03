@@ -37,7 +37,9 @@ from app.services.tax_recognition_reconciliation_service import (
 )
 from app.services.tax_recognition_journal_service import (
     TaxRecognitionJournalError,
+    generate_and_post_input_vat_recognition_journal_entry,
     generate_and_post_output_vat_recognition_journal_entry,
+    reverse_input_vat_recognition_journal_entry,
     reverse_output_vat_recognition_journal_entry,
 )
 from app.services.vat_advance_bridge_lifecycle_service import (
@@ -403,6 +405,61 @@ async def _get_input_tax_calculation_ids(
     )
 
 
+async def _post_created_input_vat_recognition_events(
+    db: AsyncSession,
+    *,
+    result: InputTaxRecognitionReconciliationResult,
+    created_by: int,
+) -> None:
+    """
+    Post GL effects for newly persisted immutable INPUT VAT events.
+
+    Original evidence-backed recognition:
+        Dr TAX_SETTLEMENT / Cr VAT_INPUT
+
+    Reversal:
+        reverse the original JournalEntry and bind the reversal
+        JournalEntry to the immutable reversal TaxRecognitionEvent.
+
+    Zero-tax events are GL no-ops.
+    """
+    for event in result.created_events:
+        if event.reversal_of_id is None:
+            await generate_and_post_input_vat_recognition_journal_entry(
+                db,
+                event=event,
+                created_by=created_by,
+            )
+            continue
+
+        await reverse_input_vat_recognition_journal_entry(
+            db,
+            reversal_event=event,
+            reversed_by=created_by,
+        )
+
+
+async def post_created_input_vat_recognition_events(
+    db: AsyncSession,
+    *,
+    result: InputTaxRecognitionReconciliationResult,
+    created_by: int,
+) -> None:
+    """
+    Public transaction-owned INPUT VAT GL orchestration for one
+    completed evidence-gated reconciliation result.
+
+    This is intentionally reusable by both:
+        - ordinary purchase economic-source lifecycle; and
+        - TaxCreditEvidence mutation lifecycle.
+    """
+    await _post_created_input_vat_recognition_events(
+        db,
+        result=result,
+        created_by=created_by,
+    )
+
+
 async def _reconcile_input_ids(
     db: AsyncSession,
     *,
@@ -415,11 +472,10 @@ async def _reconcile_input_ids(
     ...,
 ]:
     """
-    Reconcile automatic INPUT VAT calculations.
+    Reconcile automatic evidence-gated INPUT VAT calculations.
 
-    INPUT recognition is evidence-gated and currently writes only
-    immutable TaxRecognitionEvent rows. INPUT GL posting is a
-    separate milestone and is deliberately not performed here.
+    Newly persisted immutable TaxRecognitionEvent rows are posted
+    to GL in reconciliation / persistence order.
     """
 
     results = []
@@ -450,6 +506,19 @@ async def _reconcile_input_ids(
             raise TaxRecognitionLifecycleError(
                 "INPUT VAT recognition "
                 "reconciliation failed: "
+                f"{exc}"
+            ) from exc
+
+        try:
+            await _post_created_input_vat_recognition_events(
+                db,
+                result=result,
+                created_by=created_by,
+            )
+        except TaxRecognitionJournalError as exc:
+            raise TaxRecognitionLifecycleError(
+                "INPUT VAT recognition "
+                "journal posting failed: "
                 f"{exc}"
             ) from exc
 

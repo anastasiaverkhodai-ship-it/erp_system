@@ -29,6 +29,25 @@ D2 = date(
 )
 
 
+@pytest.fixture(
+    autouse=True,
+)
+def _stub_input_tax_gl_posting(
+    monkeypatch,
+):
+    """
+    Existing evidence lifecycle unit tests remain focused on
+    evidence persistence / recognition behavior.
+
+    Dedicated tests below verify the new GL orchestration.
+    """
+    monkeypatch.setattr(
+        service,
+        "post_created_input_vat_recognition_events",
+        AsyncMock(),
+    )
+
+
 def evidence(
     *,
     evidence_id=1,
@@ -397,3 +416,222 @@ def test_lifecycle_service_does_not_commit_or_rollback():
 
     assert "db.commit(" not in source
     assert "db.rollback(" not in source
+
+
+def test_create_orders_persistence_reconciliation_then_gl(
+    monkeypatch,
+):
+    calls = []
+
+    persisted = evidence()
+    recognition = SimpleNamespace(
+        created_events=()
+    )
+
+    async def fake_create(
+        db,
+        **kwargs,
+    ):
+        calls.append(
+            "persist"
+        )
+        return persisted
+
+    async def fake_reconcile(
+        db,
+        **kwargs,
+    ):
+        calls.append(
+            "reconcile"
+        )
+        return recognition
+
+    async def fake_gl(
+        db,
+        **kwargs,
+    ):
+        calls.append(
+            "gl"
+        )
+        assert (
+            kwargs["result"]
+            is recognition
+        )
+        assert (
+            kwargs["created_by"]
+            == 9
+        )
+
+    monkeypatch.setattr(
+        service,
+        "create_tax_credit_evidence",
+        fake_create,
+    )
+    monkeypatch.setattr(
+        service,
+        "reconcile_input_tax_calculation_from_active_sources",
+        fake_reconcile,
+    )
+    monkeypatch.setattr(
+        service,
+        "post_created_input_vat_recognition_events",
+        fake_gl,
+    )
+
+    result = asyncio.run(
+        service.create_tax_credit_evidence_and_reconcile(
+            object(),
+            **create_kwargs(),
+        )
+    )
+
+    assert (
+        result.evidence
+        is persisted
+    )
+    assert (
+        result.recognition
+        is recognition
+    )
+    assert calls == [
+        "persist",
+        "reconcile",
+        "gl",
+    ]
+
+
+def test_reverse_orders_persistence_reconciliation_then_gl(
+    monkeypatch,
+):
+    calls = []
+
+    reversal = evidence(
+        evidence_id=2
+    )
+    recognition = SimpleNamespace(
+        created_events=()
+    )
+
+    async def fake_reverse(
+        db,
+        **kwargs,
+    ):
+        calls.append(
+            "persist_reverse"
+        )
+        return reversal
+
+    async def fake_reconcile(
+        db,
+        **kwargs,
+    ):
+        calls.append(
+            "reconcile"
+        )
+        return recognition
+
+    async def fake_gl(
+        db,
+        **kwargs,
+    ):
+        calls.append(
+            "gl"
+        )
+        assert (
+            kwargs["result"]
+            is recognition
+        )
+        assert (
+            kwargs["created_by"]
+            == 11
+        )
+
+    monkeypatch.setattr(
+        service,
+        "reverse_tax_credit_evidence",
+        fake_reverse,
+    )
+    monkeypatch.setattr(
+        service,
+        "reconcile_input_tax_calculation_from_active_sources",
+        fake_reconcile,
+    )
+    monkeypatch.setattr(
+        service,
+        "post_created_input_vat_recognition_events",
+        fake_gl,
+    )
+
+    result = asyncio.run(
+        service.reverse_tax_credit_evidence_and_reconcile(
+            object(),
+            company_id=1,
+            evidence_id=10,
+            reversal_date=D2,
+            reversed_by=11,
+        )
+    )
+
+    assert (
+        result.evidence
+        is reversal
+    )
+    assert (
+        result.recognition
+        is recognition
+    )
+    assert calls == [
+        "persist_reverse",
+        "reconcile",
+        "gl",
+    ]
+
+
+def test_evidence_lifecycle_wraps_input_gl_failure(
+    monkeypatch,
+):
+    persisted = evidence()
+
+    recognition = SimpleNamespace(
+        created_events=()
+    )
+
+    monkeypatch.setattr(
+        service,
+        "create_tax_credit_evidence",
+        AsyncMock(
+            return_value=persisted
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "reconcile_input_tax_calculation_from_active_sources",
+        AsyncMock(
+            return_value=recognition
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "post_created_input_vat_recognition_events",
+        AsyncMock(
+            side_effect=(
+                service.TaxRecognitionJournalError(
+                    "GL failed"
+                )
+            )
+        ),
+    )
+
+    with pytest.raises(
+        service.TaxCreditEvidenceLifecycleError,
+        match=(
+            "journal posting failed after "
+            "TaxCreditEvidence mutation"
+        ),
+    ):
+        asyncio.run(
+            service.create_tax_credit_evidence_and_reconcile(
+                object(),
+                **create_kwargs(),
+            )
+        )
