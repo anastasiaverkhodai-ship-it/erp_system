@@ -117,6 +117,43 @@ def _resolve_reversal_vat_advance_bridge_event_id(
     return override
 
 
+def _resolve_reversal_input_vat_fulfillment_bridge_event_id(
+    *,
+    original_input_vat_fulfillment_bridge_event_id: int | None,
+    override: int | None,
+) -> int | None:
+    """
+    Preserve the original INPUT VAT Fulfillment Bridge typed source
+    by default.
+
+    INPUT VAT Fulfillment Bridge reversal accounting may override it
+    with the immutable reversal InputVatFulfillmentBridgeEvent ID.
+    """
+
+    if override is None:
+        return (
+            original_input_vat_fulfillment_bridge_event_id
+        )
+
+    if override <= 0:
+        raise AccountingReversalError(
+            "INPUT VAT fulfillment bridge event "
+            "source override must be greater than zero"
+        )
+
+    if (
+        original_input_vat_fulfillment_bridge_event_id
+        is None
+    ):
+        raise AccountingReversalError(
+            "INPUT VAT fulfillment bridge event "
+            "source override requires an original "
+            "INPUT VAT Fulfillment Bridge journal entry"
+        )
+
+    return override
+
+
 async def reverse_journal_entry(
     db: AsyncSession,
     company_id: int,
@@ -126,6 +163,7 @@ async def reverse_journal_entry(
     tax_recognition_event_id_override: int | None = None,
     sales_recognition_event_id_override: int | None = None,
     vat_advance_bridge_event_id_override: int | None = None,
+    input_vat_fulfillment_bridge_event_id_override: int | None = None,
 ) -> JournalEntry:
     result = await db.execute(
         select(JournalEntry)
@@ -248,6 +286,17 @@ async def reverse_journal_entry(
                 ),
                 override=(
                     vat_advance_bridge_event_id_override
+                ),
+            )
+        ),
+        input_vat_fulfillment_bridge_event_id=(
+            _resolve_reversal_input_vat_fulfillment_bridge_event_id(
+                original_input_vat_fulfillment_bridge_event_id=(
+                    original_entry
+                    .input_vat_fulfillment_bridge_event_id
+                ),
+                override=(
+                    input_vat_fulfillment_bridge_event_id_override
                 ),
             )
         ),

@@ -47,6 +47,7 @@ from app.models.counterparty_open_item import (
     CounterpartyOpenItem,
 )
 from app.models.invoice_fulfillment_allocation import InvoiceFulfillmentAllocation
+from app.models.input_vat_fulfillment_bridge_event import InputVatFulfillmentBridgeEvent
 
 from app.models.payment import Payment
 from app.models.payment_settlement_allocation import (

@@ -30,6 +30,10 @@ from app.services.trade_document_types import (
     TradeDocumentStatus,
 )
 
+from app.services.input_vat_fulfillment_bridge_lifecycle_service import (
+    InputVatFulfillmentBridgeLifecycleError,
+    reconcile_input_vat_fulfillment_bridge_lifecycle_for_invoice_line,
+)
 from app.services.sales_recognition_lifecycle_service import (
     SalesRecognitionLifecycleError,
     reconcile_sales_recognition_lifecycle_for_invoice_line,
@@ -993,6 +997,24 @@ async def create_invoice_fulfillment_allocation(
         ) from exc
 
     try:
+        await (
+            reconcile_input_vat_fulfillment_bridge_lifecycle_for_invoice_line(
+                db,
+                company_id=company_id,
+                invoice_id=invoice.id,
+                invoice_line_id=invoice_line.id,
+                adjustment_date=adjustment_date,
+                created_by=created_by,
+            )
+        )
+    except InputVatFulfillmentBridgeLifecycleError as exc:
+        raise InvoiceFulfillmentAllocationError(
+            "INPUT VAT fulfillment bridge "
+            "reconciliation failed: "
+            f"{exc}"
+        ) from exc
+
+    try:
         await reconcile_tax_for_invoice_line(
             db,
             company_id=company_id,
@@ -1231,6 +1253,26 @@ async def reverse_invoice_fulfillment_allocation(
         raise InvoiceFulfillmentAllocationError(
             "VAT recognition reconciliation "
             "failed: "
+            f"{exc}"
+        ) from exc
+
+    try:
+        await (
+            reconcile_input_vat_fulfillment_bridge_lifecycle_for_invoice_line(
+                db,
+                company_id=company_id,
+                invoice_id=invoice_id,
+                invoice_line_id=(
+                    allocation.invoice_line_id
+                ),
+                adjustment_date=adjustment_date,
+                created_by=reversed_by,
+            )
+        )
+    except InputVatFulfillmentBridgeLifecycleError as exc:
+        raise InvoiceFulfillmentAllocationError(
+            "INPUT VAT fulfillment bridge "
+            "reconciliation failed: "
             f"{exc}"
         ) from exc
 

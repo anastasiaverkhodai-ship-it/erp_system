@@ -267,3 +267,28 @@ def _step17b_stub_fulfillment_sales_recognition(
     )
 
     return stub
+
+# INPUT_VAT_FULFILLMENT_BRIDGE_AUTOUSE_STUB
+import pytest as _ivfb_pytest
+from unittest.mock import AsyncMock as _IvfbAsyncMock
+import app.services.invoice_fulfillment_allocation_service as _ivfb_allocation_service
+
+
+@_ivfb_pytest.fixture(autouse=True)
+def _stub_input_vat_fulfillment_bridge_lifecycle(
+    monkeypatch,
+):
+    stub = _IvfbAsyncMock(
+        return_value=()
+    )
+
+    monkeypatch.setattr(
+        _ivfb_allocation_service,
+        (
+            "reconcile_input_vat_fulfillment_bridge_"
+            "lifecycle_for_invoice_line"
+        ),
+        stub,
+    )
+
+    return stub
