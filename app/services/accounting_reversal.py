@@ -154,6 +154,43 @@ def _resolve_reversal_input_vat_fulfillment_bridge_event_id(
     return override
 
 
+def _resolve_reversal_supplier_advance_clearing_event_id(
+    *,
+    original_supplier_advance_clearing_event_id: int | None,
+    override: int | None,
+) -> int | None:
+    """
+    Preserve the original Supplier Advance Clearing typed
+    source by default.
+
+    Reversal accounting may override it with the immutable
+    reversal SupplierAdvanceClearingEvent ID.
+    """
+
+    if override is None:
+        return (
+            original_supplier_advance_clearing_event_id
+        )
+
+    if override <= 0:
+        raise AccountingReversalError(
+            "Supplier advance clearing event source "
+            "override must be greater than zero"
+        )
+
+    if (
+        original_supplier_advance_clearing_event_id
+        is None
+    ):
+        raise AccountingReversalError(
+            "Supplier advance clearing event source "
+            "override requires an original Supplier "
+            "Advance Clearing journal entry"
+        )
+
+    return override
+
+
 async def reverse_journal_entry(
     db: AsyncSession,
     company_id: int,
@@ -164,6 +201,7 @@ async def reverse_journal_entry(
     sales_recognition_event_id_override: int | None = None,
     vat_advance_bridge_event_id_override: int | None = None,
     input_vat_fulfillment_bridge_event_id_override: int | None = None,
+    supplier_advance_clearing_event_id_override: int | None = None,
 ) -> JournalEntry:
     result = await db.execute(
         select(JournalEntry)
@@ -297,6 +335,17 @@ async def reverse_journal_entry(
                 ),
                 override=(
                     input_vat_fulfillment_bridge_event_id_override
+                ),
+            )
+        ),
+        supplier_advance_clearing_event_id=(
+            _resolve_reversal_supplier_advance_clearing_event_id(
+                original_supplier_advance_clearing_event_id=(
+                    original_entry
+                    .supplier_advance_clearing_event_id
+                ),
+                override=(
+                    supplier_advance_clearing_event_id_override
                 ),
             )
         ),

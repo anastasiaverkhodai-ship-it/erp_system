@@ -37,6 +37,11 @@ from app.services.tax_recognition_lifecycle_service import (
     reconcile_tax_for_invoice,
 )
 
+from app.services.supplier_advance_clearing_lifecycle_service import (
+    SupplierAdvanceClearingLifecycleError,
+    reconcile_supplier_advance_clearing_lifecycle_for_invoice,
+)
+
 
 ZERO = Decimal("0")
 
@@ -719,22 +724,39 @@ async def create_payment_settlement_allocation(
 
     await db.flush()
 
-    try:
-        await generate_and_post_settlement_journal_entry(
-            db,
-            payment=payment,
-            allocation=allocation,
-            created_by=created_by,
-        )
-    except PaymentJournalCurrencyError as exc:
-        raise PaymentSettlementCurrencyError(
-            str(exc)
-        ) from exc
-    except PaymentJournalError as exc:
-        raise PaymentSettlementDataIntegrityError(
-            "Settlement accounting failed: "
-            f"{exc}"
-        ) from exc
+    adjustment_date = (
+        datetime.now(
+            timezone.utc
+        ).date()
+    )
+
+    # RECEIVABLE settlement keeps the existing commercial
+    # settlement journal.
+    #
+    # PAYABLE settlement is intentionally commercial-only here.
+    # Dr 631 / Cr 371 must not be posted until economic supplier
+    # liability exists. SupplierAdvanceClearing lifecycle owns
+    # that accounting from this point forward.
+    if (
+        open_item.item_type
+        == CounterpartyOpenItemType.RECEIVABLE
+    ):
+        try:
+            await generate_and_post_settlement_journal_entry(
+                db,
+                payment=payment,
+                allocation=allocation,
+                created_by=created_by,
+            )
+        except PaymentJournalCurrencyError as exc:
+            raise PaymentSettlementCurrencyError(
+                str(exc)
+            ) from exc
+        except PaymentJournalError as exc:
+            raise PaymentSettlementDataIntegrityError(
+                "Settlement accounting failed: "
+                f"{exc}"
+            ) from exc
 
     try:
         await reconcile_tax_for_invoice(
@@ -744,9 +766,7 @@ async def create_payment_settlement_allocation(
                 open_item.trade_document_id
             ),
             adjustment_date=(
-                datetime.now(
-                    timezone.utc
-                ).date()
+                adjustment_date
             ),
             created_by=created_by,
         )
@@ -756,6 +776,31 @@ async def create_payment_settlement_allocation(
             "failed: "
             f"{exc}"
         ) from exc
+
+    if (
+        open_item.item_type
+        == CounterpartyOpenItemType.PAYABLE
+    ):
+        try:
+            await (
+                reconcile_supplier_advance_clearing_lifecycle_for_invoice(
+                    db,
+                    company_id=company_id,
+                    invoice_id=(
+                        open_item.trade_document_id
+                    ),
+                    adjustment_date=(
+                        adjustment_date
+                    ),
+                    created_by=created_by,
+                )
+            )
+        except SupplierAdvanceClearingLifecycleError as exc:
+            raise PaymentSettlementDataIntegrityError(
+                "Supplier advance clearing "
+                "lifecycle failed: "
+                f"{exc}"
+            ) from exc
 
     return allocation
 
@@ -922,23 +967,37 @@ async def reverse_payment_settlement_allocation(
         - allocation_amount
     )
 
-    try:
-        await reverse_settlement_journal_entry(
-            db,
-            company_id=company_id,
-            allocation_id=allocation.id,
-            reversal_date=(
-                datetime.now(
-                    timezone.utc
-                ).date()
-            ),
-            reversed_by=reversed_by,
+    reversal_timestamp = (
+        datetime.now(
+            timezone.utc
         )
-    except PaymentJournalError as exc:
-        raise PaymentSettlementDataIntegrityError(
-            "Settlement accounting reversal "
-            f"failed: {exc}"
-        ) from exc
+    )
+
+    # Legacy settlement reversal belongs only to RECEIVABLE
+    # settlement accounting.
+    #
+    # PAYABLE clearing is represented by immutable
+    # SupplierAdvanceClearingEvents and is reconciled only
+    # after this commercial allocation becomes REVERSED.
+    if (
+        open_item.item_type
+        == CounterpartyOpenItemType.RECEIVABLE
+    ):
+        try:
+            await reverse_settlement_journal_entry(
+                db,
+                company_id=company_id,
+                allocation_id=allocation.id,
+                reversal_date=(
+                    reversal_timestamp.date()
+                ),
+                reversed_by=reversed_by,
+            )
+        except PaymentJournalError as exc:
+            raise PaymentSettlementDataIntegrityError(
+                "Settlement accounting reversal "
+                f"failed: {exc}"
+            ) from exc
 
     allocation.status = (
         PaymentSettlementAllocationStatus.REVERSED
@@ -949,9 +1008,7 @@ async def reverse_payment_settlement_allocation(
     )
 
     allocation.reversed_at = (
-        datetime.now(
-            timezone.utc
-        )
+        reversal_timestamp
     )
 
     open_item.status = (
@@ -967,6 +1024,10 @@ async def reverse_payment_settlement_allocation(
 
     await db.flush()
 
+    adjustment_date = (
+        allocation.reversed_at.date()
+    )
+
     try:
         await reconcile_tax_for_invoice(
             db,
@@ -975,7 +1036,7 @@ async def reverse_payment_settlement_allocation(
                 open_item.trade_document_id
             ),
             adjustment_date=(
-                allocation.reversed_at.date()
+                adjustment_date
             ),
             created_by=reversed_by,
         )
@@ -985,6 +1046,31 @@ async def reverse_payment_settlement_allocation(
             "failed: "
             f"{exc}"
         ) from exc
+
+    if (
+        open_item.item_type
+        == CounterpartyOpenItemType.PAYABLE
+    ):
+        try:
+            await (
+                reconcile_supplier_advance_clearing_lifecycle_for_invoice(
+                    db,
+                    company_id=company_id,
+                    invoice_id=(
+                        open_item.trade_document_id
+                    ),
+                    adjustment_date=(
+                        adjustment_date
+                    ),
+                    created_by=reversed_by,
+                )
+            )
+        except SupplierAdvanceClearingLifecycleError as exc:
+            raise PaymentSettlementDataIntegrityError(
+                "Supplier advance clearing "
+                "lifecycle failed: "
+                f"{exc}"
+            ) from exc
 
     return allocation
 

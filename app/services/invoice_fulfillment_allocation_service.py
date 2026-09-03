@@ -43,6 +43,11 @@ from app.services.tax_recognition_lifecycle_service import (
     reconcile_tax_for_invoice_line,
 )
 
+from app.services.supplier_advance_clearing_lifecycle_service import (
+    SupplierAdvanceClearingLifecycleError,
+    reconcile_supplier_advance_clearing_lifecycle_for_invoice,
+)
+
 
 ZERO = Decimal("0")
 
@@ -1030,6 +1035,29 @@ async def create_invoice_fulfillment_allocation(
             f"{exc}"
         ) from exc
 
+    if (
+        invoice.direction
+        == TradeDirection.PURCHASE
+    ):
+        try:
+            await (
+                reconcile_supplier_advance_clearing_lifecycle_for_invoice(
+                    db,
+                    company_id=company_id,
+                    invoice_id=invoice.id,
+                    adjustment_date=(
+                        adjustment_date
+                    ),
+                    created_by=created_by,
+                )
+            )
+        except SupplierAdvanceClearingLifecycleError as exc:
+            raise InvoiceFulfillmentAllocationError(
+                "Supplier advance clearing "
+                "lifecycle failed: "
+                f"{exc}"
+            ) from exc
+
     return allocation
 
 
@@ -1167,6 +1195,15 @@ async def reverse_invoice_fulfillment_allocation(
             "reversed_by must be greater than zero"
         )
 
+    # CREATE locks Invoice before matching sources.
+    # Reversal follows the same leading lock order before it
+    # mutates InvoiceFulfillmentAllocation.
+    invoice = await _get_locked_invoice(
+        db,
+        company_id=company_id,
+        invoice_id=invoice_id,
+    )
+
     result = await db.execute(
         select(
             InvoiceFulfillmentAllocation
@@ -1275,6 +1312,32 @@ async def reverse_invoice_fulfillment_allocation(
             "reconciliation failed: "
             f"{exc}"
         ) from exc
+
+    # Economic INPUT VAT bridge has already reached its
+    # final state above. Supplier liability reconstruction is
+    # therefore safe now.
+    if (
+        invoice.direction
+        == TradeDirection.PURCHASE
+    ):
+        try:
+            await (
+                reconcile_supplier_advance_clearing_lifecycle_for_invoice(
+                    db,
+                    company_id=company_id,
+                    invoice_id=invoice_id,
+                    adjustment_date=(
+                        adjustment_date
+                    ),
+                    created_by=reversed_by,
+                )
+            )
+        except SupplierAdvanceClearingLifecycleError as exc:
+            raise InvoiceFulfillmentAllocationError(
+                "Supplier advance clearing "
+                "lifecycle failed: "
+                f"{exc}"
+            ) from exc
 
     return allocation
 

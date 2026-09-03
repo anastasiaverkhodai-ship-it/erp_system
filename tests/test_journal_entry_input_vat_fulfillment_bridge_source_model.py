@@ -128,7 +128,7 @@ def test_input_vat_bridge_original_journal_is_unique():
     )
 
 
-def test_source_exclusivity_includes_seventh_source():
+def test_input_vat_source_is_exclusive_with_all_other_business_sources():
     table = JournalEntry.__table__
 
     matches = [
@@ -155,7 +155,7 @@ def test_source_exclusivity_includes_seventh_source():
 
     assert sql.count(
         SOURCE
-    ) == 6
+    ) == 7
 
     for other_source in (
         "document_id",

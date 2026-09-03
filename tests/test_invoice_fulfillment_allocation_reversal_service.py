@@ -29,6 +29,41 @@ class ScalarResult:
         return self.value
 
 
+@pytest.fixture(autouse=True)
+def _mock_locked_invoice_for_legacy_reversal_unit_tests(
+    monkeypatch,
+):
+    """
+    These pre-existing tests exercise allocation-reversal
+    semantics, not TradeDocument loading.
+
+    Reversal now locks the Invoice header first so its lock
+    order matches allocation creation and supplier-clearing
+    reconciliation.
+
+    Keep the old unit tests focused on their original contract
+    by isolating the new Invoice dependency here.
+
+    Supplier/PURCHASE lifecycle routing is covered separately
+    by test_supplier_advance_clearing_lifecycle_service.py.
+    """
+
+    monkeypatch.setitem(
+        reverse_invoice_fulfillment_allocation.__globals__,
+        "_get_locked_invoice",
+        AsyncMock(
+            return_value=(
+                SimpleNamespace(
+                    # Deliberately non-PURCHASE.
+                    # Old reversal tests are not supplier
+                    # lifecycle integration tests.
+                    direction=object(),
+                )
+            )
+        ),
+    )
+
+
 @pytest.mark.asyncio
 async def test_reverse_active_allocation():
     allocation = SimpleNamespace(
