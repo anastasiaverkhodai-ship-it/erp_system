@@ -47,6 +47,10 @@ from app.services.reservation_persistence_service import (
 from app.services.document_posting import (
     post_document,
 )
+from app.services.purchase_receipt_accounting_price_service import (
+    PurchaseReceiptAccountingPriceError,
+    calculate_purchase_receipt_accounting_slice,
+)
 from app.services.document_reversal import (
     DocumentReversalError,
     reverse_document_for_trade_fulfillment,
@@ -1524,14 +1528,33 @@ async def execute_purchase_order_fulfillment(
                 "Fulfillment source line has no warehouse"
             )
 
+        try:
+            accounting_slice = (
+                calculate_purchase_receipt_accounting_slice(
+                    document=purchase_order,
+                    line=source_line,
+                    fulfilled_before=(
+                        plan_line.fulfilled_before
+                    ),
+                    fulfilled_after=(
+                        plan_line.fulfilled_after
+                    ),
+                )
+            )
+        except PurchaseReceiptAccountingPriceError as exc:
+            raise (
+                PurchaseOrderFulfillmentExecutionStateError(
+                    "Purchase receipt accounting price "
+                    f"calculation failed: {exc}"
+                )
+            ) from exc
+
         warehouse_line = DocumentLine(
             document_id=warehouse_document.id,
             product_id=source_line.product_id,
             warehouse_id=source_line.warehouse_id,
             quantity=plan_line.quantity,
-            price=Decimal(
-                source_line.unit_price
-            ),
+            price=accounting_slice.unit_price,
         )
 
         db.add(

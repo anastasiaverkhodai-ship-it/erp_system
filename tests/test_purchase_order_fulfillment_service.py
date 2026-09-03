@@ -69,6 +69,7 @@ def make_order(
         kind=kind,
         status=status,
         lines=lines,
+        currency_code="UAH",
     )
 
 
