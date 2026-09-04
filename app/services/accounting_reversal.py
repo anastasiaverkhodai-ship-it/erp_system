@@ -227,6 +227,80 @@ def _resolve_reversal_customer_advance_clearing_event_id(
     return override
 
 
+def _resolve_reversal_sales_return_recognition_event_id(
+    *,
+    original_sales_return_recognition_event_id: int | None,
+    override: int | None,
+) -> int | None:
+    """
+    Preserve the original Sales Return Recognition typed source
+    by default.
+
+    Sales Return Recognition reversal accounting may override it
+    with the immutable reversal SalesReturnRecognitionEvent ID.
+    """
+
+    if override is None:
+        return (
+            original_sales_return_recognition_event_id
+        )
+
+    if override <= 0:
+        raise AccountingReversalError(
+            "Sales return recognition event source override "
+            "must be greater than zero"
+        )
+
+    if (
+        original_sales_return_recognition_event_id
+        is None
+    ):
+        raise AccountingReversalError(
+            "Sales return recognition event source override "
+            "requires an original Sales Return Recognition "
+            "journal entry"
+        )
+
+    return override
+
+
+
+def _resolve_reversal_sales_return_cost_restoration_event_id(
+    *,
+    original_sales_return_cost_restoration_event_id: int | None,
+    override: int | None,
+) -> int | None:
+    """
+    Preserve the original Sales Return Cost Restoration typed
+    source by default.
+
+    Cost-restoration reversal accounting may override it with
+    the immutable reversal SalesReturnCostRestorationEvent ID.
+    """
+
+    if override is None:
+        return (
+            original_sales_return_cost_restoration_event_id
+        )
+
+    if override <= 0:
+        raise AccountingReversalError(
+            "Sales return cost restoration event source "
+            "override must be greater than zero"
+        )
+
+    if (
+        original_sales_return_cost_restoration_event_id
+        is None
+    ):
+        raise AccountingReversalError(
+            "Sales return cost restoration event source "
+            "override requires an original Sales Return "
+            "Cost Restoration journal entry"
+        )
+
+    return override
+
 async def reverse_journal_entry(
     db: AsyncSession,
     company_id: int,
@@ -239,6 +313,8 @@ async def reverse_journal_entry(
     input_vat_fulfillment_bridge_event_id_override: int | None = None,
     supplier_advance_clearing_event_id_override: int | None = None,
     customer_advance_clearing_event_id_override: int | None = None,
+    sales_return_recognition_event_id_override: int | None = None,
+    sales_return_cost_restoration_event_id_override: int | None = None,
 ) -> JournalEntry:
     result = await db.execute(
         select(JournalEntry)
@@ -394,6 +470,34 @@ async def reverse_journal_entry(
                 ),
                 override=(
                     customer_advance_clearing_event_id_override
+                ),
+            )
+        ),
+        sales_return_recognition_event_id=(
+            _resolve_reversal_sales_return_recognition_event_id(
+                original_sales_return_recognition_event_id=(
+                    getattr(
+                        original_entry,
+                        "sales_return_recognition_event_id",
+                        None,
+                    )
+                ),
+                override=(
+                    sales_return_recognition_event_id_override
+                ),
+            )
+        ),
+        sales_return_cost_restoration_event_id=(
+            _resolve_reversal_sales_return_cost_restoration_event_id(
+                original_sales_return_cost_restoration_event_id=(
+                    getattr(
+                        original_entry,
+                        "sales_return_cost_restoration_event_id",
+                        None,
+                    )
+                ),
+                override=(
+                    sales_return_cost_restoration_event_id_override
                 ),
             )
         ),

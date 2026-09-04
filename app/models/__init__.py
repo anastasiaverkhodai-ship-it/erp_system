@@ -60,3 +60,13 @@ from app.models.tax_credit_evidence import TaxCreditEvidence
 from app.models.vat_advance_bridge_event import VatAdvanceBridgeEvent
 from app.models.supplier_advance_clearing_event import SupplierAdvanceClearingEvent
 from app.models.customer_advance_clearing_event import CustomerAdvanceClearingEvent
+from app.models.trade_return_event import TradeReturnEvent
+from app.models.trade_value_correction_event import TradeValueCorrectionEvent
+from app.models.sales_return_recognition_event import SalesReturnRecognitionEvent
+
+from app.models.sales_return_cost_restoration_event import (
+    SalesReturnCostRestorationEvent,
+)
+from app.models.sales_return_cost_restoration_fifo_slice import (
+    SalesReturnCostRestorationFifoSlice,
+)
