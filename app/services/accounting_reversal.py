@@ -190,6 +190,42 @@ def _resolve_reversal_supplier_advance_clearing_event_id(
 
     return override
 
+def _resolve_reversal_customer_advance_clearing_event_id(
+    *,
+    original_customer_advance_clearing_event_id: int | None,
+    override: int | None,
+) -> int | None:
+    """
+    Preserve the original Customer Advance Clearing typed
+    source by default.
+
+    Reversal accounting may override it with the immutable
+    reversal CustomerAdvanceClearingEvent ID.
+    """
+
+    if override is None:
+        return (
+            original_customer_advance_clearing_event_id
+        )
+
+    if override <= 0:
+        raise AccountingReversalError(
+            "Customer advance clearing event source "
+            "override must be greater than zero"
+        )
+
+    if (
+        original_customer_advance_clearing_event_id
+        is None
+    ):
+        raise AccountingReversalError(
+            "Customer advance clearing event source "
+            "override requires an original Supplier "
+            "Advance Clearing journal entry"
+        )
+
+    return override
+
 
 async def reverse_journal_entry(
     db: AsyncSession,
@@ -202,6 +238,7 @@ async def reverse_journal_entry(
     vat_advance_bridge_event_id_override: int | None = None,
     input_vat_fulfillment_bridge_event_id_override: int | None = None,
     supplier_advance_clearing_event_id_override: int | None = None,
+    customer_advance_clearing_event_id_override: int | None = None,
 ) -> JournalEntry:
     result = await db.execute(
         select(JournalEntry)
@@ -346,6 +383,17 @@ async def reverse_journal_entry(
                 ),
                 override=(
                     supplier_advance_clearing_event_id_override
+                ),
+            )
+        ),
+        customer_advance_clearing_event_id=(
+            _resolve_reversal_customer_advance_clearing_event_id(
+                original_customer_advance_clearing_event_id=(
+                    original_entry
+                    .customer_advance_clearing_event_id
+                ),
+                override=(
+                    customer_advance_clearing_event_id_override
                 ),
             )
         ),

@@ -691,3 +691,39 @@ def _step17b_stub_settlement_vat_recognition(
     )
 
     return stub
+
+
+@pytest.fixture(autouse=True)
+def _default_customer_advance_clearing_lifecycle_for_legacy_payment_unit_tests(
+    monkeypatch,
+):
+    """
+    Pre-existing PaymentSettlement service tests exercise
+    commercial allocation state, validation and status changes.
+
+    CustomerAdvanceClearing is now a downstream integration
+    lifecycle owned by dedicated customer-clearing tests.
+
+    Keep these legacy unit tests isolated from real SQL loading.
+    """
+    from types import SimpleNamespace as _SimpleNamespace
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    import app.services.payment_settlement_service as _payment_service
+
+    hook = _AsyncMock(
+        return_value=_SimpleNamespace(
+            created_events=(),
+        )
+    )
+
+    monkeypatch.setattr(
+        _payment_service,
+        (
+            "reconcile_customer_advance_"
+            "clearing_lifecycle_for_invoice"
+        ),
+        hook,
+    )
+
+    return hook

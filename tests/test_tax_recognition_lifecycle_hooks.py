@@ -72,21 +72,58 @@ def test_settlement_reverse_has_vat_hook():
     )
 
 
-def test_settlement_accounting_still_precedes_vat_hook():
-    source = inspect.getsource(
-        settlement
+def test_settlement_tax_precedes_domain_clearing_lifecycles():
+    import inspect
+    import app.services.payment_settlement_service as payment_service
+
+    create_source = inspect.getsource(
+        payment_service
         .create_payment_settlement_allocation
     )
 
-    accounting_position = source.index(
-        "generate_and_post_settlement_journal_entry"
+    reverse_source = inspect.getsource(
+        payment_service
+        .reverse_payment_settlement_allocation
     )
 
-    vat_position = source.index(
-        "reconcile_tax_for_invoice"
+    customer_call = (
+        "reconcile_customer_advance_"
+        "clearing_lifecycle_for_invoice("
+    )
+
+    supplier_call = (
+        "reconcile_supplier_advance_"
+        "clearing_lifecycle_for_invoice("
     )
 
     assert (
-        accounting_position
-        < vat_position
+        "generate_and_post_settlement_journal_entry("
+        not in create_source
     )
+
+    assert (
+        "reverse_settlement_journal_entry("
+        not in reverse_source
+    )
+
+    for source in (
+        create_source,
+        reverse_source,
+    ):
+        tax_index = source.index(
+            "reconcile_tax_for_invoice("
+        )
+
+        assert (
+            tax_index
+            < source.index(
+                customer_call
+            )
+        )
+
+        assert (
+            tax_index
+            < source.index(
+                supplier_call
+            )
+        )

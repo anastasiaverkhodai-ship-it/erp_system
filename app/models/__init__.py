@@ -59,3 +59,4 @@ from app.models.sales_recognition_event import SalesRecognitionEvent
 from app.models.tax_credit_evidence import TaxCreditEvidence
 from app.models.vat_advance_bridge_event import VatAdvanceBridgeEvent
 from app.models.supplier_advance_clearing_event import SupplierAdvanceClearingEvent
+from app.models.customer_advance_clearing_event import CustomerAdvanceClearingEvent

@@ -147,6 +147,21 @@ class JournalEntry(Base):
             ),
             ondelete="RESTRICT",
         ),
+        ForeignKeyConstraint(
+            [
+                "company_id",
+                "customer_advance_clearing_event_id",
+            ],
+            [
+                "customer_advance_clearing_events.company_id",
+                "customer_advance_clearing_events.id",
+            ],
+            name=(
+                "fk_journal_entries_company_"
+                "customer_advance_clearing_event"
+            ),
+            ondelete="RESTRICT",
+        ),
         CheckConstraint(
             """
             (
@@ -170,6 +185,26 @@ class JournalEntry(Base):
             )
             AND
             (
+                document_id IS NULL
+                OR vat_advance_bridge_event_id IS NULL
+            )
+            AND
+            (
+                document_id IS NULL
+                OR input_vat_fulfillment_bridge_event_id IS NULL
+            )
+            AND
+            (
+                document_id IS NULL
+                OR supplier_advance_clearing_event_id IS NULL
+            )
+            AND
+            (
+                document_id IS NULL
+                OR customer_advance_clearing_event_id IS NULL
+            )
+            AND
+            (
                 payment_id IS NULL
                 OR payment_settlement_allocation_id IS NULL
             )
@@ -185,6 +220,26 @@ class JournalEntry(Base):
             )
             AND
             (
+                payment_id IS NULL
+                OR vat_advance_bridge_event_id IS NULL
+            )
+            AND
+            (
+                payment_id IS NULL
+                OR input_vat_fulfillment_bridge_event_id IS NULL
+            )
+            AND
+            (
+                payment_id IS NULL
+                OR supplier_advance_clearing_event_id IS NULL
+            )
+            AND
+            (
+                payment_id IS NULL
+                OR customer_advance_clearing_event_id IS NULL
+            )
+            AND
+            (
                 payment_settlement_allocation_id IS NULL
                 OR tax_recognition_event_id IS NULL
             )
@@ -195,48 +250,33 @@ class JournalEntry(Base):
             )
             AND
             (
+                payment_settlement_allocation_id IS NULL
+                OR vat_advance_bridge_event_id IS NULL
+            )
+            AND
+            (
+                payment_settlement_allocation_id IS NULL
+                OR input_vat_fulfillment_bridge_event_id IS NULL
+            )
+            AND
+            (
+                payment_settlement_allocation_id IS NULL
+                OR supplier_advance_clearing_event_id IS NULL
+            )
+            AND
+            (
+                payment_settlement_allocation_id IS NULL
+                OR customer_advance_clearing_event_id IS NULL
+            )
+            AND
+            (
                 tax_recognition_event_id IS NULL
                 OR sales_recognition_event_id IS NULL
             )
             AND
             (
-                document_id IS NULL
-                OR vat_advance_bridge_event_id IS NULL
-            )
-            AND
-            (
-                payment_id IS NULL
-                OR vat_advance_bridge_event_id IS NULL
-            )
-            AND
-            (
-                payment_settlement_allocation_id IS NULL
-                OR vat_advance_bridge_event_id IS NULL
-            )
-            AND
-            (
                 tax_recognition_event_id IS NULL
                 OR vat_advance_bridge_event_id IS NULL
-            )
-            AND
-            (
-                sales_recognition_event_id IS NULL
-                OR vat_advance_bridge_event_id IS NULL
-            )
-            AND
-            (
-                document_id IS NULL
-                OR input_vat_fulfillment_bridge_event_id IS NULL
-            )
-            AND
-            (
-                payment_id IS NULL
-                OR input_vat_fulfillment_bridge_event_id IS NULL
-            )
-            AND
-            (
-                payment_settlement_allocation_id IS NULL
-                OR input_vat_fulfillment_bridge_event_id IS NULL
             )
             AND
             (
@@ -245,8 +285,33 @@ class JournalEntry(Base):
             )
             AND
             (
+                tax_recognition_event_id IS NULL
+                OR supplier_advance_clearing_event_id IS NULL
+            )
+            AND
+            (
+                tax_recognition_event_id IS NULL
+                OR customer_advance_clearing_event_id IS NULL
+            )
+            AND
+            (
+                sales_recognition_event_id IS NULL
+                OR vat_advance_bridge_event_id IS NULL
+            )
+            AND
+            (
                 sales_recognition_event_id IS NULL
                 OR input_vat_fulfillment_bridge_event_id IS NULL
+            )
+            AND
+            (
+                sales_recognition_event_id IS NULL
+                OR supplier_advance_clearing_event_id IS NULL
+            )
+            AND
+            (
+                sales_recognition_event_id IS NULL
+                OR customer_advance_clearing_event_id IS NULL
             )
             AND
             (
@@ -255,38 +320,28 @@ class JournalEntry(Base):
             )
             AND
             (
-                document_id IS NULL
-                OR supplier_advance_clearing_event_id IS NULL
-            )
-            AND
-            (
-                payment_id IS NULL
-                OR supplier_advance_clearing_event_id IS NULL
-            )
-            AND
-            (
-                payment_settlement_allocation_id IS NULL
-                OR supplier_advance_clearing_event_id IS NULL
-            )
-            AND
-            (
-                tax_recognition_event_id IS NULL
-                OR supplier_advance_clearing_event_id IS NULL
-            )
-            AND
-            (
-                sales_recognition_event_id IS NULL
+                vat_advance_bridge_event_id IS NULL
                 OR supplier_advance_clearing_event_id IS NULL
             )
             AND
             (
                 vat_advance_bridge_event_id IS NULL
-                OR supplier_advance_clearing_event_id IS NULL
+                OR customer_advance_clearing_event_id IS NULL
             )
             AND
             (
                 input_vat_fulfillment_bridge_event_id IS NULL
                 OR supplier_advance_clearing_event_id IS NULL
+            )
+            AND
+            (
+                input_vat_fulfillment_bridge_event_id IS NULL
+                OR customer_advance_clearing_event_id IS NULL
+            )
+            AND
+            (
+                supplier_advance_clearing_event_id IS NULL
+                OR customer_advance_clearing_event_id IS NULL
             )
             """,
             name=(
@@ -381,6 +436,19 @@ class JournalEntry(Base):
                 "IS NOT NULL"
             ),
         ),
+        Index(
+            (
+                "uq_journal_entry_original_"
+                "customer_advance_clearing_event"
+            ),
+            "customer_advance_clearing_event_id",
+            unique=True,
+            postgresql_where=text(
+                "reversal_of_id IS NULL "
+                "AND customer_advance_clearing_event_id "
+                "IS NOT NULL"
+            ),
+        ),
     )
 
     id: Mapped[int] = mapped_column(
@@ -448,6 +516,13 @@ class JournalEntry(Base):
     )
 
     supplier_advance_clearing_event_id: Mapped[
+        int | None
+    ] = mapped_column(
+        nullable=True,
+        index=True,
+    )
+
+    customer_advance_clearing_event_id: Mapped[
         int | None
     ] = mapped_column(
         nullable=True,

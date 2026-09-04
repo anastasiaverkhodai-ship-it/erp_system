@@ -354,80 +354,56 @@ async def test_lifecycle_validates_context(
         )
 
 
-def test_payment_create_keeps_legacy_journal_only_for_receivable():
+def test_payment_create_routes_both_sides_to_clearing_lifecycles():
+    import inspect
+    import app.services.payment_settlement_service as payment_service
+
     source = inspect.getsource(
-        payment_service.create_payment_settlement_allocation
-    )
-
-    pattern = re.compile(
-        r"if\s*\(\s*"
-        r"open_item\.item_type\s*"
-        r"==\s*CounterpartyOpenItemType\.RECEIVABLE"
-        r"\s*\):"
-        r".*?"
-        r"generate_and_post_settlement_journal_entry",
-        flags=re.DOTALL,
-    )
-
-    assert pattern.search(
-        source
+        payment_service
+        .create_payment_settlement_allocation
     )
 
     assert (
-        source.count(
-            "generate_and_post_settlement_journal_entry("
-        )
-        == 1
+        "generate_and_post_settlement_journal_entry("
+        not in source
     )
 
     assert (
-        "CounterpartyOpenItemType.PAYABLE"
+        "reconcile_customer_advance_"
+        "clearing_lifecycle_for_invoice("
         in source
     )
 
     assert (
-        "reconcile_supplier_advance_clearing_lifecycle_for_invoice("
+        "reconcile_supplier_advance_"
+        "clearing_lifecycle_for_invoice("
+        in source
+    )
+
+
+def test_payment_reverse_routes_both_sides_to_clearing_lifecycles():
+    import inspect
+    import app.services.payment_settlement_service as payment_service
+
+    source = inspect.getsource(
+        payment_service
+        .reverse_payment_settlement_allocation
+    )
+
+    assert (
+        "reverse_settlement_journal_entry("
+        not in source
+    )
+
+    assert (
+        "reconcile_customer_advance_"
+        "clearing_lifecycle_for_invoice("
         in source
     )
 
     assert (
-        source.index(
-            "reconcile_tax_for_invoice("
-        )
-        < source.index(
-            "reconcile_supplier_advance_clearing_lifecycle_for_invoice("
-        )
-    )
-
-
-def test_payment_reverse_uses_supplier_lifecycle_for_payable():
-    source = inspect.getsource(
-        payment_service.reverse_payment_settlement_allocation
-    )
-
-    legacy_pattern = re.compile(
-        r"if\s*\(\s*"
-        r"open_item\.item_type\s*"
-        r"==\s*CounterpartyOpenItemType\.RECEIVABLE"
-        r"\s*\):"
-        r".*?"
-        r"reverse_settlement_journal_entry",
-        flags=re.DOTALL,
-    )
-
-    assert legacy_pattern.search(
-        source
-    )
-
-    assert (
-        source.count(
-            "reverse_settlement_journal_entry("
-        )
-        == 1
-    )
-
-    assert (
-        "CounterpartyOpenItemType.PAYABLE"
+        "reconcile_supplier_advance_"
+        "clearing_lifecycle_for_invoice("
         in source
     )
 
@@ -436,7 +412,8 @@ def test_payment_reverse_uses_supplier_lifecycle_for_payable():
             "PaymentSettlementAllocationStatus.REVERSED"
         )
         < source.index(
-            "reconcile_supplier_advance_clearing_lifecycle_for_invoice("
+            "reconcile_customer_advance_"
+            "clearing_lifecycle_for_invoice("
         )
     )
 

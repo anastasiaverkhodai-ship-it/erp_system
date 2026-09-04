@@ -48,6 +48,11 @@ from app.services.supplier_advance_clearing_lifecycle_service import (
     reconcile_supplier_advance_clearing_lifecycle_for_invoice,
 )
 
+from app.services.customer_advance_clearing_lifecycle_service import (
+    CustomerAdvanceClearingLifecycleError,
+    reconcile_customer_advance_clearing_lifecycle_for_invoice,
+)
+
 
 ZERO = Decimal("0")
 
@@ -1001,6 +1006,32 @@ async def create_invoice_fulfillment_allocation(
             f"{exc}"
         ) from exc
 
+    # Sales Recognition owns economic 361.
+    # Customer clearing is therefore safe only after the
+    # SalesRecognitionEvent lifecycle has reached its new state.
+    if (
+        invoice.direction
+        == TradeDirection.SALE
+    ):
+        try:
+            await (
+                reconcile_customer_advance_clearing_lifecycle_for_invoice(
+                    db,
+                    company_id=company_id,
+                    invoice_id=invoice.id,
+                    adjustment_date=(
+                        adjustment_date
+                    ),
+                    created_by=created_by,
+                )
+            )
+        except CustomerAdvanceClearingLifecycleError as exc:
+            raise InvoiceFulfillmentAllocationError(
+                "Customer advance clearing "
+                "lifecycle failed: "
+                f"{exc}"
+            ) from exc
+
     try:
         await (
             reconcile_input_vat_fulfillment_bridge_lifecycle_for_invoice_line(
@@ -1274,6 +1305,32 @@ async def reverse_invoice_fulfillment_allocation(
             "failed: "
             f"{exc}"
         ) from exc
+
+    # Sales Recognition owns economic 361.
+    # Customer clearing is therefore safe only after the
+    # SalesRecognitionEvent lifecycle has reached its new state.
+    if (
+        invoice.direction
+        == TradeDirection.SALE
+    ):
+        try:
+            await (
+                reconcile_customer_advance_clearing_lifecycle_for_invoice(
+                    db,
+                    company_id=company_id,
+                    invoice_id=invoice_id,
+                    adjustment_date=(
+                        adjustment_date
+                    ),
+                    created_by=reversed_by,
+                )
+            )
+        except CustomerAdvanceClearingLifecycleError as exc:
+            raise InvoiceFulfillmentAllocationError(
+                "Customer advance clearing "
+                "lifecycle failed: "
+                f"{exc}"
+            ) from exc
 
     try:
         await reconcile_tax_for_invoice_line(
