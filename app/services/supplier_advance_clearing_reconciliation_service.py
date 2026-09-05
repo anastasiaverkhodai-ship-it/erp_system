@@ -25,6 +25,9 @@ from app.models.input_vat_fulfillment_bridge_event import (
 from app.models.invoice_fulfillment_allocation import (
     InvoiceFulfillmentAllocation,
 )
+from app.models.purchase_return_recognition_event import (
+    PurchaseReturnRecognitionEvent,
+)
 from app.models.payment import Payment
 from app.models.payment_settlement_allocation import (
     PaymentSettlementAllocation,
@@ -1556,6 +1559,451 @@ async def _load_supplier_vat_components(
     )
 
 
+def apply_purchase_return_base_to_supplier_receipt_targets(
+    *,
+    base_targets: tuple[
+        SupplierReceiptBaseAllocationTarget,
+        ...,
+    ],
+    active_return_base_by_source: dict[
+        int,
+        Decimal,
+    ],
+    currency_code: str,
+) -> tuple[
+    SupplierReceiptBaseAllocationTarget,
+    ...,
+]:
+    """
+    Reduce receipt-base supplier liability by ACTIVE immutable
+    PurchaseReturnRecognitionEvent.returned_base_amount.
+
+    Economic 631 truth at the Purchase Return milestone:
+
+        current base liability
+            = original posted receipt base
+            - ACTIVE Purchase Return recognized base.
+
+    INPUT VAT is intentionally NOT reduced here. Its current economic
+    bridge remains a separate component and will be changed only by the
+    future VAT/RK lifecycle.
+
+    The economic-liability event date remains the original receipt date;
+    Purchase Return changes capacity, not the historical source identity.
+    """
+    currency = _currency(
+        currency_code
+    )
+
+    normalized_returns: dict[
+        int,
+        Decimal,
+    ] = {}
+
+    for (
+        raw_source_id,
+        raw_amount,
+    ) in active_return_base_by_source.items():
+        source_id = _positive_id(
+            raw_source_id,
+            label="Purchase Return liability source ID",
+        )
+
+        try:
+            amount = round_currency_amount(
+                amount=_decimal(
+                    raw_amount
+                ),
+                currency_code=currency,
+            )
+        except Exception as exc:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return returned base "
+                    "cannot be rounded"
+                )
+            ) from exc
+
+        if amount < ZERO:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Active Purchase Return returned base "
+                    "cannot be negative"
+                )
+            )
+
+        normalized_returns[
+            source_id
+        ] = amount
+
+    base_source_ids = {
+        _positive_id(
+            target.source_id,
+            label="Receipt-base source ID",
+        )
+        for target in base_targets
+    }
+
+    unknown_return_sources = (
+        set(
+            normalized_returns
+        )
+        - base_source_ids
+    )
+
+    if unknown_return_sources:
+        raise (
+            SupplierAdvanceClearingReconciliationDataIntegrityError(
+                "Active Purchase Return base references "
+                "a source with no current receipt base: "
+                f"{sorted(unknown_return_sources)}"
+            )
+        )
+
+    adjusted = []
+
+    for target in base_targets:
+        if not isinstance(
+            target,
+            SupplierReceiptBaseAllocationTarget,
+        ):
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Receipt base target must be "
+                    "SupplierReceiptBaseAllocationTarget"
+                )
+            )
+
+        source_id = _positive_id(
+            target.source_id,
+            label="Receipt-base source ID",
+        )
+
+        if (
+            _currency(
+                target.currency_code
+            )
+            != currency
+        ):
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Receipt base target currency differs "
+                    "from reconciliation currency"
+                )
+            )
+
+        try:
+            original_base = round_currency_amount(
+                amount=_decimal(
+                    target.amount
+                ),
+                currency_code=currency,
+            )
+        except Exception as exc:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Receipt base amount cannot be rounded"
+                )
+            ) from exc
+
+        if original_base < ZERO:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Receipt base amount cannot be negative"
+                )
+            )
+
+        returned_base = (
+            normalized_returns.get(
+                source_id,
+                ZERO,
+            )
+        )
+
+        try:
+            current_base = round_currency_amount(
+                amount=(
+                    original_base
+                    - returned_base
+                ),
+                currency_code=currency,
+            )
+        except Exception as exc:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Current supplier receipt base "
+                    "cannot be rounded"
+                )
+            ) from exc
+
+        if current_base < ZERO:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Active Purchase Return base exceeds "
+                    "the allocated posted receipt base"
+                )
+            )
+
+        adjusted.append(
+            SupplierReceiptBaseAllocationTarget(
+                source_id=source_id,
+                event_date=target.event_date,
+                amount=current_base,
+                currency_code=currency,
+            )
+        )
+
+    return tuple(
+        adjusted
+    )
+
+
+async def _load_active_purchase_return_base_by_source(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    active_source_ids: set[int],
+    currency_code: str,
+) -> dict[
+    int,
+    Decimal,
+]:
+    """
+    Rebuild ACTIVE Purchase Return Recognition base by
+    InvoiceFulfillmentAllocation.
+
+    Immutable history:
+
+        original PRRE
+            contributes returned_base_amount
+
+        immutable PRRE reversal
+            removes its original from current state
+
+        immutable replacement
+            contributes its own full returned_base_amount
+
+    All history rows for the affected liability sources are locked.
+    """
+    if not active_source_ids:
+        return {}
+
+    source_ids = {
+        _positive_id(
+            source_id,
+            label="Active liability source ID",
+        )
+        for source_id
+        in active_source_ids
+    }
+
+    currency = _currency(
+        currency_code
+    )
+
+    events = tuple(
+        (
+            await db.execute(
+                select(
+                    PurchaseReturnRecognitionEvent
+                )
+                .where(
+                    (
+                        PurchaseReturnRecognitionEvent
+                        .company_id
+                        == company_id
+                    ),
+                    (
+                        PurchaseReturnRecognitionEvent
+                        .invoice_fulfillment_allocation_id
+                        .in_(
+                            tuple(
+                                sorted(
+                                    source_ids
+                                )
+                            )
+                        )
+                    ),
+                )
+                .order_by(
+                    PurchaseReturnRecognitionEvent.id
+                )
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    if not events:
+        return {}
+
+    by_id = {}
+    originals = {}
+    reversals = {}
+
+    for event in events:
+        event_id = _positive_id(
+            event.id,
+            label="Purchase Return recognition event ID",
+        )
+
+        if event_id in by_id:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Duplicate Purchase Return recognition "
+                    "history event ID"
+                )
+            )
+
+        source_id = _positive_id(
+            event.invoice_fulfillment_allocation_id,
+            label=(
+                "Purchase Return "
+                "invoice_fulfillment_allocation_id"
+            ),
+        )
+
+        if source_id not in source_ids:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return recognition source "
+                    "is outside current invoice liability sources"
+                )
+            )
+
+        if (
+            _currency(
+                event.currency_code
+            )
+            != currency
+        ):
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return recognition currency "
+                    "differs from supplier liability currency"
+                )
+            )
+
+        by_id[
+            event_id
+        ] = event
+
+        if event.reversal_of_id is None:
+            originals[
+                event_id
+            ] = event
+            continue
+
+        reversal_of_id = _positive_id(
+            event.reversal_of_id,
+            label=(
+                "Purchase Return recognition reversal_of_id"
+            ),
+        )
+
+        if reversal_of_id in reversals:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return recognition original "
+                    "has more than one reversal"
+                )
+            )
+
+        reversals[
+            reversal_of_id
+        ] = event
+
+    unknown_reversal_sources = (
+        set(
+            reversals
+        )
+        - set(
+            originals
+        )
+    )
+
+    if unknown_reversal_sources:
+        raise (
+            SupplierAdvanceClearingReconciliationDataIntegrityError(
+                "Purchase Return recognition reversal "
+                "references a non-original event"
+            )
+        )
+
+    for (
+        original_id,
+        reversal,
+    ) in reversals.items():
+        original = originals[
+            original_id
+        ]
+
+        if (
+            reversal
+            .invoice_fulfillment_allocation_id
+            != original
+            .invoice_fulfillment_allocation_id
+        ):
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return recognition reversal "
+                    "changed liability source provenance"
+                )
+            )
+
+    totals: dict[
+        int,
+        Decimal,
+    ] = {}
+
+    for (
+        event_id,
+        event,
+    ) in originals.items():
+        if event_id in reversals:
+            continue
+
+        source_id = int(
+            event.invoice_fulfillment_allocation_id
+        )
+
+        try:
+            returned_base = round_currency_amount(
+                amount=_decimal(
+                    event.returned_base_amount
+                ),
+                currency_code=currency,
+            )
+        except Exception as exc:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return recognition base "
+                    "cannot be rounded"
+                )
+            ) from exc
+
+        if returned_base < ZERO:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Active Purchase Return recognition "
+                    "base cannot be negative"
+                )
+            )
+
+        totals[
+            source_id
+        ] = (
+            totals.get(
+                source_id,
+                ZERO,
+            )
+            + returned_base
+        )
+
+    return totals
+
+
 async def _load_supplier_economic_liability_candidates(
     db: AsyncSession,
     *,
@@ -1605,6 +2053,27 @@ async def _load_supplier_economic_liability_candidates(
                 sorted(
                     active_source_ids
                 )
+            ),
+            currency_code=currency_code,
+        )
+    )
+
+    active_return_base_by_source = (
+        await _load_active_purchase_return_base_by_source(
+            db,
+            company_id=invoice.company_id,
+            active_source_ids=(
+                active_source_ids
+            ),
+            currency_code=currency_code,
+        )
+    )
+
+    base_targets = (
+        apply_purchase_return_base_to_supplier_receipt_targets(
+            base_targets=base_targets,
+            active_return_base_by_source=(
+                active_return_base_by_source
             ),
             currency_code=currency_code,
         )
@@ -1752,6 +2221,7 @@ async def reconcile_supplier_advance_clearing_for_invoice(
     Economic 631 capacity:
         ACTIVE InvoiceFulfillmentAllocation
         -> POSTED warehouse RECEIPT accounting base
+        - ACTIVE PurchaseReturnRecognitionEvent returned base
         + ACTIVE INPUT VAT economic bridge.
 
     Desired accounting:

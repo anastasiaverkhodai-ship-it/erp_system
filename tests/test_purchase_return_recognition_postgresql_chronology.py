@@ -43,6 +43,19 @@ from app.services.invoice_fulfillment_allocation_service import (
 from app.services.invoice_tax_calculation_service import (
     create_tax_calculations_for_invoice,
 )
+from app.services.counterparty_open_item_types import (
+    CounterpartyOpenItemType,
+)
+from app.services.payment_lifecycle_service import (
+    confirm_payment,
+)
+from app.services.payment_settlement_service import (
+    create_payment_settlement_allocation,
+    get_expected_open_item_type,
+)
+from app.services.payment_types import (
+    PaymentDirection,
+)
 from app.services.purchase_return_recognition_lifecycle_service import (
     reconcile_purchase_return_recognition_lifecycle_for_fulfillment_line,
 )
@@ -93,6 +106,8 @@ BASELINE_TABLES = (
     "trade_documents",
     "trade_document_lines",
     "counterparty_open_items",
+    "payments",
+    "payment_settlement_allocations",
     "tax_calculations",
     "documents",
     "document_lines",
@@ -106,6 +121,7 @@ BASELINE_TABLES = (
     "inventory_cost_entries",
     "stock_balances",
     "stock_ledger",
+    "supplier_advance_clearing_events",
     "journal_entries",
     "journal_entry_lines",
 )
@@ -557,6 +573,221 @@ async def load_prre_history(
         .scalars()
         .all()
     )
+
+
+def supplier_payment_direction_value() -> str:
+    directions = tuple(
+        direction
+        for direction in PaymentDirection
+        if (
+            get_expected_open_item_type(
+                direction
+            )
+            == CounterpartyOpenItemType.PAYABLE
+        )
+    )
+
+    if len(directions) != 1:
+        raise AssertionError(
+            "Expected exactly one payment direction "
+            "matching PAYABLE"
+        )
+
+    return str(
+        directions[0].value
+    )
+
+
+async def supplier_events(
+    db,
+    *,
+    settlement_id,
+):
+    return (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    id,
+                    payment_settlement_allocation_id,
+                    invoice_fulfillment_allocation_id,
+                    clearing_date,
+                    cleared_amount,
+                    currency_code,
+                    reversal_of_id
+                FROM supplier_advance_clearing_events
+                WHERE company_id =
+                      :company_id
+                  AND payment_settlement_allocation_id =
+                      :settlement_id
+                ORDER BY id
+                """
+            ),
+            {
+                "company_id":
+                    COMPANY_ID,
+                "settlement_id":
+                    settlement_id,
+            },
+        )
+    ).mappings().all()
+
+
+async def supplier_clearing_journal_snapshot(
+    db,
+    *,
+    clearing_event_id,
+):
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    je.id AS journal_entry_id,
+                    je.reversal_of_id,
+                    je.status,
+                    je.entry_date,
+                    a.code AS account_code,
+                    jel.debit,
+                    jel.credit
+                FROM journal_entries je
+                JOIN journal_entry_lines jel
+                  ON jel.journal_entry_id =
+                     je.id
+                JOIN accounts a
+                  ON a.id =
+                     jel.account_id
+                WHERE je.company_id =
+                      :company_id
+                  AND je.supplier_advance_clearing_event_id =
+                      :event_id
+                ORDER BY jel.line_no
+                """
+            ),
+            {
+                "company_id":
+                    COMPANY_ID,
+                "event_id":
+                    clearing_event_id,
+            },
+        )
+    ).mappings().all()
+
+    if not rows:
+        return None
+
+    journal_ids = {
+        int(
+            row[
+                "journal_entry_id"
+            ]
+        )
+        for row in rows
+    }
+
+    if len(journal_ids) != 1:
+        raise AssertionError(
+            "Supplier clearing event resolved to "
+            "multiple JournalEntries"
+        )
+
+    reversal_ids = {
+        row[
+            "reversal_of_id"
+        ]
+        for row in rows
+    }
+
+    statuses = {
+        str(
+            row[
+                "status"
+            ]
+        )
+        .split(".")[-1]
+        .lower()
+        for row in rows
+    }
+
+    entry_dates = {
+        row[
+            "entry_date"
+        ]
+        for row in rows
+    }
+
+    if (
+        len(reversal_ids) != 1
+        or len(statuses) != 1
+        or len(entry_dates) != 1
+    ):
+        raise AssertionError(
+            "Supplier clearing JournalEntry header "
+            "changed across lines"
+        )
+
+    amounts = {}
+
+    for row in rows:
+        code = row[
+            "account_code"
+        ]
+
+        if code in amounts:
+            raise AssertionError(
+                "Duplicate Supplier Advance GL account line: "
+                f"{code}"
+            )
+
+        amounts[
+            code
+        ] = {
+            "debit":
+                Decimal(
+                    str(
+                        row[
+                            "debit"
+                        ]
+                    )
+                ),
+            "credit":
+                Decimal(
+                    str(
+                        row[
+                            "credit"
+                        ]
+                    )
+                ),
+        }
+
+    return {
+        "id":
+            next(
+                iter(
+                    journal_ids
+                )
+            ),
+        "reversal_of_id":
+            next(
+                iter(
+                    reversal_ids
+                )
+            ),
+        "status":
+            next(
+                iter(
+                    statuses
+                )
+            ),
+        "entry_date":
+            next(
+                iter(
+                    entry_dates
+                )
+            ),
+        "amounts":
+            amounts,
+    }
 
 
 async def purchase_return_journal_count(
@@ -1563,6 +1794,194 @@ async def test_purchase_return_recognition_postgresql_chronology():
 
             assert allocation.id is not None
 
+            # =====================================================
+            # 4A. REAL SUPPLIER ADVANCE + INITIAL CLEARING
+            #
+            # Payment:
+            #     Dr371 / Cr311 = 0.04
+            #
+            # Current economic supplier liability before Return:
+            #     receipt base 0.03
+            #     + INPUT VAT bridge 0.01
+            #     = 0.04
+            #
+            # Initial clearing:
+            #     Dr631 / Cr371 = 0.04
+            # =====================================================
+
+            payment_id = await insert_id(
+                db,
+                """
+                INSERT INTO payments (
+                    company_id,
+                    counterparty_id,
+                    contract_id,
+                    number,
+                    direction,
+                    status,
+                    payment_date,
+                    currency_code,
+                    amount,
+                    external_reference,
+                    description,
+                    created_by,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    :company_id,
+                    :counterparty_id,
+                    NULL,
+                    :number,
+                    :direction,
+                    'draft',
+                    :payment_date,
+                    'UAH',
+                    :amount,
+                    NULL,
+                    :description,
+                    :created_by,
+                    CURRENT_TIMESTAMP,
+                    CURRENT_TIMESTAMP
+                )
+                RETURNING id
+                """,
+                {
+                    "company_id":
+                        COMPANY_ID,
+                    "counterparty_id":
+                        supplier_id,
+                    "number":
+                        f"PR-PG-PAY-{token}",
+                    "direction":
+                        supplier_payment_direction_value(),
+                    "payment_date":
+                        business_date,
+                    "amount":
+                        EXPECTED_GROSS,
+                    "description":
+                        "Purchase Return supplier advance E2E",
+                    "created_by":
+                        USER_ID,
+                },
+            )
+
+            payment = await confirm_payment(
+                db,
+                company_id=COMPANY_ID,
+                payment_id=payment_id,
+                confirmed_by=USER_ID,
+            )
+
+            assert (
+                str(
+                    payment.status
+                )
+                in {
+                    "confirmed",
+                    "PaymentStatus.CONFIRMED",
+                }
+            )
+
+            settlement = (
+                await create_payment_settlement_allocation(
+                    db,
+                    company_id=COMPANY_ID,
+                    payment_id=payment.id,
+                    open_item_id=open_item_id,
+                    amount=EXPECTED_GROSS,
+                    created_by=USER_ID,
+                )
+            )
+
+            assert settlement.id is not None
+
+            initial_supplier_events = (
+                await supplier_events(
+                    db,
+                    settlement_id=settlement.id,
+                )
+            )
+
+            assert len(
+                initial_supplier_events
+            ) == 1
+
+            initial_supplier_clearing = (
+                initial_supplier_events[
+                    0
+                ]
+            )
+
+            assert (
+                initial_supplier_clearing[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            assert (
+                int(
+                    initial_supplier_clearing[
+                        "invoice_fulfillment_allocation_id"
+                    ]
+                )
+                == allocation.id
+            )
+
+            assert (
+                Decimal(
+                    initial_supplier_clearing[
+                        "cleared_amount"
+                    ]
+                )
+                == EXPECTED_GROSS
+            )
+
+            initial_supplier_je = (
+                await supplier_clearing_journal_snapshot(
+                    db,
+                    clearing_event_id=(
+                        initial_supplier_clearing[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            assert initial_supplier_je is not None
+            assert (
+                initial_supplier_je[
+                    "status"
+                ]
+                == "posted"
+            )
+
+            assert (
+                initial_supplier_je[
+                    "amounts"
+                ]
+                == {
+                    "631": {
+                        "debit":
+                            EXPECTED_GROSS,
+                        "credit":
+                            ZERO,
+                    },
+                    "371": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            EXPECTED_GROSS,
+                    },
+                }
+            )
+
+            print(
+                "REAL POSTGRESQL INITIAL SUPPLIER CLEARING: "
+                "Dr631 / Cr371 = 0.04 = PASS"
+            )
+
             tax_before_return = (
                 await tax_row(
                     db,
@@ -1783,6 +2202,186 @@ async def test_purchase_return_recognition_postgresql_chronology():
             )
 
             # =====================================================
+            # 5A. SUPPLIER CLEARING AFTER ORIGINAL RETURN
+            # =====================================================
+
+            supplier_after_original = (
+                await supplier_events(
+                    db,
+                    settlement_id=settlement.id,
+                )
+            )
+
+            assert len(
+                supplier_after_original
+            ) == 3
+
+            original_clearing_reversal = (
+                supplier_after_original[
+                    1
+                ]
+            )
+
+            reduced_clearing = (
+                supplier_after_original[
+                    2
+                ]
+            )
+
+            assert (
+                original_clearing_reversal[
+                    "reversal_of_id"
+                ]
+                == initial_supplier_clearing[
+                    "id"
+                ]
+            )
+
+            assert (
+                Decimal(
+                    original_clearing_reversal[
+                        "cleared_amount"
+                    ]
+                )
+                == EXPECTED_GROSS
+            )
+
+            assert (
+                reduced_clearing[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            assert (
+                Decimal(
+                    reduced_clearing[
+                        "cleared_amount"
+                    ]
+                )
+                == Decimal("0.02")
+            )
+
+            initial_supplier_je_after_return = (
+                await supplier_clearing_journal_snapshot(
+                    db,
+                    clearing_event_id=(
+                        initial_supplier_clearing[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            clearing_reversal_je = (
+                await supplier_clearing_journal_snapshot(
+                    db,
+                    clearing_event_id=(
+                        original_clearing_reversal[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            reduced_clearing_je = (
+                await supplier_clearing_journal_snapshot(
+                    db,
+                    clearing_event_id=(
+                        reduced_clearing[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            assert (
+                initial_supplier_je_after_return[
+                    "status"
+                ]
+                == "reversed"
+            )
+
+            assert (
+                clearing_reversal_je[
+                    "reversal_of_id"
+                ]
+                == initial_supplier_je[
+                    "id"
+                ]
+            )
+
+            assert (
+                clearing_reversal_je[
+                    "status"
+                ]
+                == "posted"
+            )
+
+            assert (
+                clearing_reversal_je[
+                    "amounts"
+                ]
+                == {
+                    "371": {
+                        "debit":
+                            EXPECTED_GROSS,
+                        "credit":
+                            ZERO,
+                    },
+                    "631": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            EXPECTED_GROSS,
+                    },
+                }
+            )
+
+            assert (
+                reduced_clearing_je[
+                    "status"
+                ]
+                == "posted"
+            )
+
+            assert (
+                reduced_clearing_je[
+                    "amounts"
+                ]
+                == {
+                    "631": {
+                        "debit":
+                            Decimal("0.02"),
+                        "credit":
+                            ZERO,
+                    },
+                    "371": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            Decimal("0.02"),
+                    },
+                }
+            )
+
+            print(
+                "REAL POSTGRESQL PURCHASE RETURN -> "
+                "SUPPLIER CLEARING REDUCTION: "
+                "0.04 -> 0.02 = PASS"
+            )
+
+            print(
+                "REAL POSTGRESQL SUPPLIER CLEARING REVERSAL: "
+                "Dr371 / Cr631 = 0.04 = PASS"
+            )
+
+            print(
+                "REAL POSTGRESQL SUPPLIER CLEARING REPLACEMENT: "
+                "Dr631 / Cr371 = 0.02 = PASS"
+            )
+
+            # =====================================================
             # 6. RETURN REVERSAL
             #
             # Original TradeReturnEvent becomes inactive.
@@ -1946,6 +2545,139 @@ async def test_purchase_return_recognition_postgresql_chronology():
             print(
                 "REAL POSTGRESQL PURCHASE RETURN REVERSAL: "
                 "immutable PRRE reversal = PASS"
+            )
+
+            # =====================================================
+            # 6A. SUPPLIER CLEARING AFTER RETURN REVERSAL
+            #
+            # ACTIVE PRRE base returns to zero:
+            #
+            #     0.03 base + 0.01 VAT = 0.04
+            # =====================================================
+
+            supplier_after_return_reversal = (
+                await supplier_events(
+                    db,
+                    settlement_id=settlement.id,
+                )
+            )
+
+            assert len(
+                supplier_after_return_reversal
+            ) == 5
+
+            reduced_clearing_reversal = (
+                supplier_after_return_reversal[
+                    3
+                ]
+            )
+
+            restored_clearing = (
+                supplier_after_return_reversal[
+                    4
+                ]
+            )
+
+            assert (
+                reduced_clearing_reversal[
+                    "reversal_of_id"
+                ]
+                == reduced_clearing[
+                    "id"
+                ]
+            )
+
+            assert (
+                Decimal(
+                    reduced_clearing_reversal[
+                        "cleared_amount"
+                    ]
+                )
+                == Decimal("0.02")
+            )
+
+            assert (
+                restored_clearing[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            assert (
+                Decimal(
+                    restored_clearing[
+                        "cleared_amount"
+                    ]
+                )
+                == EXPECTED_GROSS
+            )
+
+            reduced_reversal_je = (
+                await supplier_clearing_journal_snapshot(
+                    db,
+                    clearing_event_id=(
+                        reduced_clearing_reversal[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            restored_clearing_je = (
+                await supplier_clearing_journal_snapshot(
+                    db,
+                    clearing_event_id=(
+                        restored_clearing[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            assert (
+                reduced_reversal_je[
+                    "amounts"
+                ]
+                == {
+                    "371": {
+                        "debit":
+                            Decimal("0.02"),
+                        "credit":
+                            ZERO,
+                    },
+                    "631": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            Decimal("0.02"),
+                    },
+                }
+            )
+
+            assert (
+                restored_clearing_je[
+                    "amounts"
+                ]
+                == {
+                    "631": {
+                        "debit":
+                            EXPECTED_GROSS,
+                        "credit":
+                            ZERO,
+                    },
+                    "371": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            EXPECTED_GROSS,
+                    },
+                }
+            )
+
+            print(
+                "REAL POSTGRESQL RETURN REVERSAL -> "
+                "SUPPLIER CLEARING RESTORE: "
+                "0.02 -> 0.04 = PASS"
             )
 
             # =====================================================
@@ -2119,6 +2851,200 @@ async def test_purchase_return_recognition_postgresql_chronology():
             print(
                 "REAL POSTGRESQL PURCHASE RETURN REPLACEMENT: "
                 "immutable replacement = PASS"
+            )
+
+            # =====================================================
+            # 7A. SUPPLIER CLEARING AFTER REPLACEMENT RETURN
+            # =====================================================
+
+            supplier_after_replacement = (
+                await supplier_events(
+                    db,
+                    settlement_id=settlement.id,
+                )
+            )
+
+            assert len(
+                supplier_after_replacement
+            ) == 7
+
+            restored_clearing_reversal = (
+                supplier_after_replacement[
+                    5
+                ]
+            )
+
+            final_reduced_clearing = (
+                supplier_after_replacement[
+                    6
+                ]
+            )
+
+            assert (
+                restored_clearing_reversal[
+                    "reversal_of_id"
+                ]
+                == restored_clearing[
+                    "id"
+                ]
+            )
+
+            assert (
+                Decimal(
+                    restored_clearing_reversal[
+                        "cleared_amount"
+                    ]
+                )
+                == EXPECTED_GROSS
+            )
+
+            assert (
+                final_reduced_clearing[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            assert (
+                Decimal(
+                    final_reduced_clearing[
+                        "cleared_amount"
+                    ]
+                )
+                == Decimal("0.02")
+            )
+
+            restored_reversal_je = (
+                await supplier_clearing_journal_snapshot(
+                    db,
+                    clearing_event_id=(
+                        restored_clearing_reversal[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            final_reduced_je = (
+                await supplier_clearing_journal_snapshot(
+                    db,
+                    clearing_event_id=(
+                        final_reduced_clearing[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            assert (
+                restored_reversal_je[
+                    "amounts"
+                ]
+                == {
+                    "371": {
+                        "debit":
+                            EXPECTED_GROSS,
+                        "credit":
+                            ZERO,
+                    },
+                    "631": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            EXPECTED_GROSS,
+                    },
+                }
+            )
+
+            assert (
+                final_reduced_je[
+                    "amounts"
+                ]
+                == {
+                    "631": {
+                        "debit":
+                            Decimal("0.02"),
+                        "credit":
+                            ZERO,
+                    },
+                    "371": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            Decimal("0.02"),
+                    },
+                }
+            )
+
+            reversed_supplier_original_ids = {
+                int(
+                    event[
+                        "reversal_of_id"
+                    ]
+                )
+                for event
+                in supplier_after_replacement
+                if (
+                    event[
+                        "reversal_of_id"
+                    ]
+                    is not None
+                )
+            }
+
+            active_supplier_originals = tuple(
+                event
+                for event
+                in supplier_after_replacement
+                if (
+                    event[
+                        "reversal_of_id"
+                    ]
+                    is None
+                    and int(
+                        event[
+                            "id"
+                        ]
+                    )
+                    not in reversed_supplier_original_ids
+                )
+            )
+
+            assert len(
+                active_supplier_originals
+            ) == 1
+
+            assert (
+                active_supplier_originals[
+                    0
+                ][
+                    "id"
+                ]
+                == final_reduced_clearing[
+                    "id"
+                ]
+            )
+
+            assert (
+                Decimal(
+                    active_supplier_originals[
+                        0
+                    ][
+                        "cleared_amount"
+                    ]
+                )
+                == Decimal("0.02")
+            )
+
+            print(
+                "REAL POSTGRESQL REPLACEMENT RETURN -> "
+                "SUPPLIER CLEARING REDUCTION: "
+                "0.04 -> 0.02 = PASS"
+            )
+
+            print(
+                "SUPPLIER CLEARING IMMUTABLE HISTORY: "
+                "7 EVENTS / ONE ACTIVE ORIGINAL = PASS"
             )
 
             # =====================================================
@@ -2350,7 +3276,7 @@ async def test_purchase_return_recognition_postgresql_chronology():
                 )
                 == (
                     journal_count_before_return
-                    + 3
+                    + 9
                 )
             )
 

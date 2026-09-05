@@ -155,6 +155,33 @@ async def test_lifecycle_consumes_created_events_in_exact_order(
             )
         )
 
+    async def affected_invoice_ids(
+        db,
+        *,
+        company_id,
+        result,
+    ):
+        assert company_id == 1
+        return (
+            99,
+        )
+
+    async def supplier_reconcile(
+        db,
+        *,
+        company_id,
+        invoice_id,
+        adjustment_date,
+        created_by,
+    ):
+        calls.append(
+            (
+                "supplier",
+                invoice_id,
+                created_by,
+            )
+        )
+
     monkeypatch.setattr(
         service,
         "reconcile_purchase_return_recognition_for_fulfillment_line",
@@ -171,6 +198,18 @@ async def test_lifecycle_consumes_created_events_in_exact_order(
         service,
         "reverse_purchase_return_recognition_journal_entry",
         post_reversal,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_load_affected_purchase_invoice_ids",
+        affected_invoice_ids,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "reconcile_supplier_advance_clearing_lifecycle_for_invoice",
+        supplier_reconcile,
     )
 
     actual = await (
@@ -205,6 +244,11 @@ async def test_lifecycle_consumes_created_events_in_exact_order(
         (
             "original",
             12,
+            4,
+        ),
+        (
+            "supplier",
+            99,
             4,
         ),
     ]
@@ -291,6 +335,21 @@ async def test_lifecycle_wraps_journal_error(
         service,
         "generate_and_post_purchase_return_recognition_journal_entry",
         fail_post,
+    )
+
+    async def forbidden_supplier_resolution(
+        *args,
+        **kwargs,
+    ):
+        raise AssertionError(
+            "supplier reconciliation must not run "
+            "after Purchase Return JE failure"
+        )
+
+    monkeypatch.setattr(
+        service,
+        "_load_affected_purchase_invoice_ids",
+        forbidden_supplier_resolution,
     )
 
     with pytest.raises(
@@ -388,6 +447,301 @@ async def test_lifecycle_validates_adjustment_date():
                 fulfillment_id=2,
                 fulfillment_line_id=3,
                 adjustment_date="2026-09-05",
+                created_by=4,
+            )
+        )
+
+class _RowsResult:
+    def __init__(
+        self,
+        rows,
+    ):
+        self._rows = rows
+
+    def all(
+        self,
+    ):
+        return self._rows
+
+
+class _ExecuteSession(
+    _Session
+):
+    def __init__(
+        self,
+        rows,
+    ):
+        self.rows = rows
+        self.execute_count = 0
+
+    async def execute(
+        self,
+        statement,
+    ):
+        self.execute_count += 1
+        return _RowsResult(
+            self.rows
+        )
+
+
+@_run_async_test
+async def test_affected_invoice_ids_are_unique_and_sorted():
+    result = SimpleNamespace(
+        created_events=(
+            _event(
+                event_id=10,
+            ),
+            PurchaseReturnRecognitionEvent(
+                id=11,
+                company_id=1,
+                trade_return_event_id=21,
+                invoice_fulfillment_allocation_id=31,
+                recognition_date=date(
+                    2026,
+                    9,
+                    5,
+                ),
+                returned_quantity=Decimal("1"),
+                returned_base_amount=Decimal("2.00"),
+                returned_gross_amount=Decimal("2.40"),
+                returned_tax_amount=Decimal("0.40"),
+                currency_code="UAH",
+                created_by=1,
+                reversal_of_id=None,
+            ),
+        )
+    )
+
+    # source 30 -> invoice 200
+    # source 31 -> invoice 100
+    db = _ExecuteSession(
+        rows=(
+            (
+                31,
+                100,
+            ),
+            (
+                30,
+                200,
+            ),
+        )
+    )
+
+    invoice_ids = await (
+        service
+        ._load_affected_purchase_invoice_ids(
+            db,
+            company_id=1,
+            result=result,
+        )
+    )
+
+    assert invoice_ids == (
+        100,
+        200,
+    )
+    assert db.execute_count == 1
+
+
+@_run_async_test
+async def test_no_created_prre_events_skip_invoice_query():
+    db = _ExecuteSession(
+        rows=()
+    )
+
+    result = SimpleNamespace(
+        created_events=()
+    )
+
+    invoice_ids = await (
+        service
+        ._load_affected_purchase_invoice_ids(
+            db,
+            company_id=1,
+            result=result,
+        )
+    )
+
+    assert invoice_ids == ()
+    assert db.execute_count == 0
+
+
+@_run_async_test
+async def test_missing_ifa_provenance_fails_closed():
+    db = _ExecuteSession(
+        rows=()
+    )
+
+    result = SimpleNamespace(
+        created_events=(
+            _event(
+                event_id=10,
+            ),
+        )
+    )
+
+    with pytest.raises(
+        service.PurchaseReturnRecognitionLifecycleError,
+        match="missing InvoiceFulfillmentAllocation",
+    ):
+        await (
+            service
+            ._load_affected_purchase_invoice_ids(
+                db,
+                company_id=1,
+                result=result,
+            )
+        )
+
+
+@_run_async_test
+async def test_supplier_reconciliation_runs_once_per_affected_invoice(
+    monkeypatch,
+):
+    calls = []
+
+    async def resolve(
+        db,
+        *,
+        company_id,
+        result,
+    ):
+        assert company_id == 1
+        return (
+            100,
+            200,
+        )
+
+    async def supplier(
+        db,
+        *,
+        company_id,
+        invoice_id,
+        adjustment_date,
+        created_by,
+    ):
+        calls.append(
+            (
+                company_id,
+                invoice_id,
+                adjustment_date,
+                created_by,
+            )
+        )
+
+    monkeypatch.setattr(
+        service,
+        "_load_affected_purchase_invoice_ids",
+        resolve,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "reconcile_supplier_advance_clearing_lifecycle_for_invoice",
+        supplier,
+    )
+
+    await (
+        service
+        ._reconcile_supplier_advances_after_purchase_return(
+            _Session(),
+            company_id=1,
+            result=SimpleNamespace(
+                created_events=(
+                    _event(
+                        event_id=10,
+                    ),
+                )
+            ),
+            adjustment_date=date(
+                2026,
+                9,
+                5,
+            ),
+            created_by=4,
+        )
+    )
+
+    assert calls == [
+        (
+            1,
+            100,
+            date(
+                2026,
+                9,
+                5,
+            ),
+            4,
+        ),
+        (
+            1,
+            200,
+            date(
+                2026,
+                9,
+                5,
+            ),
+            4,
+        ),
+    ]
+
+
+@_run_async_test
+async def test_supplier_lifecycle_error_is_wrapped(
+    monkeypatch,
+):
+    async def resolve(
+        *args,
+        **kwargs,
+    ):
+        return (
+            100,
+        )
+
+    async def fail_supplier(
+        *args,
+        **kwargs,
+    ):
+        raise (
+            service
+            .SupplierAdvanceClearingLifecycleError(
+                "bad supplier clearing"
+            )
+        )
+
+    monkeypatch.setattr(
+        service,
+        "_load_affected_purchase_invoice_ids",
+        resolve,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "reconcile_supplier_advance_clearing_lifecycle_for_invoice",
+        fail_supplier,
+    )
+
+    with pytest.raises(
+        service.PurchaseReturnRecognitionLifecycleError,
+        match="Supplier advance clearing after Purchase Return failed",
+    ):
+        await (
+            service
+            ._reconcile_supplier_advances_after_purchase_return(
+                _Session(),
+                company_id=1,
+                result=SimpleNamespace(
+                    created_events=(
+                        _event(
+                            event_id=10,
+                        ),
+                    )
+                ),
+                adjustment_date=date(
+                    2026,
+                    9,
+                    5,
+                ),
                 created_by=4,
             )
         )

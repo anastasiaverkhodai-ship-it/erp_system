@@ -15,6 +15,10 @@ from app.services.supplier_advance_clearing_calculation_service import (
     SupplierAdvanceSettlementCandidate,
     SupplierEconomicLiabilityCandidate,
 )
+from app.services.supplier_economic_liability_calculation_service import (
+    SupplierReceiptBaseAllocationTarget,
+    SupplierVatLiabilityComponent,
+)
 from app.services.supplier_advance_clearing_reconciliation_service import (
     SupplierAdvanceClearingReconciliationDataIntegrityError,
     SupplierReceiptPeerSnapshot,
@@ -476,3 +480,272 @@ async def test_invoice_reconciliation_no_receipt_creates_no_clearing(
     assert result.created_events == ()
 
     persistence.assert_not_awaited()
+
+def test_purchase_return_base_reduces_supplier_liability():
+    base = (
+        SupplierReceiptBaseAllocationTarget(
+            source_id=20,
+            event_date=D2,
+            amount=Decimal("100.00"),
+            currency_code="UAH",
+        ),
+    )
+
+    result = (
+        service
+        .apply_purchase_return_base_to_supplier_receipt_targets(
+            base_targets=base,
+            active_return_base_by_source={
+                20: Decimal("40.00"),
+            },
+            currency_code="UAH",
+        )
+    )
+
+    assert len(result) == 1
+    assert result[0].source_id == 20
+    assert result[0].event_date == D2
+    assert result[0].amount == Decimal("60.00")
+    assert result[0].currency_code == "UAH"
+
+
+def test_purchase_return_full_base_can_reduce_receipt_base_to_zero():
+    base = (
+        SupplierReceiptBaseAllocationTarget(
+            source_id=20,
+            event_date=D2,
+            amount=Decimal("100.00"),
+            currency_code="UAH",
+        ),
+    )
+
+    result = (
+        service
+        .apply_purchase_return_base_to_supplier_receipt_targets(
+            base_targets=base,
+            active_return_base_by_source={
+                20: Decimal("100.00"),
+            },
+            currency_code="UAH",
+        )
+    )
+
+    assert result[0].amount == Decimal("0.00")
+
+
+def test_purchase_return_base_cannot_exceed_receipt_base():
+    base = (
+        SupplierReceiptBaseAllocationTarget(
+            source_id=20,
+            event_date=D2,
+            amount=Decimal("100.00"),
+            currency_code="UAH",
+        ),
+    )
+
+    with pytest.raises(
+        SupplierAdvanceClearingReconciliationDataIntegrityError,
+        match="exceeds",
+    ):
+        (
+            service
+            .apply_purchase_return_base_to_supplier_receipt_targets(
+                base_targets=base,
+                active_return_base_by_source={
+                    20: Decimal("100.01"),
+                },
+                currency_code="UAH",
+            )
+        )
+
+
+def test_purchase_return_unknown_liability_source_fails_closed():
+    base = (
+        SupplierReceiptBaseAllocationTarget(
+            source_id=20,
+            event_date=D2,
+            amount=Decimal("100.00"),
+            currency_code="UAH",
+        ),
+    )
+
+    with pytest.raises(
+        SupplierAdvanceClearingReconciliationDataIntegrityError,
+        match="no current receipt base",
+    ):
+        (
+            service
+            .apply_purchase_return_base_to_supplier_receipt_targets(
+                base_targets=base,
+                active_return_base_by_source={
+                    21: Decimal("1.00"),
+                },
+                currency_code="UAH",
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_economic_liability_subtracts_return_base_but_keeps_vat(
+    monkeypatch,
+):
+    invoice = SimpleNamespace(
+        company_id=1,
+    )
+
+    allocation = SimpleNamespace(
+        id=20,
+        status=(
+            service
+            .InvoiceFulfillmentAllocationStatus
+            .ACTIVE
+        ),
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_load_receipt_peer_snapshots",
+        AsyncMock(
+            return_value=()
+        ),
+    )
+
+    monkeypatch.setattr(
+        service,
+        "build_supplier_receipt_base_targets_for_invoice",
+        lambda **kwargs: (
+            SupplierReceiptBaseAllocationTarget(
+                source_id=20,
+                event_date=D2,
+                amount=Decimal("100.00"),
+                currency_code="UAH",
+            ),
+        ),
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_load_active_purchase_return_base_by_source",
+        AsyncMock(
+            return_value={
+                20: Decimal("40.00"),
+            }
+        ),
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_load_supplier_vat_components",
+        AsyncMock(
+            return_value=(
+                SupplierVatLiabilityComponent(
+                    source_id=20,
+                    event_date=D2,
+                    amount=Decimal("20.00"),
+                ),
+            )
+        ),
+    )
+
+    result = await (
+        service
+        ._load_supplier_economic_liability_candidates(
+            object(),
+            invoice=invoice,
+            all_invoice_allocations=(
+                allocation,
+            ),
+            currency_code="UAH",
+        )
+    )
+
+    assert len(result) == 1
+
+    # 100 receipt base
+    # -40 ACTIVE Purchase Return base
+    # +20 current INPUT VAT bridge
+    # =80 current supplier liability.
+    assert result[0].source_id == 20
+    assert result[0].event_date == D2
+    assert result[0].amount == Decimal("80.00")
+
+
+@pytest.mark.asyncio
+async def test_full_base_return_keeps_current_vat_liability(
+    monkeypatch,
+):
+    invoice = SimpleNamespace(
+        company_id=1,
+    )
+
+    allocation = SimpleNamespace(
+        id=20,
+        status=(
+            service
+            .InvoiceFulfillmentAllocationStatus
+            .ACTIVE
+        ),
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_load_receipt_peer_snapshots",
+        AsyncMock(
+            return_value=()
+        ),
+    )
+
+    monkeypatch.setattr(
+        service,
+        "build_supplier_receipt_base_targets_for_invoice",
+        lambda **kwargs: (
+            SupplierReceiptBaseAllocationTarget(
+                source_id=20,
+                event_date=D2,
+                amount=Decimal("100.00"),
+                currency_code="UAH",
+            ),
+        ),
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_load_active_purchase_return_base_by_source",
+        AsyncMock(
+            return_value={
+                20: Decimal("100.00"),
+            }
+        ),
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_load_supplier_vat_components",
+        AsyncMock(
+            return_value=(
+                SupplierVatLiabilityComponent(
+                    source_id=20,
+                    event_date=D2,
+                    amount=Decimal("20.00"),
+                ),
+            )
+        ),
+    )
+
+    result = await (
+        service
+        ._load_supplier_economic_liability_candidates(
+            object(),
+            invoice=invoice,
+            all_invoice_allocations=(
+                allocation,
+            ),
+            currency_code="UAH",
+        )
+    )
+
+    assert len(result) == 1
+
+    # Purchase Return accounting has removed only receipt base.
+    # VAT/RK correction has NOT happened yet.
+    assert result[0].amount == Decimal("20.00")
