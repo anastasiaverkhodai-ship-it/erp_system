@@ -43,8 +43,11 @@ from app.services.invoice_fulfillment_allocation_service import (
 from app.services.invoice_tax_calculation_service import (
     create_tax_calculations_for_invoice,
 )
-from app.services.purchase_return_recognition_reconciliation_service import (
-    reconcile_purchase_return_recognition_for_fulfillment_line,
+from app.services.purchase_return_recognition_lifecycle_service import (
+    reconcile_purchase_return_recognition_lifecycle_for_fulfillment_line,
+)
+from app.services.purchase_return_recognition_journal_service import (
+    generate_and_post_purchase_return_recognition_journal_entry,
 )
 from app.services.trade_fulfillment_service import (
     PurchaseOrderFulfillmentRequestLine,
@@ -616,6 +619,177 @@ async def company_journal_count(
             },
         )
     )
+
+
+async def purchase_return_journal_snapshot(
+    db,
+    *,
+    purchase_return_recognition_event_id,
+):
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    je.id AS journal_entry_id,
+                    je.reversal_of_id,
+                    je.status,
+                    je.entry_date,
+                    a.code AS account_code,
+                    jel.debit,
+                    jel.credit
+                FROM journal_entries je
+                JOIN journal_entry_lines jel
+                  ON jel.journal_entry_id =
+                     je.id
+                JOIN accounts a
+                  ON a.id =
+                     jel.account_id
+                WHERE je.company_id =
+                      :company_id
+                  AND (
+                        je.purchase_return_recognition_event_id
+                        =
+                        :event_id
+                      )
+                ORDER BY jel.line_no
+                """
+            ),
+            {
+                "company_id":
+                    COMPANY_ID,
+                "event_id":
+                    purchase_return_recognition_event_id,
+            },
+        )
+    ).mappings().all()
+
+    if not rows:
+        return None
+
+    journal_ids = {
+        int(
+            row[
+                "journal_entry_id"
+            ]
+        )
+        for row in rows
+    }
+
+    if len(
+        journal_ids
+    ) != 1:
+        raise AssertionError(
+            "Purchase Return source resolved to "
+            "multiple JournalEntries"
+        )
+
+    reversal_ids = {
+        row[
+            "reversal_of_id"
+        ]
+        for row in rows
+    }
+
+    statuses = {
+        str(
+            row[
+                "status"
+            ]
+        )
+        .split(".")[-1]
+        .lower()
+        for row in rows
+    }
+
+    entry_dates = {
+        row[
+            "entry_date"
+        ]
+        for row in rows
+    }
+
+    if (
+        len(
+            reversal_ids
+        )
+        != 1
+        or len(
+            statuses
+        )
+        != 1
+        or len(
+            entry_dates
+        )
+        != 1
+    ):
+        raise AssertionError(
+            "Purchase Return JournalEntry header "
+            "changed across its lines"
+        )
+
+    amounts = {}
+
+    for row in rows:
+        code = row[
+            "account_code"
+        ]
+
+        if code in amounts:
+            raise AssertionError(
+                "Duplicate Purchase Return GL account line: "
+                f"{code}"
+            )
+
+        amounts[
+            code
+        ] = {
+            "debit":
+                Decimal(
+                    str(
+                        row[
+                            "debit"
+                        ]
+                    )
+                ),
+            "credit":
+                Decimal(
+                    str(
+                        row[
+                            "credit"
+                        ]
+                    )
+                ),
+        }
+
+    return {
+        "id":
+            next(
+                iter(
+                    journal_ids
+                )
+            ),
+        "reversal_of_id":
+            next(
+                iter(
+                    reversal_ids
+                )
+            ),
+        "status":
+            next(
+                iter(
+                    statuses
+                )
+            ),
+        "entry_date":
+            next(
+                iter(
+                    entry_dates
+                )
+            ),
+        "amounts":
+            amounts,
+    }
 
 
 async def vat_lifecycle_snapshot(
@@ -1480,7 +1654,7 @@ async def test_purchase_return_recognition_postgresql_chronology():
             )
 
             result_original = (
-                await reconcile_purchase_return_recognition_for_fulfillment_line(
+                await reconcile_purchase_return_recognition_lifecycle_for_fulfillment_line(
                     db,
                     company_id=COMPANY_ID,
                     fulfillment_id=(
@@ -1489,6 +1663,7 @@ async def test_purchase_return_recognition_postgresql_chronology():
                     fulfillment_line_id=(
                         fulfillment_line_id
                     ),
+                    adjustment_date=original_return_date,
                     created_by=USER_ID,
                 )
             )
@@ -1674,7 +1849,7 @@ async def test_purchase_return_recognition_postgresql_chronology():
             )
 
             result_reversal = (
-                await reconcile_purchase_return_recognition_for_fulfillment_line(
+                await reconcile_purchase_return_recognition_lifecycle_for_fulfillment_line(
                     db,
                     company_id=COMPANY_ID,
                     fulfillment_id=(
@@ -1830,7 +2005,7 @@ async def test_purchase_return_recognition_postgresql_chronology():
             )
 
             result_replacement = (
-                await reconcile_purchase_return_recognition_for_fulfillment_line(
+                await reconcile_purchase_return_recognition_lifecycle_for_fulfillment_line(
                     db,
                     company_id=COMPANY_ID,
                     fulfillment_id=(
@@ -1839,6 +2014,7 @@ async def test_purchase_return_recognition_postgresql_chronology():
                     fulfillment_line_id=(
                         fulfillment_line_id
                     ),
+                    adjustment_date=replacement_date,
                     created_by=USER_ID,
                 )
             )
@@ -1946,14 +2122,25 @@ async def test_purchase_return_recognition_postgresql_chronology():
             )
 
             # =====================================================
-            # 8. CURRENT MILESTONE BOUNDARIES
+            # 8. PURCHASE RETURN ACCOUNTING JE LIFECYCLE
             #
-            # Purchase Return recognition currently creates:
-            #   PRRE only.
+            # Economic Purchase Return accounting uses ONLY:
             #
-            # It must NOT create:
-            #   JournalEntry
-            #   VAT/RK lifecycle changes
+            #     returned_base_amount
+            #
+            # Original:
+            #     Dr 631
+            #     Cr 281
+            #
+            # Reversal:
+            #     Dr 281
+            #     Cr 631
+            #
+            # Replacement:
+            #     Dr 631
+            #     Cr 281
+            #
+            # VAT / RK state must remain unchanged.
             # =====================================================
 
             prre_ids = tuple(
@@ -1962,20 +2149,213 @@ async def test_purchase_return_recognition_postgresql_chronology():
                 in history
             )
 
+            assert len(
+                prre_ids
+            ) == 3
+
             assert (
                 await purchase_return_journal_count(
                     db,
                     event_ids=prre_ids,
                 )
-                == 0
+                == 3
             )
+
+            original_je = (
+                await purchase_return_journal_snapshot(
+                    db,
+                    purchase_return_recognition_event_id=(
+                        original_prre.id
+                    ),
+                )
+            )
+
+            reversal_je = (
+                await purchase_return_journal_snapshot(
+                    db,
+                    purchase_return_recognition_event_id=(
+                        prre_reversal.id
+                    ),
+                )
+            )
+
+            replacement_je = (
+                await purchase_return_journal_snapshot(
+                    db,
+                    purchase_return_recognition_event_id=(
+                        replacement_prre.id
+                    ),
+                )
+            )
+
+            assert original_je is not None
+            assert reversal_je is not None
+            assert replacement_je is not None
+
+            # -------------------------------------------------
+            # Original PRRE:
+            #
+            #     Dr 631 0.02
+            #     Cr 281 0.02
+            # -------------------------------------------------
+
+            assert (
+                original_je[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            # Generic immutable reversal marks the original
+            # JournalEntry as REVERSED. The separate reversal
+            # JournalEntry remains POSTED.
+            assert (
+                original_je[
+                    "status"
+                ]
+                == "reversed"
+            )
+
+            assert (
+                original_je[
+                    "entry_date"
+                ]
+                == original_return_date
+            )
+
+            assert (
+                original_je[
+                    "amounts"
+                ]
+                == {
+                    "631": {
+                        "debit":
+                            EXPECTED_RETURN_BASE,
+                        "credit":
+                            ZERO,
+                    },
+                    "281": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            EXPECTED_RETURN_BASE,
+                    },
+                }
+            )
+
+            # -------------------------------------------------
+            # Immutable PRRE reversal:
+            #
+            #     Dr 281 0.02
+            #     Cr 631 0.02
+            # -------------------------------------------------
+
+            assert (
+                reversal_je[
+                    "reversal_of_id"
+                ]
+                == original_je[
+                    "id"
+                ]
+            )
+
+            assert (
+                reversal_je[
+                    "status"
+                ]
+                == "posted"
+            )
+
+            assert (
+                reversal_je[
+                    "entry_date"
+                ]
+                == reversal_date
+            )
+
+            assert (
+                reversal_je[
+                    "amounts"
+                ]
+                == {
+                    "631": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            EXPECTED_RETURN_BASE,
+                    },
+                    "281": {
+                        "debit":
+                            EXPECTED_RETURN_BASE,
+                        "credit":
+                            ZERO,
+                    },
+                }
+            )
+
+            # -------------------------------------------------
+            # Replacement PRRE:
+            #
+            #     Dr 631 0.02
+            #     Cr 281 0.02
+            # -------------------------------------------------
+
+            assert (
+                replacement_je[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            assert (
+                replacement_je[
+                    "status"
+                ]
+                == "posted"
+            )
+
+            assert (
+                replacement_je[
+                    "entry_date"
+                ]
+                == replacement_date
+            )
+
+            assert (
+                replacement_je[
+                    "amounts"
+                ]
+                == {
+                    "631": {
+                        "debit":
+                            EXPECTED_RETURN_BASE,
+                        "credit":
+                            ZERO,
+                    },
+                    "281": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            EXPECTED_RETURN_BASE,
+                    },
+                }
+            )
+
+            # Original + reversal cancel.
+            # Replacement remains as current active economic return.
 
             assert (
                 await company_journal_count(
                     db
                 )
-                == journal_count_before_return
+                == (
+                    journal_count_before_return
+                    + 3
+                )
             )
+
+            # No 641 / 644 or tax-event side effect is allowed
+            # at this Purchase Return economic accounting milestone.
 
             assert (
                 await vat_lifecycle_snapshot(
@@ -1997,13 +2377,282 @@ async def test_purchase_return_recognition_postgresql_chronology():
             )
 
             print(
-                "PURCHASE RETURN JOURNAL LIFECYCLE: "
-                "not implemented yet = PASS"
+                "REAL POSTGRESQL PURCHASE RETURN ORIGINAL JE: "
+                "Dr631 / Cr281 = 0.02 = PASS"
+            )
+
+            print(
+                "REAL POSTGRESQL PURCHASE RETURN REVERSAL JE: "
+                "Dr281 / Cr631 = 0.02 = PASS"
+            )
+
+            print(
+                "REAL POSTGRESQL PURCHASE RETURN REPLACEMENT JE: "
+                "Dr631 / Cr281 = 0.02 = PASS"
+            )
+
+            print(
+                "PURCHASE RETURN JE SOURCE TYPING + "
+                "IMMUTABLE REVERSAL = PASS"
             )
 
             print(
                 "PURCHASE RETURN VAT/RK LIFECYCLE: "
-                "unchanged = PASS"
+                "UNCHANGED = PASS"
+            )
+
+            # =====================================================
+            # 9. ZERO-BASE PURCHASE RETURN ACCOUNTING BOUNDARY
+            #
+            # A legitimate immutable PurchaseReturnRecognitionEvent
+            # may have:
+            #
+            #     returned_quantity > 0
+            #     returned_base_amount = 0.00
+            #
+            # because VAT-exclusive historical base is independently
+            # cumulative-rounded.
+            #
+            # Such an economic fact MUST remain persisted, but it must
+            # NOT create a zero-value JournalEntry.
+            #
+            # Commercial gross/tax snapshots remain independent and
+            # positive here specifically to prove that GL does not use:
+            #
+            #     gross - tax
+            #
+            # =====================================================
+
+            journal_count_before_zero = (
+                await company_journal_count(
+                    db
+                )
+            )
+
+            vat_before_zero = (
+                await vat_lifecycle_snapshot(
+                    db
+                )
+            )
+
+            (
+                zero_issue_id,
+                zero_issue_line_id,
+            ) = await create_posted_issue(
+                db,
+                number=(
+                    f"PR-PG-ISSUE-ZERO-{token}"
+                ),
+                operation_date=(
+                    replacement_date
+                ),
+                product_id=product_id,
+                warehouse_id=warehouse_id,
+            )
+
+            zero_return = (
+                await create_purchase_return_event(
+                    db,
+                    fulfillment_id=(
+                        fulfillment_id
+                    ),
+                    fulfillment_line_id=(
+                        fulfillment_line_id
+                    ),
+                    order_id=order_id,
+                    order_line_id=(
+                        order_line_id
+                    ),
+                    product_id=product_id,
+                    warehouse_id=warehouse_id,
+                    return_document_id=(
+                        zero_issue_id
+                    ),
+                    return_document_line_id=(
+                        zero_issue_line_id
+                    ),
+                    return_date=(
+                        replacement_date
+                    ),
+                )
+            )
+
+            zero_prre = (
+                PurchaseReturnRecognitionEvent(
+                    company_id=COMPANY_ID,
+                    trade_return_event_id=(
+                        zero_return.id
+                    ),
+                    invoice_fulfillment_allocation_id=(
+                        replacement_prre
+                        .invoice_fulfillment_allocation_id
+                    ),
+                    recognition_date=(
+                        replacement_date
+                    ),
+                    returned_quantity=(
+                        Decimal("1.0000")
+                    ),
+                    returned_base_amount=(
+                        Decimal("0.00")
+                    ),
+                    returned_gross_amount=(
+                        EXPECTED_RETURN_GROSS
+                    ),
+                    returned_tax_amount=(
+                        EXPECTED_RETURN_TAX
+                    ),
+                    currency_code="UAH",
+                    created_by=USER_ID,
+                    reversal_of_id=None,
+                )
+            )
+
+            db.add(
+                zero_prre
+            )
+
+            await db.flush()
+
+            assert zero_prre.id is not None
+            assert zero_prre.id > 0
+
+            assert (
+                Decimal(
+                    zero_prre.returned_base_amount
+                )
+                == Decimal("0.00")
+            )
+
+            assert (
+                Decimal(
+                    zero_prre.returned_quantity
+                )
+                > Decimal("0")
+            )
+
+            # Deliberately positive commercial snapshot.
+            #
+            # If GL accidentally derived base as gross-tax,
+            # this event would incorrectly produce 0.01.
+            assert (
+                Decimal(
+                    zero_prre.returned_gross_amount
+                )
+                == EXPECTED_RETURN_GROSS
+            )
+
+            assert (
+                Decimal(
+                    zero_prre.returned_tax_amount
+                )
+                == EXPECTED_RETURN_TAX
+            )
+
+            assert (
+                Decimal(
+                    zero_prre.returned_gross_amount
+                )
+                - Decimal(
+                    zero_prre.returned_tax_amount
+                )
+                != Decimal(
+                    zero_prre.returned_base_amount
+                )
+            )
+
+            zero_journal_result = (
+                await generate_and_post_purchase_return_recognition_journal_entry(
+                    db,
+                    event=zero_prre,
+                    created_by=USER_ID,
+                )
+            )
+
+            assert zero_journal_result is None
+
+            assert (
+                await purchase_return_journal_snapshot(
+                    db,
+                    purchase_return_recognition_event_id=(
+                        zero_prre.id
+                    ),
+                )
+                is None
+            )
+
+            assert (
+                await purchase_return_journal_count(
+                    db,
+                    event_ids=(
+                        zero_prre.id,
+                    ),
+                )
+                == 0
+            )
+
+            assert (
+                await company_journal_count(
+                    db
+                )
+                == journal_count_before_zero
+            )
+
+            assert (
+                await vat_lifecycle_snapshot(
+                    db
+                )
+                == vat_before_zero
+            )
+
+            persisted_zero = (
+                await db.execute(
+                    select(
+                        PurchaseReturnRecognitionEvent
+                    ).where(
+                        (
+                            PurchaseReturnRecognitionEvent
+                            .company_id
+                            == COMPANY_ID
+                        ),
+                        (
+                            PurchaseReturnRecognitionEvent
+                            .id
+                            == zero_prre.id
+                        ),
+                    )
+                )
+            ).scalar_one()
+
+            assert (
+                Decimal(
+                    persisted_zero
+                    .returned_base_amount
+                )
+                == Decimal("0.00")
+            )
+
+            assert (
+                Decimal(
+                    persisted_zero
+                    .returned_quantity
+                )
+                == Decimal("1.0000")
+            )
+
+            print(
+                "REAL POSTGRESQL ZERO-BASE PURCHASE RETURN: "
+                "PRRE EXISTS / JOURNAL ABSENT = PASS"
+            )
+
+            print(
+                "ZERO-BASE GL DERIVATION GUARD: "
+                "gross-tax DOES NOT DRIVE JE = PASS"
+            )
+
+            print(
+                "ZERO-BASE PURCHASE RETURN VAT/RK: "
+                "UNCHANGED = PASS"
             )
 
         finally:
