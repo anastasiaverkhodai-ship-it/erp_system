@@ -14,6 +14,10 @@ from app.models.invoice_fulfillment_allocation import (
 from app.models.sales_recognition_event import (
     SalesRecognitionEvent,
 )
+
+from app.models.sales_return_recognition_event import (
+    SalesReturnRecognitionEvent,
+)
 from app.services.customer_advance_clearing_calculation_service import (
     CustomerEconomicReceivableCandidate,
     money,
@@ -193,10 +197,38 @@ def _event_identity(
     )
 
 
+def _sales_return_gross_amount(
+    value: Decimal,
+) -> Decimal:
+    try:
+        amount = money(
+            Decimal(
+                str(
+                    value
+                )
+            )
+        )
+    except Exception as exc:
+        raise CustomerEconomicReceivableLoaderDataIntegrityError(
+            "Sales Return recognition gross amount is invalid"
+        ) from exc
+
+    if amount <= Decimal(
+        "0.00"
+    ):
+        raise CustomerEconomicReceivableLoaderDataIntegrityError(
+            "Sales Return recognition gross amount "
+            "must be greater than zero"
+        )
+
+    return amount
+
+
 def build_active_customer_economic_receivable_candidates(
     *,
     events: Iterable,
     company_id: int,
+    sales_return_events: Iterable = (),
 ) -> tuple[
     CustomerEconomicReceivableCandidate,
     ...,
@@ -205,16 +237,16 @@ def build_active_customer_economic_receivable_candidates(
     Reconstruct ACTIVE economic customer receivables from
     immutable SalesRecognitionEvent history.
 
-    An ACTIVE economic receivable is an original
-    SalesRecognitionEvent whose id is not referenced by any
-    valid reversal event.
-
-    The economic 361 capacity is the original event's
+    Gross 361 capacity comes from active SalesRecognitionEvent
     recognized_gross_amount.
 
-    Replacement events are separate originals and therefore
-    become separate economic sources.
+    Current active SalesReturnRecognitionEvent gross amounts
+    reduce that exact SalesRecognitionEvent capacity.
+
+    Immutable return reversals restore capacity because a reversed
+    return original is no longer part of active return state.
     """
+
     company_id = _positive_context_id(
         company_id,
         label="company_id",
@@ -224,7 +256,17 @@ def build_active_customer_economic_receivable_candidates(
         events
     )
 
+    return_history = tuple(
+        sales_return_events
+    )
+
     if not history:
+        if return_history:
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Sales Return recognition history exists "
+                "without Sales Recognition history"
+            )
+
         return ()
 
     event_by_id = {}
@@ -276,10 +318,11 @@ def build_active_customer_economic_receivable_candidates(
         if reversal_of_id is None:
             continue
 
-        reversal_id, reversal_source_id = (
-            _event_identity(
-                event
-            )
+        (
+            reversal_id,
+            reversal_source_id,
+        ) = _event_identity(
+            event
         )
 
         original_id = _positive_int(
@@ -394,7 +437,7 @@ def build_active_customer_economic_receivable_candidates(
             original_id
         )
 
-    candidates = []
+    active_sales = {}
 
     for event in history:
         if (
@@ -407,7 +450,10 @@ def build_active_customer_economic_receivable_candidates(
         ):
             continue
 
-        event_id, _ = _event_identity(
+        (
+            event_id,
+            _,
+        ) = _event_identity(
             event
         )
 
@@ -437,6 +483,407 @@ def build_active_customer_economic_receivable_candidates(
                 None,
             )
         )
+
+        active_sales[
+            event_id
+        ] = (
+            event,
+            event_date,
+            amount,
+            currency_code,
+        )
+
+    return_event_by_id = {}
+
+    for event in return_history:
+        event_company_id = _positive_int(
+            getattr(
+                event,
+                "company_id",
+                None,
+            ),
+            label=(
+                "Sales Return recognition company_id"
+            ),
+        )
+
+        if event_company_id != company_id:
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Sales Return recognition event company "
+                "does not match loader company"
+            )
+
+        event_id = _positive_int(
+            getattr(
+                event,
+                "id",
+                None,
+            ),
+            label=(
+                "Sales Return recognition event id"
+            ),
+        )
+
+        _positive_int(
+            getattr(
+                event,
+                "trade_return_event_id",
+                None,
+            ),
+            label="trade_return_event_id",
+        )
+
+        _positive_int(
+            getattr(
+                event,
+                "sales_recognition_event_id",
+                None,
+            ),
+            label="sales_recognition_event_id",
+        )
+
+        _recognition_date(
+            getattr(
+                event,
+                "recognition_date",
+                None,
+            )
+        )
+
+        _currency(
+            getattr(
+                event,
+                "currency_code",
+                None,
+            )
+        )
+
+        _sales_return_gross_amount(
+            getattr(
+                event,
+                "returned_gross_amount",
+                None,
+            )
+        )
+
+        if event_id in return_event_by_id:
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Sales Return recognition history contains "
+                "duplicate event id"
+            )
+
+        return_event_by_id[
+            event_id
+        ] = event
+
+    reversed_return_ids = set()
+
+    for event in return_history:
+        reversal_of_id = getattr(
+            event,
+            "reversal_of_id",
+            None,
+        )
+
+        if reversal_of_id is None:
+            continue
+
+        reversal_id = _positive_int(
+            getattr(
+                event,
+                "id",
+                None,
+            ),
+            label=(
+                "Sales Return recognition reversal id"
+            ),
+        )
+
+        original_id = _positive_int(
+            reversal_of_id,
+            label=(
+                "Sales Return recognition reversal_of_id"
+            ),
+        )
+
+        if original_id == reversal_id:
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Sales Return recognition event cannot "
+                "reverse itself"
+            )
+
+        original = return_event_by_id.get(
+            original_id
+        )
+
+        if original is None:
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Sales Return recognition reversal references "
+                "an original outside loaded history"
+            )
+
+        if (
+            getattr(
+                original,
+                "reversal_of_id",
+                None,
+            )
+            is not None
+        ):
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Sales Return recognition reversal must "
+                "reference an original event"
+            )
+
+        if (
+            getattr(
+                event,
+                "trade_return_event_id",
+                None,
+            )
+            != getattr(
+                original,
+                "trade_return_event_id",
+                None,
+            )
+        ):
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Sales Return recognition reversal changed "
+                "TradeReturnEvent provenance"
+            )
+
+        if (
+            getattr(
+                event,
+                "sales_recognition_event_id",
+                None,
+            )
+            != getattr(
+                original,
+                "sales_recognition_event_id",
+                None,
+            )
+        ):
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Sales Return recognition reversal changed "
+                "SalesRecognitionEvent provenance"
+            )
+
+        if (
+            _currency(
+                getattr(
+                    event,
+                    "currency_code",
+                    None,
+                )
+            )
+            != _currency(
+                getattr(
+                    original,
+                    "currency_code",
+                    None,
+                )
+            )
+        ):
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Sales Return recognition reversal currency "
+                "differs from original"
+            )
+
+        if (
+            _sales_return_gross_amount(
+                getattr(
+                    event,
+                    "returned_gross_amount",
+                    None,
+                )
+            )
+            != _sales_return_gross_amount(
+                getattr(
+                    original,
+                    "returned_gross_amount",
+                    None,
+                )
+            )
+        ):
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Sales Return recognition reversal gross "
+                "amount differs from original"
+            )
+
+        if (
+            _recognition_date(
+                getattr(
+                    event,
+                    "recognition_date",
+                    None,
+                )
+            )
+            < _recognition_date(
+                getattr(
+                    original,
+                    "recognition_date",
+                    None,
+                )
+            )
+        ):
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Sales Return recognition reversal date "
+                "precedes original"
+            )
+
+        if original_id in reversed_return_ids:
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Sales Return recognition original has "
+                "more than one reversal"
+            )
+
+        reversed_return_ids.add(
+            original_id
+        )
+
+    return_reductions = {}
+
+    for event in return_history:
+        if (
+            getattr(
+                event,
+                "reversal_of_id",
+                None,
+            )
+            is not None
+        ):
+            continue
+
+        event_id = _positive_int(
+            getattr(
+                event,
+                "id",
+                None,
+            ),
+            label=(
+                "Sales Return recognition event id"
+            ),
+        )
+
+        if event_id in reversed_return_ids:
+            continue
+
+        sales_source_id = _positive_int(
+            getattr(
+                event,
+                "sales_recognition_event_id",
+                None,
+            ),
+            label="sales_recognition_event_id",
+        )
+
+        active_sales_source = active_sales.get(
+            sales_source_id
+        )
+
+        if active_sales_source is None:
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Active Sales Return recognition references "
+                "an inactive SalesRecognitionEvent"
+            )
+
+        (
+            _,
+            sales_date,
+            _,
+            sales_currency,
+        ) = active_sales_source
+
+        return_date = _recognition_date(
+            getattr(
+                event,
+                "recognition_date",
+                None,
+            )
+        )
+
+        if return_date < sales_date:
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Sales Return recognition precedes "
+                "SalesRecognitionEvent"
+            )
+
+        return_currency = _currency(
+            getattr(
+                event,
+                "currency_code",
+                None,
+            )
+        )
+
+        if (
+            return_currency
+            != sales_currency
+        ):
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Sales Return recognition currency differs "
+                "from SalesRecognitionEvent"
+            )
+
+        returned_amount = (
+            _sales_return_gross_amount(
+                getattr(
+                    event,
+                    "returned_gross_amount",
+                    None,
+                )
+            )
+        )
+
+        return_reductions[
+            sales_source_id
+        ] = money(
+            return_reductions.get(
+                sales_source_id,
+                Decimal(
+                    "0.00"
+                ),
+            )
+            + returned_amount
+        )
+
+    candidates = []
+
+    for (
+        event_id,
+        (
+            _,
+            event_date,
+            gross_amount,
+            currency_code,
+        ),
+    ) in active_sales.items():
+        returned_amount = (
+            return_reductions.get(
+                event_id,
+                Decimal(
+                    "0.00"
+                ),
+            )
+        )
+
+        if returned_amount > gross_amount:
+            raise CustomerEconomicReceivableLoaderDataIntegrityError(
+                "Active Sales Return gross amount exceeds "
+                "SalesRecognitionEvent economic "
+                "receivable capacity"
+            )
+
+        amount = money(
+            gross_amount
+            - returned_amount
+        )
+
+        if amount == Decimal(
+            "0.00"
+        ):
+            continue
 
         candidates.append(
             CustomerEconomicReceivableCandidate(
@@ -472,10 +919,12 @@ async def load_customer_economic_receivable_candidates_for_invoice(
     one Sales Invoice and derive its currently ACTIVE economic
     customer-receivable capacities.
 
-    Deliberately load both originals and reversals. Filtering
-    only on reversal_of_id IS NULL would incorrectly include
-    historical originals that have already been reversed.
+    Active SalesReturnRecognitionEvent gross amounts reduce the
+    exact SalesRecognitionEvent 361 capacity.
+
+    Both original and reversal histories are deliberately loaded.
     """
+
     company_id = _positive_context_id(
         company_id,
         label="company_id",
@@ -539,9 +988,88 @@ async def load_customer_economic_receivable_candidates_for_invoice(
         .all()
     )
 
+    sales_return_events = (
+        (
+            await db.execute(
+                select(
+                    SalesReturnRecognitionEvent
+                )
+                .join(
+                    SalesRecognitionEvent,
+                    and_(
+                        (
+                            SalesRecognitionEvent.company_id
+                            == (
+                                SalesReturnRecognitionEvent
+                                .company_id
+                            )
+                        ),
+                        (
+                            SalesRecognitionEvent.id
+                            == (
+                                SalesReturnRecognitionEvent
+                                .sales_recognition_event_id
+                            )
+                        ),
+                    ),
+                )
+                .join(
+                    InvoiceFulfillmentAllocation,
+                    and_(
+                        (
+                            InvoiceFulfillmentAllocation
+                            .company_id
+                            == (
+                                SalesRecognitionEvent
+                                .company_id
+                            )
+                        ),
+                        (
+                            InvoiceFulfillmentAllocation.id
+                            == (
+                                SalesRecognitionEvent
+                                .invoice_fulfillment_allocation_id
+                            )
+                        ),
+                    ),
+                )
+                .where(
+                    (
+                        SalesReturnRecognitionEvent
+                        .company_id
+                        == company_id
+                    ),
+                    (
+                        SalesRecognitionEvent
+                        .company_id
+                        == company_id
+                    ),
+                    (
+                        InvoiceFulfillmentAllocation
+                        .company_id
+                        == company_id
+                    ),
+                    (
+                        InvoiceFulfillmentAllocation
+                        .invoice_id
+                        == invoice_id
+                    ),
+                )
+                .order_by(
+                    SalesReturnRecognitionEvent.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
     return (
         build_active_customer_economic_receivable_candidates(
             events=events,
             company_id=company_id,
+            sales_return_events=(
+                sales_return_events
+            ),
         )
     )

@@ -527,19 +527,63 @@ class FakeScalarResult:
 class FakeDb:
     def __init__(
         self,
-        events,
+        rows,
+        *,
+        sales_return_rows=(),
     ):
-        self._events = events
+        # Existing first-query fixture:
+        # immutable SalesRecognitionEvent history.
+        self.rows = tuple(
+            rows
+        )
+
+        # New second-query fixture:
+        # immutable SalesReturnRecognitionEvent history.
+        #
+        # Legacy tests predate Sales Return and therefore
+        # correctly default to no return history.
+        self.sales_return_rows = tuple(
+            sales_return_rows
+        )
+
+        # Preserve the legacy single-statement inspection
+        # contract: this remains the FIRST loader query.
         self.statement = None
+
+        # Also retain the complete execution sequence for
+        # the new two-query loader contract.
+        self.executed_statements = []
 
     async def execute(
         self,
         statement,
     ):
-        self.statement = statement
+        self.executed_statements.append(
+            statement
+        )
+
+        if self.statement is None:
+            self.statement = statement
+
+        query_number = len(
+            self.executed_statements
+        )
+
+        if query_number == 1:
+            rows = self.rows
+
+        elif query_number == 2:
+            rows = self.sales_return_rows
+
+        else:
+            raise AssertionError(
+                "Unexpected database query number "
+                f"{query_number} in customer economic "
+                "receivable loader unit fixture"
+            )
 
         return FakeScalarResult(
-            self._events
+            rows
         )
 
 
