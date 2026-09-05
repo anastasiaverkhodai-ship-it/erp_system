@@ -338,6 +338,74 @@ def _resolve_reversal_purchase_return_recognition_event_id(
 
     return override
 
+def _resolve_reversal_purchase_return_vat_adjustment_event_id(
+    *,
+    original_purchase_return_vat_adjustment_event_id: int | None,
+    override: int | None,
+) -> int | None:
+    if override is None:
+        return original_purchase_return_vat_adjustment_event_id
+
+    if override <= 0:
+        raise AccountingReversalError(
+            "Purchase Return VAT adjustment event "
+            "source override must be greater than zero"
+        )
+
+    if (
+        original_purchase_return_vat_adjustment_event_id
+        is None
+    ):
+        raise AccountingReversalError(
+            "Purchase Return VAT adjustment event "
+            "source override requires an original "
+            "Purchase Return VAT adjustment journal entry"
+        )
+
+    return override
+
+
+def _resolve_reversal_purchase_return_input_vat_credit_correction_event_id(
+    *,
+    original_purchase_return_input_vat_credit_correction_event_id: (
+        int | None
+    ),
+    override_purchase_return_input_vat_credit_correction_event_id: (
+        int | None
+    ),
+) -> int | None:
+    if (
+        override_purchase_return_input_vat_credit_correction_event_id
+        is None
+    ):
+        return (
+            original_purchase_return_input_vat_credit_correction_event_id
+        )
+
+    if (
+        override_purchase_return_input_vat_credit_correction_event_id
+        <= 0
+    ):
+        raise AccountingReversalError(
+            "Purchase Return INPUT VAT credit correction "
+            "source override must be greater than zero"
+        )
+
+    if (
+        original_purchase_return_input_vat_credit_correction_event_id
+        is None
+    ):
+        raise AccountingReversalError(
+            "Purchase Return INPUT VAT credit correction "
+            "source override requires an original "
+            "JournalEntry with that typed business source"
+        )
+
+    return (
+        override_purchase_return_input_vat_credit_correction_event_id
+    )
+
+
 async def reverse_journal_entry(
     db: AsyncSession,
     company_id: int,
@@ -353,6 +421,8 @@ async def reverse_journal_entry(
     sales_return_recognition_event_id_override: int | None = None,
     sales_return_cost_restoration_event_id_override: int | None = None,
     purchase_return_recognition_event_id_override: int | None = None,
+    purchase_return_vat_adjustment_event_id_override: int | None = None,
+    purchase_return_input_vat_credit_correction_event_id_override: int | None = None,
 ) -> JournalEntry:
     result = await db.execute(
         select(JournalEntry)
@@ -550,6 +620,31 @@ async def reverse_journal_entry(
                 ),
                 override=(
                     purchase_return_recognition_event_id_override
+                ),
+            )
+        ),
+        purchase_return_vat_adjustment_event_id=(
+            _resolve_reversal_purchase_return_vat_adjustment_event_id(
+                original_purchase_return_vat_adjustment_event_id=(
+                    getattr(
+                        original_entry,
+                        "purchase_return_vat_adjustment_event_id",
+                        None,
+                    )
+                ),
+                override=(
+                    purchase_return_vat_adjustment_event_id_override
+                ),
+            )
+        ),
+        purchase_return_input_vat_credit_correction_event_id=(
+            _resolve_reversal_purchase_return_input_vat_credit_correction_event_id(
+                original_purchase_return_input_vat_credit_correction_event_id=(
+                    original_entry
+                    .purchase_return_input_vat_credit_correction_event_id
+                ),
+                override_purchase_return_input_vat_credit_correction_event_id=(
+                    purchase_return_input_vat_credit_correction_event_id_override
                 ),
             )
         ),

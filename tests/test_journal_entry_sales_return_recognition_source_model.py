@@ -42,6 +42,8 @@ BUSINESS_SOURCES = (
     SOURCE,
     "sales_return_cost_restoration_event_id",
     "purchase_return_recognition_event_id",
+    "purchase_return_vat_adjustment_event_id",
+    "purchase_return_input_vat_credit_correction_event_id",
 )
 
 
@@ -147,10 +149,10 @@ def test_sales_return_source_original_partial_unique_index():
     )
 
 
-def test_business_source_contract_is_12_sources_66_pairs():
+def test_business_source_contract_is_14_sources_91_pairs():
     assert len(
         BUSINESS_SOURCES
-    ) == 12
+    ) == 14
 
     pairs = tuple(
         combinations(
@@ -161,7 +163,7 @@ def test_business_source_contract_is_12_sources_66_pairs():
 
     assert len(
         pairs
-    ) == 66
+    ) == 91
 
     table = JournalEntry.__table__
 
@@ -193,7 +195,7 @@ def test_business_source_contract_is_12_sources_66_pairs():
         )
 
 
-def test_sales_return_source_has_eleven_exclusion_pairs():
+def test_sales_return_source_has_thirteen_exclusion_pairs():
     table = JournalEntry.__table__
 
     check = next(
@@ -218,5 +220,5 @@ def test_sales_return_source_has_eleven_exclusion_pairs():
         sql.count(
             SOURCE
         )
-        == 11
+        == 13
     )

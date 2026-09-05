@@ -28,6 +28,9 @@ from app.models.invoice_fulfillment_allocation import (
 from app.models.purchase_return_recognition_event import (
     PurchaseReturnRecognitionEvent,
 )
+from app.models.purchase_return_vat_adjustment_event import (
+    PurchaseReturnVatAdjustmentEvent,
+)
 from app.models.payment import Payment
 from app.models.payment_settlement_allocation import (
     PaymentSettlementAllocation,
@@ -1584,9 +1587,10 @@ def apply_purchase_return_base_to_supplier_receipt_targets(
             = original posted receipt base
             - ACTIVE Purchase Return recognized base.
 
-    INPUT VAT is intentionally NOT reduced here. Its current economic
-    bridge remains a separate component and will be changed only by the
-    future VAT/RK lifecycle.
+    INPUT VAT is intentionally NOT reduced inside this base helper.
+    The supplier economic-liability loader separately reduces current
+    INPUT VAT components by ACTIVE PurchaseReturnVatAdjustmentEvent
+    adjusted_tax_amount.
 
     The economic-liability event date remains the original receipt date;
     Purchase Return changes capacity, not the historical source identity.
@@ -2004,6 +2008,638 @@ async def _load_active_purchase_return_base_by_source(
     return totals
 
 
+def apply_purchase_return_vat_to_supplier_vat_components(
+    *,
+    vat_components: tuple[
+        SupplierVatLiabilityComponent,
+        ...,
+    ],
+    active_return_vat_by_source: dict[
+        int,
+        Decimal,
+    ],
+    currency_code: str,
+) -> tuple[
+    SupplierVatLiabilityComponent,
+    ...,
+]:
+    """
+    Reduce current supplier INPUT VAT liability components by
+    ACTIVE immutable PurchaseReturnVatAdjustmentEvent tax amounts.
+
+    Economic 631 truth:
+
+        current VAT liability
+            = ACTIVE INPUT VAT fulfillment bridge
+            - ACTIVE Purchase Return VAT adjustment tax amount.
+
+    adjusted_taxable_base is intentionally irrelevant here.
+
+    Liability source identity and event_date remain the original
+    InvoiceFulfillmentAllocation / receipt economic source.
+    """
+
+    currency = _currency(
+        currency_code
+    )
+
+    grouped = {}
+
+    for component in vat_components:
+        if not isinstance(
+            component,
+            SupplierVatLiabilityComponent,
+        ):
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Supplier VAT component must be "
+                    "SupplierVatLiabilityComponent"
+                )
+            )
+
+        source_id = _positive_id(
+            component.source_id,
+            label="Supplier VAT source ID",
+        )
+
+        if not isinstance(
+            component.event_date,
+            date,
+        ):
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Supplier VAT component event_date "
+                    "must be a date"
+                )
+            )
+
+        try:
+            amount = round_currency_amount(
+                amount=_decimal(
+                    component.amount
+                ),
+                currency_code=currency,
+            )
+
+        except Exception as exc:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Supplier VAT component amount "
+                    "cannot be rounded"
+                )
+            ) from exc
+
+        if amount <= ZERO:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Supplier VAT component amount "
+                    "must be greater than zero"
+                )
+            )
+
+        existing = grouped.get(
+            source_id
+        )
+
+        if existing is None:
+            grouped[
+                source_id
+            ] = [
+                component.event_date,
+                amount,
+            ]
+            continue
+
+        if (
+            existing[
+                0
+            ]
+            != component.event_date
+        ):
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Supplier VAT components for one "
+                    "liability source disagree on event_date"
+                )
+            )
+
+        existing[
+            1
+        ] = round_currency_amount(
+            amount=(
+                existing[
+                    1
+                ]
+                + amount
+            ),
+            currency_code=currency,
+        )
+
+    reductions = {}
+
+    for (
+        raw_source_id,
+        raw_amount,
+    ) in active_return_vat_by_source.items():
+        source_id = _positive_id(
+            raw_source_id,
+            label=(
+                "Purchase Return VAT "
+                "liability source ID"
+            ),
+        )
+
+        try:
+            amount = round_currency_amount(
+                amount=_decimal(
+                    raw_amount
+                ),
+                currency_code=currency,
+            )
+
+        except Exception as exc:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return VAT reduction "
+                    "cannot be rounded"
+                )
+            ) from exc
+
+        if amount < ZERO:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Active Purchase Return VAT reduction "
+                    "cannot be negative"
+                )
+            )
+
+        if amount == ZERO:
+            continue
+
+        reductions[
+            source_id
+        ] = amount
+
+    unknown_sources = (
+        set(
+            reductions
+        )
+        - set(
+            grouped
+        )
+    )
+
+    if unknown_sources:
+        raise (
+            SupplierAdvanceClearingReconciliationDataIntegrityError(
+                "Active Purchase Return VAT reduction "
+                "has no current INPUT VAT liability "
+                f"component: {sorted(unknown_sources)}"
+            )
+        )
+
+    adjusted = []
+
+    for source_id in sorted(
+        grouped,
+        key=lambda value: (
+            grouped[
+                value
+            ][0],
+            value,
+        ),
+    ):
+        (
+            event_date,
+            current_vat,
+        ) = grouped[
+            source_id
+        ]
+
+        reduction = reductions.get(
+            source_id,
+            ZERO,
+        )
+
+        try:
+            net_vat = round_currency_amount(
+                amount=(
+                    current_vat
+                    - reduction
+                ),
+                currency_code=currency,
+            )
+
+        except Exception as exc:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Net supplier VAT liability "
+                    "cannot be rounded"
+                )
+            ) from exc
+
+        if net_vat < ZERO:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Active Purchase Return VAT adjustment "
+                    "exceeds current INPUT VAT "
+                    f"liability for source {source_id}"
+                )
+            )
+
+        if net_vat == ZERO:
+            continue
+
+        adjusted.append(
+            SupplierVatLiabilityComponent(
+                source_id=source_id,
+                event_date=event_date,
+                amount=net_vat,
+            )
+        )
+
+    return tuple(
+        adjusted
+    )
+
+
+async def _load_active_purchase_return_vat_by_source(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    active_source_ids: set[int],
+    currency_code: str,
+) -> dict[
+    int,
+    Decimal,
+]:
+    """
+    Rebuild ACTIVE economic Purchase Return VAT reduction by
+    InvoiceFulfillmentAllocation.
+
+    Immutable PurchaseReturnVatAdjustmentEvent history is resolved
+    first. Only active originals contribute adjusted_tax_amount.
+
+    PurchaseReturnRecognitionEvent is used only as provenance from
+    immutable VAT source to InvoiceFulfillmentAllocation.
+
+    Legal INPUT VAT credit correction is deliberately absent:
+    Dr644/Cr641 does not change account 631 supplier liability.
+    """
+
+    if not active_source_ids:
+        return {}
+
+    source_ids = {
+        _positive_id(
+            source_id,
+            label="Active supplier liability source ID",
+        )
+        for source_id
+        in active_source_ids
+    }
+
+    currency = _currency(
+        currency_code
+    )
+
+    prre_rows = (
+        await db.execute(
+            select(
+                PurchaseReturnRecognitionEvent.id,
+                (
+                    PurchaseReturnRecognitionEvent
+                    .invoice_fulfillment_allocation_id
+                ),
+            )
+            .where(
+                (
+                    PurchaseReturnRecognitionEvent.company_id
+                    == company_id
+                ),
+                (
+                    PurchaseReturnRecognitionEvent
+                    .invoice_fulfillment_allocation_id
+                    .in_(
+                        tuple(
+                            sorted(
+                                source_ids
+                            )
+                        )
+                    )
+                ),
+            )
+            .order_by(
+                PurchaseReturnRecognitionEvent.id
+            )
+            .with_for_update()
+        )
+    ).all()
+
+    if not prre_rows:
+        return {}
+
+    source_by_prre_id = {}
+
+    for row in prre_rows:
+        prre_id = _positive_id(
+            row[
+                0
+            ],
+            label="Purchase Return recognition event ID",
+        )
+
+        source_id = _positive_id(
+            row[
+                1
+            ],
+            label=(
+                "Purchase Return recognition "
+                "InvoiceFulfillmentAllocation ID"
+            ),
+        )
+
+        if source_id not in source_ids:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return recognition VAT provenance "
+                    "is outside active supplier liability sources"
+                )
+            )
+
+        if prre_id in source_by_prre_id:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Duplicate Purchase Return recognition "
+                    "event ID while rebuilding VAT liability"
+                )
+            )
+
+        source_by_prre_id[
+            prre_id
+        ] = source_id
+
+    prre_ids = tuple(
+        sorted(
+            source_by_prre_id
+        )
+    )
+
+    events = tuple(
+        (
+            await db.execute(
+                select(
+                    PurchaseReturnVatAdjustmentEvent
+                )
+                .where(
+                    (
+                        PurchaseReturnVatAdjustmentEvent.company_id
+                        == company_id
+                    ),
+                    (
+                        PurchaseReturnVatAdjustmentEvent
+                        .purchase_return_recognition_event_id
+                        .in_(
+                            prre_ids
+                        )
+                    ),
+                )
+                .order_by(
+                    PurchaseReturnVatAdjustmentEvent.id
+                )
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    if not events:
+        return {}
+
+    originals = {}
+    reversals = {}
+
+    for event in events:
+        event_id = _positive_id(
+            event.id,
+            label=(
+                "Purchase Return VAT adjustment event ID"
+            ),
+        )
+
+        prre_id = _positive_id(
+            (
+                event
+                .purchase_return_recognition_event_id
+            ),
+            label=(
+                "Purchase Return VAT adjustment "
+                "recognition source ID"
+            ),
+        )
+
+        if prre_id not in source_by_prre_id:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return VAT adjustment references "
+                    "recognition source outside current "
+                    "supplier liability provenance"
+                )
+            )
+
+        _positive_id(
+            event.tax_calculation_id,
+            label=(
+                "Purchase Return VAT adjustment "
+                "TaxCalculation ID"
+            ),
+        )
+
+        basis_kind = str(
+            event.basis_kind
+        ).strip()
+
+        if not basis_kind:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return VAT adjustment "
+                    "basis_kind cannot be blank"
+                )
+            )
+
+        if (
+            _currency(
+                event.currency_code
+            )
+            != currency
+        ):
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return VAT adjustment currency "
+                    "differs from supplier liability currency"
+                )
+            )
+
+        try:
+            adjusted_tax = round_currency_amount(
+                amount=_decimal(
+                    event.adjusted_tax_amount
+                ),
+                currency_code=currency,
+            )
+
+        except Exception as exc:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return VAT adjusted tax "
+                    "cannot be rounded"
+                )
+            ) from exc
+
+        if adjusted_tax < ZERO:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return VAT adjusted tax "
+                    "cannot be negative"
+                )
+            )
+
+        if event.reversal_of_id is None:
+            if event_id in originals:
+                raise (
+                    SupplierAdvanceClearingReconciliationDataIntegrityError(
+                        "Duplicate Purchase Return VAT "
+                        "original event ID"
+                    )
+                )
+
+            originals[
+                event_id
+            ] = event
+            continue
+
+        reversal_of_id = _positive_id(
+            event.reversal_of_id,
+            label=(
+                "Purchase Return VAT adjustment "
+                "reversal_of_id"
+            ),
+        )
+
+        if reversal_of_id in reversals:
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return VAT original "
+                    "has more than one reversal"
+                )
+            )
+
+        reversals[
+            reversal_of_id
+        ] = event
+
+    unknown_reversal_sources = (
+        set(
+            reversals
+        )
+        - set(
+            originals
+        )
+    )
+
+    if unknown_reversal_sources:
+        raise (
+            SupplierAdvanceClearingReconciliationDataIntegrityError(
+                "Purchase Return VAT reversal references "
+                "a non-original event"
+            )
+        )
+
+    for (
+        original_id,
+        reversal,
+    ) in reversals.items():
+        original = originals[
+            original_id
+        ]
+
+        if (
+            reversal.purchase_return_recognition_event_id
+            != original.purchase_return_recognition_event_id
+        ):
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return VAT reversal changed "
+                    "recognition-event provenance"
+                )
+            )
+
+        if (
+            reversal.tax_calculation_id
+            != original.tax_calculation_id
+        ):
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return VAT reversal changed "
+                    "TaxCalculation provenance"
+                )
+            )
+
+        if (
+            str(
+                reversal.basis_kind
+            )
+            != str(
+                original.basis_kind
+            )
+        ):
+            raise (
+                SupplierAdvanceClearingReconciliationDataIntegrityError(
+                    "Purchase Return VAT reversal changed "
+                    "basis_kind provenance"
+                )
+            )
+
+    totals = {}
+
+    for (
+        event_id,
+        event,
+    ) in originals.items():
+        if event_id in reversals:
+            continue
+
+        source_id = source_by_prre_id[
+            int(
+                event
+                .purchase_return_recognition_event_id
+            )
+        ]
+
+        adjusted_tax = round_currency_amount(
+            amount=_decimal(
+                event.adjusted_tax_amount
+            ),
+            currency_code=currency,
+        )
+
+        totals[
+            source_id
+        ] = round_currency_amount(
+            amount=(
+                totals.get(
+                    source_id,
+                    ZERO,
+                )
+                + adjusted_tax
+            ),
+            currency_code=currency,
+        )
+
+    return totals
+
+
 async def _load_supplier_economic_liability_candidates(
     db: AsyncSession,
     *,
@@ -2088,6 +2724,25 @@ async def _load_supplier_economic_liability_candidates(
             ),
             active_invoice_source_ids=(
                 active_source_ids
+            ),
+            currency_code=currency_code,
+        )
+    )
+
+    active_return_vat_by_source = (
+        await _load_active_purchase_return_vat_by_source(
+            db,
+            company_id=invoice.company_id,
+            active_source_ids=active_source_ids,
+            currency_code=currency_code,
+        )
+    )
+
+    vat_components = (
+        apply_purchase_return_vat_to_supplier_vat_components(
+            vat_components=vat_components,
+            active_return_vat_by_source=(
+                active_return_vat_by_source
             ),
             currency_code=currency_code,
         )

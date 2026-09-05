@@ -48,6 +48,8 @@ BUSINESS_SOURCES = (
     "sales_return_recognition_event_id",
     "sales_return_cost_restoration_event_id",
     SOURCE,
+    "purchase_return_vat_adjustment_event_id",
+    "purchase_return_input_vat_credit_correction_event_id",
 )
 
 
@@ -161,10 +163,10 @@ def test_purchase_return_source_original_partial_unique_index():
     )
 
 
-def test_business_source_contract_is_12_sources_66_pairs():
+def test_business_source_contract_is_14_sources_91_pairs():
     assert len(
         BUSINESS_SOURCES
-    ) == 12
+    ) == 14
 
     pairs = tuple(
         combinations(
@@ -175,10 +177,10 @@ def test_business_source_contract_is_12_sources_66_pairs():
 
     assert len(
         pairs
-    ) == 66
+    ) == 91
 
 
-def test_exclusivity_check_contains_exact_66_pairs():
+def test_exclusivity_check_contains_exact_91_pairs():
     constraint = next(
         value
         for value
@@ -218,7 +220,7 @@ def test_exclusivity_check_contains_exact_66_pairs():
     assert actual_pairs == expected_pairs
 
 
-def test_purchase_return_source_has_11_exclusion_pairs():
+def test_purchase_return_source_has_13_exclusion_pairs():
     constraint = next(
         value
         for value
@@ -257,4 +259,4 @@ def test_purchase_return_source_has_11_exclusion_pairs():
 
     assert len(
         source_pairs
-    ) == 11
+    ) == 13

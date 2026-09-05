@@ -74,3 +74,11 @@ from app.models.sales_return_cost_restoration_fifo_slice import (
 from app.models.purchase_return_recognition_event import (
     PurchaseReturnRecognitionEvent,
 )
+
+from app.models.purchase_return_vat_adjustment_event import (
+    PurchaseReturnVatAdjustmentEvent,
+)
+
+from app.models.purchase_return_input_vat_credit_correction_event import (
+    PurchaseReturnInputVatCreditCorrectionEvent,
+)

@@ -59,6 +59,18 @@ from app.services.payment_types import (
 from app.services.purchase_return_recognition_lifecycle_service import (
     reconcile_purchase_return_recognition_lifecycle_for_fulfillment_line,
 )
+from app.services.purchase_return_vat_adjustment_lifecycle_service import (
+    reconcile_purchase_return_vat_adjustment_lifecycle_for_recognition_event,
+)
+from app.services.purchase_return_input_vat_credit_correction_lifecycle_service import (
+    reconcile_purchase_return_input_vat_credit_correction_lifecycle_for_tax_calculation,
+)
+from app.services.tax_credit_evidence_lifecycle_service import (
+    create_tax_credit_evidence_and_reconcile,
+)
+from app.services.tax_credit_evidence_types import (
+    TaxCreditEvidenceType,
+)
 from app.services.purchase_return_recognition_journal_service import (
     generate_and_post_purchase_return_recognition_journal_entry,
 )
@@ -116,6 +128,9 @@ BASELINE_TABLES = (
     "invoice_fulfillment_allocations",
     "trade_return_events",
     "purchase_return_recognition_events",
+    "purchase_return_vat_adjustment_events",
+    "tax_credit_evidence",
+    "purchase_return_input_vat_credit_correction_events",
     "stock_lots",
     "stock_lot_consumptions",
     "inventory_cost_entries",
@@ -990,6 +1005,485 @@ async def purchase_return_journal_snapshot(
                             "credit"
                         ]
                     )
+                ),
+        }
+
+    return {
+        "id":
+            next(
+                iter(
+                    journal_ids
+                )
+            ),
+        "reversal_of_id":
+            next(
+                iter(
+                    reversal_ids
+                )
+            ),
+        "status":
+            next(
+                iter(
+                    statuses
+                )
+            ),
+        "entry_date":
+            next(
+                iter(
+                    entry_dates
+                )
+            ),
+        "amounts":
+            amounts,
+    }
+
+
+async def input_tax_recognition_events(
+    db,
+    *,
+    tax_calculation_id,
+):
+    return tuple(
+        (
+            await db.execute(
+                text(
+                    """
+                    SELECT
+                        id,
+                        tax_calculation_id,
+                        invoice_fulfillment_allocation_id,
+                        payment_settlement_allocation_id,
+                        tax_credit_evidence_id,
+                        recognition_date,
+                        recognized_taxable_base,
+                        recognized_tax_amount,
+                        currency_code,
+                        reversal_of_id
+                    FROM tax_recognition_events
+                    WHERE company_id =
+                          :company_id
+                      AND tax_calculation_id =
+                          :tax_calculation_id
+                    ORDER BY id
+                    """
+                ),
+                {
+                    "company_id":
+                        COMPANY_ID,
+                    "tax_calculation_id":
+                        tax_calculation_id,
+                },
+            )
+        )
+        .mappings()
+        .all()
+    )
+
+
+async def purchase_return_legal_credit_correction_events(
+    db,
+    *,
+    tax_calculation_id,
+):
+    return tuple(
+        (
+            await db.execute(
+                text(
+                    """
+                    SELECT
+                        id,
+                        purchase_return_vat_adjustment_event_id,
+                        tax_calculation_id,
+                        adjustment_date,
+                        reduced_taxable_base,
+                        reduced_tax_amount,
+                        currency_code,
+                        reversal_of_id
+                    FROM purchase_return_input_vat_credit_correction_events
+                    WHERE company_id =
+                          :company_id
+                      AND tax_calculation_id =
+                          :tax_calculation_id
+                    ORDER BY id
+                    """
+                ),
+                {
+                    "company_id":
+                        COMPANY_ID,
+                    "tax_calculation_id":
+                        tax_calculation_id,
+                },
+            )
+        )
+        .mappings()
+        .all()
+    )
+
+
+async def typed_event_journal_snapshot(
+    db,
+    *,
+    source_column,
+    source_id,
+):
+    allowed = {
+        "tax_recognition_event_id",
+        (
+            "purchase_return_input_vat_"
+            "credit_correction_event_id"
+        ),
+    }
+
+    if source_column not in allowed:
+        raise AssertionError(
+            f"Unsupported typed journal source: {source_column}"
+        )
+
+    rows = tuple(
+        (
+            await db.execute(
+                text(
+                    f"""
+                    SELECT
+                        je.id AS journal_id,
+                        je.reversal_of_id AS journal_reversal_of_id,
+                        je.status,
+                        je.entry_date,
+                        a.code AS account_code,
+                        jel.debit,
+                        jel.credit
+                    FROM journal_entries AS je
+                    JOIN journal_entry_lines AS jel
+                      ON jel.journal_entry_id =
+                         je.id
+                    JOIN accounts AS a
+                      ON a.id =
+                         jel.account_id
+                    WHERE je.company_id =
+                          :company_id
+                      AND je.{source_column} =
+                          :source_id
+                    ORDER BY
+                        je.id,
+                        jel.line_no
+                    """
+                ),
+                {
+                    "company_id":
+                        COMPANY_ID,
+                    "source_id":
+                        source_id,
+                },
+            )
+        )
+        .mappings()
+        .all()
+    )
+
+    if not rows:
+        return None
+
+    journal_ids = {
+        int(
+            row[
+                "journal_id"
+            ]
+        )
+        for row in rows
+    }
+
+    reversal_ids = {
+        row[
+            "journal_reversal_of_id"
+        ]
+        for row in rows
+    }
+
+    statuses = {
+        str(
+            row[
+                "status"
+            ]
+        )
+        for row in rows
+    }
+
+    entry_dates = {
+        row[
+            "entry_date"
+        ]
+        for row in rows
+    }
+
+    if len(
+        journal_ids
+    ) != 1:
+        raise AssertionError(
+            "Typed business event resolved to multiple JournalEntries"
+        )
+
+    if len(
+        reversal_ids
+    ) != 1:
+        raise AssertionError(
+            "Typed JournalEntry reversal state is inconsistent"
+        )
+
+    if len(
+        statuses
+    ) != 1:
+        raise AssertionError(
+            "Typed JournalEntry status is inconsistent"
+        )
+
+    if len(
+        entry_dates
+    ) != 1:
+        raise AssertionError(
+            "Typed JournalEntry date is inconsistent"
+        )
+
+    amounts = {}
+
+    for row in rows:
+        code = str(
+            row[
+                "account_code"
+            ]
+        )
+
+        if code in amounts:
+            raise AssertionError(
+                "Duplicate account line in typed JournalEntry: "
+                f"{code}"
+            )
+
+        amounts[
+            code
+        ] = {
+            "debit":
+                Decimal(
+                    row[
+                        "debit"
+                    ]
+                ),
+            "credit":
+                Decimal(
+                    row[
+                        "credit"
+                    ]
+                ),
+        }
+
+    return {
+        "id":
+            next(
+                iter(
+                    journal_ids
+                )
+            ),
+        "reversal_of_id":
+            next(
+                iter(
+                    reversal_ids
+                )
+            ),
+        "status":
+            next(
+                iter(
+                    statuses
+                )
+            ),
+        "entry_date":
+            next(
+                iter(
+                    entry_dates
+                )
+            ),
+        "amounts":
+            amounts,
+    }
+
+
+async def purchase_return_vat_events(
+    db,
+    *,
+    source_prre_id,
+):
+    return tuple(
+        (
+            await db.execute(
+                text(
+                    """
+                    SELECT
+                        id,
+                        purchase_return_recognition_event_id,
+                        tax_calculation_id,
+                        adjustment_date,
+                        basis_kind,
+                        adjusted_taxable_base,
+                        adjusted_tax_amount,
+                        currency_code,
+                        reversal_of_id
+                    FROM purchase_return_vat_adjustment_events
+                    WHERE company_id =
+                          :company_id
+                      AND purchase_return_recognition_event_id =
+                          :source_prre_id
+                    ORDER BY id
+                    """
+                ),
+                {
+                    "company_id":
+                        COMPANY_ID,
+                    "source_prre_id":
+                        source_prre_id,
+                },
+            )
+        )
+        .mappings()
+        .all()
+    )
+
+
+async def purchase_return_vat_journal_snapshot(
+    db,
+    *,
+    vat_adjustment_event_id,
+):
+    rows = tuple(
+        (
+            await db.execute(
+                text(
+                    """
+                    SELECT
+                        je.id AS journal_id,
+                        je.reversal_of_id AS journal_reversal_of_id,
+                        je.status,
+                        je.entry_date,
+                        a.code AS account_code,
+                        jel.debit,
+                        jel.credit
+                    FROM journal_entries AS je
+                    JOIN journal_entry_lines AS jel
+                      ON jel.journal_entry_id =
+                         je.id
+                    JOIN accounts AS a
+                      ON a.id =
+                         jel.account_id
+                    WHERE je.company_id =
+                          :company_id
+                      AND je.purchase_return_vat_adjustment_event_id =
+                          :event_id
+                    ORDER BY
+                        je.id,
+                        jel.line_no
+                    """
+                ),
+                {
+                    "company_id":
+                        COMPANY_ID,
+                    "event_id":
+                        vat_adjustment_event_id,
+                },
+            )
+        )
+        .mappings()
+        .all()
+    )
+
+    if not rows:
+        return None
+
+    journal_ids = {
+        int(
+            row[
+                "journal_id"
+            ]
+        )
+        for row in rows
+    }
+
+    reversal_ids = {
+        row[
+            "journal_reversal_of_id"
+        ]
+        for row in rows
+    }
+
+    statuses = {
+        str(
+            row[
+                "status"
+            ]
+        )
+        for row in rows
+    }
+
+    entry_dates = {
+        row[
+            "entry_date"
+        ]
+        for row in rows
+    }
+
+    if len(
+        journal_ids
+    ) != 1:
+        raise AssertionError(
+            "PRVAT source resolved to multiple JournalEntries"
+        )
+
+    if len(
+        reversal_ids
+    ) != 1:
+        raise AssertionError(
+            "PRVAT JournalEntry reversal state is inconsistent"
+        )
+
+    if len(
+        statuses
+    ) != 1:
+        raise AssertionError(
+            "PRVAT JournalEntry status is inconsistent"
+        )
+
+    if len(
+        entry_dates
+    ) != 1:
+        raise AssertionError(
+            "PRVAT JournalEntry date is inconsistent"
+        )
+
+    amounts = {}
+
+    for row in rows:
+        code = str(
+            row[
+                "account_code"
+            ]
+        )
+
+        if code in amounts:
+            raise AssertionError(
+                "Duplicate PRVAT GL account line: "
+                f"{code}"
+            )
+
+        amounts[
+            code
+        ] = {
+            "debit":
+                Decimal(
+                    row[
+                        "debit"
+                    ]
+                ),
+            "credit":
+                Decimal(
+                    row[
+                        "credit"
+                    ]
                 ),
         }
 
@@ -3328,6 +3822,1357 @@ async def test_purchase_return_recognition_postgresql_chronology():
             )
 
             # =====================================================
+            # 8A. REAL ECONOMIC PRVAT + SUPPLIER 631 CHRONOLOGY
+            #
+            # Current active state before PRVAT:
+            #
+            #     receipt base               0.03
+            #     - active PRRE base         0.02
+            #     + INPUT VAT bridge         0.01
+            #     = supplier liability       0.02
+            #
+            # Economic PRVAT:
+            #
+            #     Dr631 / Cr644              0.01
+            #
+            # New supplier liability:
+            #
+            #     0.03 - 0.02 + 0.01 - 0.01
+            #     = 0.01
+            #
+            # Then reverse the active replacement Return.
+            #
+            # PRRE reversal restores base while PRVAT is still active:
+            #
+            #     0.03 + 0.01 - 0.01
+            #     = 0.03
+            #
+            # PRVAT reversal then restores VAT:
+            #
+            #     0.03 + 0.01
+            #     = 0.04
+            # =====================================================
+
+            vat_adjustment_date = (
+                replacement_date
+            )
+
+            legal_credit_result = (
+                await create_tax_credit_evidence_and_reconcile(
+                    db,
+                    company_id=COMPANY_ID,
+                    tax_calculation_id=(
+                        calculation.id
+                    ),
+                    evidence_type=(
+                        TaxCreditEvidenceType
+                        .REGISTERED_TAX_INVOICE
+                    ),
+                    evidence_number=(
+                        f"PR-PG-PN-{token}"
+                    ),
+                    evidence_date=(
+                        vat_adjustment_date
+                    ),
+                    credit_available_date=(
+                        vat_adjustment_date
+                    ),
+                    evidenced_taxable_base=(
+                        Decimal("0.03")
+                    ),
+                    evidenced_tax_amount=(
+                        EXPECTED_RETURN_TAX
+                    ),
+                    currency_code="UAH",
+                    adjustment_date=(
+                        vat_adjustment_date
+                    ),
+                    created_by=USER_ID,
+                )
+            )
+
+            assert (
+                legal_credit_result
+                .evidence
+                .tax_calculation_id
+                == calculation.id
+            )
+
+            assert (
+                str(
+                    legal_credit_result
+                    .evidence
+                    .evidence_type
+                )
+                == (
+                    TaxCreditEvidenceType
+                    .REGISTERED_TAX_INVOICE
+                    .value
+                )
+            )
+
+            assert (
+                legal_credit_result
+                .evidence
+                .credit_available_date
+                == vat_adjustment_date
+            )
+
+            assert (
+                Decimal(
+                    legal_credit_result
+                    .evidence
+                    .evidenced_taxable_base
+                )
+                == Decimal("0.03")
+            )
+
+            assert (
+                Decimal(
+                    legal_credit_result
+                    .evidence
+                    .evidenced_tax_amount
+                )
+                == EXPECTED_RETURN_TAX
+            )
+
+            assert len(
+                legal_credit_result
+                .recognition
+                .created_events
+            ) == 1
+
+            input_credit_history = (
+                await input_tax_recognition_events(
+                    db,
+                    tax_calculation_id=(
+                        calculation.id
+                    ),
+                )
+            )
+
+            assert len(
+                input_credit_history
+            ) == 1
+
+            input_credit = (
+                input_credit_history[
+                    0
+                ]
+            )
+
+            assert (
+                input_credit[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            assert (
+                int(
+                    input_credit[
+                        "tax_credit_evidence_id"
+                    ]
+                )
+                == (
+                    legal_credit_result
+                    .evidence
+                    .id
+                )
+            )
+
+            assert (
+                input_credit[
+                    "invoice_fulfillment_allocation_id"
+                ]
+                is None
+            )
+
+            assert (
+                input_credit[
+                    "payment_settlement_allocation_id"
+                ]
+                is None
+            )
+
+            assert (
+                input_credit[
+                    "recognition_date"
+                ]
+                == vat_adjustment_date
+            )
+
+            assert (
+                Decimal(
+                    input_credit[
+                        "recognized_taxable_base"
+                    ]
+                )
+                == Decimal("0.03")
+            )
+
+            assert (
+                Decimal(
+                    input_credit[
+                        "recognized_tax_amount"
+                    ]
+                )
+                == EXPECTED_RETURN_TAX
+            )
+
+            input_credit_je = (
+                await typed_event_journal_snapshot(
+                    db,
+                    source_column=(
+                        "tax_recognition_event_id"
+                    ),
+                    source_id=(
+                        input_credit[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            assert input_credit_je is not None
+
+            assert (
+                input_credit_je[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            assert (
+                input_credit_je[
+                    "status"
+                ]
+                == "posted"
+            )
+
+            assert (
+                input_credit_je[
+                    "entry_date"
+                ]
+                == vat_adjustment_date
+            )
+
+            assert (
+                input_credit_je[
+                    "amounts"
+                ]
+                == {
+                    "641": {
+                        "debit":
+                            EXPECTED_RETURN_TAX,
+                        "credit":
+                            ZERO,
+                    },
+                    "644": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            EXPECTED_RETURN_TAX,
+                    },
+                }
+            )
+
+            print(
+                "REAL POSTGRESQL LEGAL INPUT CREDIT ORIGINAL: "
+                "TaxCreditEvidence -> Dr641 / Cr644 = 0.01 = PASS"
+            )
+
+            vat_original_result = (
+                await reconcile_purchase_return_vat_adjustment_lifecycle_for_recognition_event(
+                    db,
+                    company_id=COMPANY_ID,
+                    purchase_return_recognition_event_id=(
+                        replacement_prre.id
+                    ),
+                    adjustment_date=(
+                        vat_adjustment_date
+                    ),
+                    basis_kind=(
+                        "goods_received_by_supplier"
+                    ),
+                    created_by=USER_ID,
+                )
+            )
+
+            assert len(
+                vat_original_result.created_events
+            ) == 1
+
+            vat_history = (
+                await purchase_return_vat_events(
+                    db,
+                    source_prre_id=(
+                        replacement_prre.id
+                    ),
+                )
+            )
+
+            assert len(
+                vat_history
+            ) == 1
+
+            vat_original = (
+                vat_history[
+                    0
+                ]
+            )
+
+            assert (
+                vat_original[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            assert (
+                int(
+                    vat_original[
+                        "purchase_return_recognition_event_id"
+                    ]
+                )
+                == replacement_prre.id
+            )
+
+            assert (
+                int(
+                    vat_original[
+                        "tax_calculation_id"
+                    ]
+                )
+                == calculation.id
+            )
+
+            assert (
+                vat_original[
+                    "adjustment_date"
+                ]
+                == vat_adjustment_date
+            )
+
+            assert (
+                vat_original[
+                    "basis_kind"
+                ]
+                == "goods_received_by_supplier"
+            )
+
+            assert (
+                Decimal(
+                    vat_original[
+                        "adjusted_taxable_base"
+                    ]
+                )
+                == EXPECTED_RETURN_BASE
+            )
+
+            assert (
+                Decimal(
+                    vat_original[
+                        "adjusted_tax_amount"
+                    ]
+                )
+                == EXPECTED_RETURN_TAX
+            )
+
+            assert (
+                vat_original[
+                    "currency_code"
+                ]
+                == "UAH"
+            )
+
+            vat_original_je = (
+                await purchase_return_vat_journal_snapshot(
+                    db,
+                    vat_adjustment_event_id=(
+                        vat_original[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            assert vat_original_je is not None
+
+            assert (
+                vat_original_je[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            assert (
+                vat_original_je[
+                    "status"
+                ]
+                == "posted"
+            )
+
+            assert (
+                vat_original_je[
+                    "entry_date"
+                ]
+                == vat_adjustment_date
+            )
+
+            assert (
+                vat_original_je[
+                    "amounts"
+                ]
+                == {
+                    "631": {
+                        "debit":
+                            EXPECTED_RETURN_TAX,
+                        "credit":
+                            ZERO,
+                    },
+                    "644": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            EXPECTED_RETURN_TAX,
+                    },
+                }
+            )
+
+            supplier_after_prvat = (
+                await supplier_events(
+                    db,
+                    settlement_id=settlement.id,
+                )
+            )
+
+            assert len(
+                supplier_after_prvat
+            ) == 9
+
+            pre_prvat_clearing_reversal = (
+                supplier_after_prvat[
+                    7
+                ]
+            )
+
+            prvat_reduced_clearing = (
+                supplier_after_prvat[
+                    8
+                ]
+            )
+
+            assert (
+                pre_prvat_clearing_reversal[
+                    "reversal_of_id"
+                ]
+                == final_reduced_clearing[
+                    "id"
+                ]
+            )
+
+            assert (
+                Decimal(
+                    pre_prvat_clearing_reversal[
+                        "cleared_amount"
+                    ]
+                )
+                == Decimal("0.02")
+            )
+
+            assert (
+                prvat_reduced_clearing[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            assert (
+                Decimal(
+                    prvat_reduced_clearing[
+                        "cleared_amount"
+                    ]
+                )
+                == Decimal("0.01")
+            )
+
+            prvat_reduced_clearing_je = (
+                await supplier_clearing_journal_snapshot(
+                    db,
+                    clearing_event_id=(
+                        prvat_reduced_clearing[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            assert (
+                prvat_reduced_clearing_je[
+                    "amounts"
+                ]
+                == {
+                    "631": {
+                        "debit":
+                            Decimal("0.01"),
+                        "credit":
+                            ZERO,
+                    },
+                    "371": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            Decimal("0.01"),
+                    },
+                }
+            )
+
+            print(
+                "REAL POSTGRESQL ECONOMIC PRVAT ORIGINAL: "
+                "Dr631 / Cr644 = 0.01 = PASS"
+            )
+
+            print(
+                "REAL POSTGRESQL PRVAT -> SUPPLIER CLEARING: "
+                "0.02 -> 0.01 = PASS"
+            )
+
+            supplier_ids_before_legal_correction = tuple(
+                int(
+                    row[
+                        "id"
+                    ]
+                )
+                for row
+                in supplier_after_prvat
+            )
+
+            legal_correction_result = (
+                await reconcile_purchase_return_input_vat_credit_correction_lifecycle_for_tax_calculation(
+                    db,
+                    company_id=COMPANY_ID,
+                    tax_calculation_id=(
+                        calculation.id
+                    ),
+                    adjustment_date=(
+                        vat_adjustment_date
+                    ),
+                    created_by=USER_ID,
+                )
+            )
+
+            assert len(
+                legal_correction_result
+                .created_events
+            ) == 1
+
+            legal_correction_history = (
+                await purchase_return_legal_credit_correction_events(
+                    db,
+                    tax_calculation_id=(
+                        calculation.id
+                    ),
+                )
+            )
+
+            assert len(
+                legal_correction_history
+            ) == 1
+
+            legal_correction_original = (
+                legal_correction_history[
+                    0
+                ]
+            )
+
+            assert (
+                legal_correction_original[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            assert (
+                int(
+                    legal_correction_original[
+                        "purchase_return_vat_adjustment_event_id"
+                    ]
+                )
+                == int(
+                    vat_original[
+                        "id"
+                    ]
+                )
+            )
+
+            assert (
+                legal_correction_original[
+                    "adjustment_date"
+                ]
+                == vat_adjustment_date
+            )
+
+            assert (
+                Decimal(
+                    legal_correction_original[
+                        "reduced_taxable_base"
+                    ]
+                )
+                == EXPECTED_RETURN_BASE
+            )
+
+            assert (
+                Decimal(
+                    legal_correction_original[
+                        "reduced_tax_amount"
+                    ]
+                )
+                == EXPECTED_RETURN_TAX
+            )
+
+            legal_correction_original_je = (
+                await typed_event_journal_snapshot(
+                    db,
+                    source_column=(
+                        "purchase_return_input_vat_"
+                        "credit_correction_event_id"
+                    ),
+                    source_id=(
+                        legal_correction_original[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            assert (
+                legal_correction_original_je
+                is not None
+            )
+
+            assert (
+                legal_correction_original_je[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            assert (
+                legal_correction_original_je[
+                    "status"
+                ]
+                == "posted"
+            )
+
+            assert (
+                legal_correction_original_je[
+                    "entry_date"
+                ]
+                == vat_adjustment_date
+            )
+
+            assert (
+                legal_correction_original_je[
+                    "amounts"
+                ]
+                == {
+                    "644": {
+                        "debit":
+                            EXPECTED_RETURN_TAX,
+                        "credit":
+                            ZERO,
+                    },
+                    "641": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            EXPECTED_RETURN_TAX,
+                    },
+                }
+            )
+
+            supplier_after_legal_correction = (
+                await supplier_events(
+                    db,
+                    settlement_id=(
+                        settlement.id
+                    ),
+                )
+            )
+
+            assert tuple(
+                int(
+                    row[
+                        "id"
+                    ]
+                )
+                for row
+                in supplier_after_legal_correction
+            ) == supplier_ids_before_legal_correction
+
+            input_credit_after_legal_correction = (
+                await input_tax_recognition_events(
+                    db,
+                    tax_calculation_id=(
+                        calculation.id
+                    ),
+                )
+            )
+
+            assert tuple(
+                int(
+                    row[
+                        "id"
+                    ]
+                )
+                for row
+                in input_credit_after_legal_correction
+            ) == tuple(
+                int(
+                    row[
+                        "id"
+                    ]
+                )
+                for row
+                in input_credit_history
+            )
+
+            print(
+                "REAL POSTGRESQL LEGAL RETURN CREDIT CORRECTION: "
+                "Dr644 / Cr641 = 0.01 = PASS"
+            )
+
+            print(
+                "REAL POSTGRESQL LEGAL CORRECTION -> "
+                "SUPPLIER CLEARING UNCHANGED = PASS"
+            )
+
+            vat_reversal_date = (
+                replacement_date
+                + timedelta(
+                    days=1
+                )
+            )
+
+            replacement_return_reversal = (
+                await create_purchase_return_event(
+                    db,
+                    fulfillment_id=(
+                        fulfillment_id
+                    ),
+                    fulfillment_line_id=(
+                        fulfillment_line_id
+                    ),
+                    order_id=order_id,
+                    order_line_id=(
+                        order_line_id
+                    ),
+                    product_id=product_id,
+                    warehouse_id=warehouse_id,
+                    return_document_id=(
+                        replacement_document_id
+                    ),
+                    return_document_line_id=(
+                        replacement_document_line_id
+                    ),
+                    return_date=(
+                        vat_reversal_date
+                    ),
+                    reversal_of_id=(
+                        replacement_return.id
+                    ),
+                )
+            )
+
+            assert (
+                replacement_return_reversal
+                .reversal_of_id
+                == replacement_return.id
+            )
+
+            prre_after_vat_return_reversal = (
+                await reconcile_purchase_return_recognition_lifecycle_for_fulfillment_line(
+                    db,
+                    company_id=COMPANY_ID,
+                    fulfillment_id=(
+                        fulfillment_id
+                    ),
+                    fulfillment_line_id=(
+                        fulfillment_line_id
+                    ),
+                    adjustment_date=(
+                        vat_reversal_date
+                    ),
+                    created_by=USER_ID,
+                )
+            )
+
+            assert (
+                prre_after_vat_return_reversal
+                .desired_targets
+                == ()
+            )
+
+            history_after_vat_return_reversal = (
+                await load_prre_history(
+                    db,
+                    fulfillment_id=(
+                        fulfillment_id
+                    ),
+                    fulfillment_line_id=(
+                        fulfillment_line_id
+                    ),
+                )
+            )
+
+            assert len(
+                history_after_vat_return_reversal
+            ) == 4
+
+            replacement_prre_reversal = (
+                history_after_vat_return_reversal[
+                    3
+                ]
+            )
+
+            assert (
+                replacement_prre_reversal
+                .reversal_of_id
+                == replacement_prre.id
+            )
+
+            supplier_after_prre_reversal = (
+                await supplier_events(
+                    db,
+                    settlement_id=settlement.id,
+                )
+            )
+
+            assert len(
+                supplier_after_prre_reversal
+            ) == 11
+
+            prvat_clearing_reversal = (
+                supplier_after_prre_reversal[
+                    9
+                ]
+            )
+
+            interim_prvat_clearing = (
+                supplier_after_prre_reversal[
+                    10
+                ]
+            )
+
+            assert (
+                prvat_clearing_reversal[
+                    "reversal_of_id"
+                ]
+                == prvat_reduced_clearing[
+                    "id"
+                ]
+            )
+
+            assert (
+                Decimal(
+                    prvat_clearing_reversal[
+                        "cleared_amount"
+                    ]
+                )
+                == Decimal("0.01")
+            )
+
+            assert (
+                interim_prvat_clearing[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            assert (
+                Decimal(
+                    interim_prvat_clearing[
+                        "cleared_amount"
+                    ]
+                )
+                == Decimal("0.03")
+            )
+
+            print(
+                "REAL POSTGRESQL PRRE REVERSAL WITH ACTIVE PRVAT: "
+                "supplier clearing 0.01 -> 0.03 = PASS"
+            )
+
+            vat_reversal_result = (
+                await reconcile_purchase_return_vat_adjustment_lifecycle_for_recognition_event(
+                    db,
+                    company_id=COMPANY_ID,
+                    purchase_return_recognition_event_id=(
+                        replacement_prre_reversal.id
+                    ),
+                    adjustment_date=(
+                        vat_reversal_date
+                    ),
+                    basis_kind=(
+                        "goods_received_by_supplier"
+                    ),
+                    created_by=USER_ID,
+                )
+            )
+
+            assert len(
+                vat_reversal_result.created_events
+            ) == 1
+
+            vat_history = (
+                await purchase_return_vat_events(
+                    db,
+                    source_prre_id=(
+                        replacement_prre.id
+                    ),
+                )
+            )
+
+            assert len(
+                vat_history
+            ) == 2
+
+            vat_reversal = (
+                vat_history[
+                    1
+                ]
+            )
+
+            assert (
+                vat_reversal[
+                    "reversal_of_id"
+                ]
+                == vat_original[
+                    "id"
+                ]
+            )
+
+            assert (
+                Decimal(
+                    vat_reversal[
+                        "adjusted_taxable_base"
+                    ]
+                )
+                == EXPECTED_RETURN_BASE
+            )
+
+            assert (
+                Decimal(
+                    vat_reversal[
+                        "adjusted_tax_amount"
+                    ]
+                )
+                == EXPECTED_RETURN_TAX
+            )
+
+            vat_original_je_after_reversal = (
+                await purchase_return_vat_journal_snapshot(
+                    db,
+                    vat_adjustment_event_id=(
+                        vat_original[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            vat_reversal_je = (
+                await purchase_return_vat_journal_snapshot(
+                    db,
+                    vat_adjustment_event_id=(
+                        vat_reversal[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            assert (
+                vat_original_je_after_reversal[
+                    "status"
+                ]
+                == "reversed"
+            )
+
+            assert (
+                vat_reversal_je[
+                    "reversal_of_id"
+                ]
+                == vat_original_je[
+                    "id"
+                ]
+            )
+
+            assert (
+                vat_reversal_je[
+                    "status"
+                ]
+                == "posted"
+            )
+
+            assert (
+                vat_reversal_je[
+                    "entry_date"
+                ]
+                == vat_reversal_date
+            )
+
+            assert (
+                vat_reversal_je[
+                    "amounts"
+                ]
+                == {
+                    "644": {
+                        "debit":
+                            EXPECTED_RETURN_TAX,
+                        "credit":
+                            ZERO,
+                    },
+                    "631": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            EXPECTED_RETURN_TAX,
+                    },
+                }
+            )
+
+            supplier_after_prvat_reversal = (
+                await supplier_events(
+                    db,
+                    settlement_id=settlement.id,
+                )
+            )
+
+            assert len(
+                supplier_after_prvat_reversal
+            ) == 13
+
+            interim_clearing_reversal = (
+                supplier_after_prvat_reversal[
+                    11
+                ]
+            )
+
+            final_restored_clearing = (
+                supplier_after_prvat_reversal[
+                    12
+                ]
+            )
+
+            assert (
+                interim_clearing_reversal[
+                    "reversal_of_id"
+                ]
+                == interim_prvat_clearing[
+                    "id"
+                ]
+            )
+
+            assert (
+                Decimal(
+                    interim_clearing_reversal[
+                        "cleared_amount"
+                    ]
+                )
+                == Decimal("0.03")
+            )
+
+            assert (
+                final_restored_clearing[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            assert (
+                Decimal(
+                    final_restored_clearing[
+                        "cleared_amount"
+                    ]
+                )
+                == EXPECTED_GROSS
+            )
+
+            final_restored_clearing_je = (
+                await supplier_clearing_journal_snapshot(
+                    db,
+                    clearing_event_id=(
+                        final_restored_clearing[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            assert (
+                final_restored_clearing_je[
+                    "amounts"
+                ]
+                == {
+                    "631": {
+                        "debit":
+                            EXPECTED_GROSS,
+                        "credit":
+                            ZERO,
+                    },
+                    "371": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            EXPECTED_GROSS,
+                    },
+                }
+            )
+
+            print(
+                "REAL POSTGRESQL ECONOMIC PRVAT REVERSAL: "
+                "Dr644 / Cr631 = 0.01 = PASS"
+            )
+
+            print(
+                "REAL POSTGRESQL PRVAT REVERSAL -> SUPPLIER CLEARING: "
+                "0.03 -> 0.04 = PASS"
+            )
+
+            supplier_ids_before_legal_reversal = tuple(
+                int(
+                    row[
+                        "id"
+                    ]
+                )
+                for row
+                in supplier_after_prvat_reversal
+            )
+
+            legal_reversal_result = (
+                await reconcile_purchase_return_input_vat_credit_correction_lifecycle_for_tax_calculation(
+                    db,
+                    company_id=COMPANY_ID,
+                    tax_calculation_id=(
+                        calculation.id
+                    ),
+                    adjustment_date=(
+                        vat_reversal_date
+                    ),
+                    created_by=USER_ID,
+                )
+            )
+
+            assert len(
+                legal_reversal_result
+                .created_events
+            ) == 1
+
+            legal_correction_history = (
+                await purchase_return_legal_credit_correction_events(
+                    db,
+                    tax_calculation_id=(
+                        calculation.id
+                    ),
+                )
+            )
+
+            assert len(
+                legal_correction_history
+            ) == 2
+
+            legal_correction_reversal = (
+                legal_correction_history[
+                    1
+                ]
+            )
+
+            assert (
+                legal_correction_reversal[
+                    "reversal_of_id"
+                ]
+                == legal_correction_original[
+                    "id"
+                ]
+            )
+
+            assert (
+                int(
+                    legal_correction_reversal[
+                        "purchase_return_vat_adjustment_event_id"
+                    ]
+                )
+                == int(
+                    vat_original[
+                        "id"
+                    ]
+                )
+            )
+
+            assert (
+                Decimal(
+                    legal_correction_reversal[
+                        "reduced_taxable_base"
+                    ]
+                )
+                == EXPECTED_RETURN_BASE
+            )
+
+            assert (
+                Decimal(
+                    legal_correction_reversal[
+                        "reduced_tax_amount"
+                    ]
+                )
+                == EXPECTED_RETURN_TAX
+            )
+
+            legal_original_je_after_reversal = (
+                await typed_event_journal_snapshot(
+                    db,
+                    source_column=(
+                        "purchase_return_input_vat_"
+                        "credit_correction_event_id"
+                    ),
+                    source_id=(
+                        legal_correction_original[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            legal_correction_reversal_je = (
+                await typed_event_journal_snapshot(
+                    db,
+                    source_column=(
+                        "purchase_return_input_vat_"
+                        "credit_correction_event_id"
+                    ),
+                    source_id=(
+                        legal_correction_reversal[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            assert (
+                legal_original_je_after_reversal[
+                    "status"
+                ]
+                == "reversed"
+            )
+
+            assert (
+                legal_correction_reversal_je[
+                    "reversal_of_id"
+                ]
+                == legal_correction_original_je[
+                    "id"
+                ]
+            )
+
+            assert (
+                legal_correction_reversal_je[
+                    "status"
+                ]
+                == "posted"
+            )
+
+            assert (
+                legal_correction_reversal_je[
+                    "entry_date"
+                ]
+                == vat_reversal_date
+            )
+
+            assert (
+                legal_correction_reversal_je[
+                    "amounts"
+                ]
+                == {
+                    "641": {
+                        "debit":
+                            EXPECTED_RETURN_TAX,
+                        "credit":
+                            ZERO,
+                    },
+                    "644": {
+                        "debit":
+                            ZERO,
+                        "credit":
+                            EXPECTED_RETURN_TAX,
+                    },
+                }
+            )
+
+            supplier_after_legal_reversal = (
+                await supplier_events(
+                    db,
+                    settlement_id=(
+                        settlement.id
+                    ),
+                )
+            )
+
+            assert tuple(
+                int(
+                    row[
+                        "id"
+                    ]
+                )
+                for row
+                in supplier_after_legal_reversal
+            ) == supplier_ids_before_legal_reversal
+
+            input_credit_after_legal_reversal = (
+                await input_tax_recognition_events(
+                    db,
+                    tax_calculation_id=(
+                        calculation.id
+                    ),
+                )
+            )
+
+            assert tuple(
+                int(
+                    row[
+                        "id"
+                    ]
+                )
+                for row
+                in input_credit_after_legal_reversal
+            ) == tuple(
+                int(
+                    row[
+                        "id"
+                    ]
+                )
+                for row
+                in input_credit_history
+            )
+
+            print(
+                "REAL POSTGRESQL LEGAL RETURN CREDIT REVERSAL: "
+                "Dr641 / Cr644 = 0.01 = PASS"
+            )
+
+            print(
+                "REAL POSTGRESQL LEGAL REVERSAL -> "
+                "SUPPLIER CLEARING UNCHANGED = PASS"
+            )
+
+            zero_boundary_date = (
+                vat_reversal_date
+                + timedelta(
+                    days=1
+                )
+            )
+
+            # =====================================================
             # 9. ZERO-BASE PURCHASE RETURN ACCOUNTING BOUNDARY
             #
             # A legitimate immutable PurchaseReturnRecognitionEvent
@@ -3370,7 +5215,7 @@ async def test_purchase_return_recognition_postgresql_chronology():
                     f"PR-PG-ISSUE-ZERO-{token}"
                 ),
                 operation_date=(
-                    replacement_date
+                    zero_boundary_date
                 ),
                 product_id=product_id,
                 warehouse_id=warehouse_id,
@@ -3398,7 +5243,7 @@ async def test_purchase_return_recognition_postgresql_chronology():
                         zero_issue_line_id
                     ),
                     return_date=(
-                        replacement_date
+                        zero_boundary_date
                     ),
                 )
             )
@@ -3414,7 +5259,7 @@ async def test_purchase_return_recognition_postgresql_chronology():
                         .invoice_fulfillment_allocation_id
                     ),
                     recognition_date=(
-                        replacement_date
+                        zero_boundary_date
                     ),
                     returned_quantity=(
                         Decimal("1.0000")

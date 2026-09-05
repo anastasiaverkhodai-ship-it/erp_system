@@ -589,6 +589,18 @@ def test_purchase_return_unknown_liability_source_fails_closed():
 async def test_economic_liability_subtracts_return_base_but_keeps_vat(
     monkeypatch,
 ):
+    async def no_active_purchase_return_vat(
+        *args,
+        **kwargs,
+    ):
+        return {}
+
+    monkeypatch.setattr(
+        service,
+        "_load_active_purchase_return_vat_by_source",
+        no_active_purchase_return_vat,
+    )
+
     invoice = SimpleNamespace(
         company_id=1,
     )
@@ -674,6 +686,18 @@ async def test_economic_liability_subtracts_return_base_but_keeps_vat(
 async def test_full_base_return_keeps_current_vat_liability(
     monkeypatch,
 ):
+    async def no_active_purchase_return_vat(
+        *args,
+        **kwargs,
+    ):
+        return {}
+
+    monkeypatch.setattr(
+        service,
+        "_load_active_purchase_return_vat_by_source",
+        no_active_purchase_return_vat,
+    )
+
     invoice = SimpleNamespace(
         company_id=1,
     )
@@ -749,3 +773,453 @@ async def test_full_base_return_keeps_current_vat_liability(
     # Purchase Return accounting has removed only receipt base.
     # VAT/RK correction has NOT happened yet.
     assert result[0].amount == Decimal("20.00")
+
+
+
+def test_active_purchase_return_vat_reduces_supplier_vat_component():
+    from datetime import date
+    from decimal import Decimal
+
+    components = (
+        service.SupplierVatLiabilityComponent(
+            source_id=20,
+            event_date=date(
+                2026,
+                9,
+                1,
+            ),
+            amount=Decimal(
+                "20.00"
+            ),
+        ),
+    )
+
+    result = (
+        service.apply_purchase_return_vat_to_supplier_vat_components(
+            vat_components=components,
+            active_return_vat_by_source={
+                20:
+                Decimal(
+                    "5.00"
+                ),
+            },
+            currency_code="UAH",
+        )
+    )
+
+    assert len(
+        result
+    ) == 1
+
+    assert (
+        result[
+            0
+        ].source_id
+        == 20
+    )
+
+    assert (
+        result[
+            0
+        ].amount
+        == Decimal(
+            "15.00"
+        )
+    )
+
+
+def test_full_purchase_return_vat_reduction_removes_vat_component():
+    from datetime import date
+    from decimal import Decimal
+
+    components = (
+        service.SupplierVatLiabilityComponent(
+            source_id=20,
+            event_date=date(
+                2026,
+                9,
+                1,
+            ),
+            amount=Decimal(
+                "20.00"
+            ),
+        ),
+    )
+
+    result = (
+        service.apply_purchase_return_vat_to_supplier_vat_components(
+            vat_components=components,
+            active_return_vat_by_source={
+                20:
+                Decimal(
+                    "20.00"
+                ),
+            },
+            currency_code="UAH",
+        )
+    )
+
+    assert result == ()
+
+
+def test_purchase_return_vat_cannot_exceed_current_vat_liability():
+    from datetime import date
+    from decimal import Decimal
+
+    components = (
+        service.SupplierVatLiabilityComponent(
+            source_id=20,
+            event_date=date(
+                2026,
+                9,
+                1,
+            ),
+            amount=Decimal(
+                "20.00"
+            ),
+        ),
+    )
+
+    with pytest.raises(
+        service.SupplierAdvanceClearingReconciliationDataIntegrityError,
+        match="exceeds current INPUT VAT",
+    ):
+        service.apply_purchase_return_vat_to_supplier_vat_components(
+            vat_components=components,
+            active_return_vat_by_source={
+                20:
+                Decimal(
+                    "20.01"
+                ),
+            },
+            currency_code="UAH",
+        )
+
+
+def test_purchase_return_vat_unknown_supplier_source_fails_closed():
+    from datetime import date
+    from decimal import Decimal
+
+    components = (
+        service.SupplierVatLiabilityComponent(
+            source_id=20,
+            event_date=date(
+                2026,
+                9,
+                1,
+            ),
+            amount=Decimal(
+                "20.00"
+            ),
+        ),
+    )
+
+    with pytest.raises(
+        service.SupplierAdvanceClearingReconciliationDataIntegrityError,
+        match="no current INPUT VAT liability",
+    ):
+        service.apply_purchase_return_vat_to_supplier_vat_components(
+            vat_components=components,
+            active_return_vat_by_source={
+                99:
+                Decimal(
+                    "1.00"
+                ),
+            },
+            currency_code="UAH",
+        )
+
+
+@pytest.mark.asyncio
+async def test_active_purchase_return_vat_loader_resolves_immutable_history():
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    class RowsResult:
+        def __init__(
+            self,
+            rows,
+        ):
+            self.rows = rows
+
+        def all(
+            self,
+        ):
+            return self.rows
+
+    class Scalars:
+        def __init__(
+            self,
+            rows,
+        ):
+            self.rows = rows
+
+        def all(
+            self,
+        ):
+            return self.rows
+
+    class EventsResult:
+        def __init__(
+            self,
+            rows,
+        ):
+            self.rows = rows
+
+        def scalars(
+            self,
+        ):
+            return Scalars(
+                self.rows
+            )
+
+    class DB:
+        def __init__(
+            self,
+        ):
+            self.calls = 0
+
+        async def execute(
+            self,
+            statement,
+        ):
+            self.calls += 1
+
+            if self.calls == 1:
+                return RowsResult(
+                    (
+                        (
+                            100,
+                            20,
+                        ),
+                        (
+                            101,
+                            20,
+                        ),
+                    )
+                )
+
+            if self.calls == 2:
+                return EventsResult(
+                    (
+                        SimpleNamespace(
+                            id=1,
+                            purchase_return_recognition_event_id=100,
+                            tax_calculation_id=70,
+                            basis_kind=(
+                                "goods_received_by_supplier"
+                            ),
+                            adjusted_tax_amount=Decimal(
+                                "20.00"
+                            ),
+                            currency_code="UAH",
+                            reversal_of_id=None,
+                        ),
+                        SimpleNamespace(
+                            id=2,
+                            purchase_return_recognition_event_id=100,
+                            tax_calculation_id=70,
+                            basis_kind=(
+                                "goods_received_by_supplier"
+                            ),
+                            adjusted_tax_amount=Decimal(
+                                "20.00"
+                            ),
+                            currency_code="UAH",
+                            reversal_of_id=1,
+                        ),
+                        SimpleNamespace(
+                            id=3,
+                            purchase_return_recognition_event_id=101,
+                            tax_calculation_id=71,
+                            basis_kind=(
+                                "refund_by_supplier"
+                            ),
+                            adjusted_tax_amount=Decimal(
+                                "5.00"
+                            ),
+                            currency_code="UAH",
+                            reversal_of_id=None,
+                        ),
+                    )
+                )
+
+            raise AssertionError(
+                "Unexpected DB execute"
+            )
+
+    result = (
+        await service._load_active_purchase_return_vat_by_source(
+            DB(),
+            company_id=1,
+            active_source_ids={
+                20
+            },
+            currency_code="UAH",
+        )
+    )
+
+    assert result == {
+        20:
+        Decimal(
+            "5.00"
+        )
+    }
+
+
+@pytest.mark.asyncio
+async def test_supplier_liability_loader_applies_active_prvat_reduction(
+    monkeypatch,
+):
+    from datetime import date
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    receipt_date = date(
+        2026,
+        9,
+        1,
+    )
+
+    invoice = SimpleNamespace(
+        company_id=1,
+    )
+
+    allocation = SimpleNamespace(
+        id=20,
+        status=(
+            service
+            .InvoiceFulfillmentAllocationStatus
+            .ACTIVE
+        ),
+    )
+
+    async def load_peers(
+        *args,
+        **kwargs,
+    ):
+        return ()
+
+    def build_base(
+        *,
+        peers,
+        invoice_source_ids,
+        currency_code,
+    ):
+        assert peers == ()
+
+        assert invoice_source_ids == (
+            20,
+        )
+
+        assert currency_code == "UAH"
+
+        return (
+            service.SupplierReceiptBaseAllocationTarget(
+                source_id=20,
+                event_date=receipt_date,
+                amount=Decimal(
+                    "100.00"
+                ),
+                currency_code="UAH",
+            ),
+        )
+
+    async def load_return_base(
+        *args,
+        **kwargs,
+    ):
+        return {
+            20:
+            Decimal(
+                "40.00"
+            ),
+        }
+
+    async def load_vat(
+        *args,
+        **kwargs,
+    ):
+        return (
+            service.SupplierVatLiabilityComponent(
+                source_id=20,
+                event_date=receipt_date,
+                amount=Decimal(
+                    "20.00"
+                ),
+            ),
+        )
+
+    async def load_return_vat(
+        *args,
+        **kwargs,
+    ):
+        return {
+            20:
+            Decimal(
+                "5.00"
+            ),
+        }
+
+    monkeypatch.setattr(
+        service,
+        "_load_receipt_peer_snapshots",
+        load_peers,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "build_supplier_receipt_base_targets_for_invoice",
+        build_base,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_load_active_purchase_return_base_by_source",
+        load_return_base,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_load_supplier_vat_components",
+        load_vat,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_load_active_purchase_return_vat_by_source",
+        load_return_vat,
+    )
+
+    result = (
+        await service._load_supplier_economic_liability_candidates(
+            object(),
+            invoice=invoice,
+            all_invoice_allocations=(
+                allocation,
+            ),
+            currency_code="UAH",
+        )
+    )
+
+    assert len(
+        result
+    ) == 1
+
+    candidate = result[
+        0
+    ]
+
+    assert candidate.source_id == 20
+
+    assert (
+        candidate.event_date
+        == receipt_date
+    )
+
+    assert (
+        candidate.amount
+        == Decimal(
+            "75.00"
+        )
+    )

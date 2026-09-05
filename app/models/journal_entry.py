@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     text,
+    Integer,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -213,6 +214,43 @@ class JournalEntry(Base):
             ),
             ondelete="RESTRICT",
         ),
+        ForeignKeyConstraint(
+            [
+                "company_id",
+                "purchase_return_vat_adjustment_event_id",
+            ],
+            [
+                "purchase_return_vat_adjustment_events.company_id",
+                "purchase_return_vat_adjustment_events.id",
+            ],
+            name=(
+                "fk_journal_entries_company_"
+                "purchase_return_vat_adjustment_event"
+            ),
+            ondelete="RESTRICT",
+        ),
+
+        ForeignKeyConstraint(
+            [
+                "company_id",
+                "purchase_return_input_vat_credit_correction_event_id",
+            ],
+            [
+                (
+                    "purchase_return_input_vat_credit_correction_events."
+                    "company_id"
+                ),
+                (
+                    "purchase_return_input_vat_credit_correction_events."
+                    "id"
+                ),
+            ],
+            name=(
+                "fk_je_company_pr_input_vat_"
+                "credit_correction_event"
+            ),
+            ondelete="RESTRICT",
+        ),
         CheckConstraint(
             """
             (
@@ -271,6 +309,16 @@ class JournalEntry(Base):
             )
             AND
             (
+                document_id IS NULL
+                OR purchase_return_vat_adjustment_event_id IS NULL
+            )
+            AND
+            (
+                document_id IS NULL
+                OR purchase_return_input_vat_credit_correction_event_id IS NULL
+            )
+            AND
+            (
                 payment_id IS NULL
                 OR payment_settlement_allocation_id IS NULL
             )
@@ -321,6 +369,16 @@ class JournalEntry(Base):
             )
             AND
             (
+                payment_id IS NULL
+                OR purchase_return_vat_adjustment_event_id IS NULL
+            )
+            AND
+            (
+                payment_id IS NULL
+                OR purchase_return_input_vat_credit_correction_event_id IS NULL
+            )
+            AND
+            (
                 payment_settlement_allocation_id IS NULL
                 OR tax_recognition_event_id IS NULL
             )
@@ -366,6 +424,16 @@ class JournalEntry(Base):
             )
             AND
             (
+                payment_settlement_allocation_id IS NULL
+                OR purchase_return_vat_adjustment_event_id IS NULL
+            )
+            AND
+            (
+                payment_settlement_allocation_id IS NULL
+                OR purchase_return_input_vat_credit_correction_event_id IS NULL
+            )
+            AND
+            (
                 tax_recognition_event_id IS NULL
                 OR sales_recognition_event_id IS NULL
             )
@@ -406,6 +474,16 @@ class JournalEntry(Base):
             )
             AND
             (
+                tax_recognition_event_id IS NULL
+                OR purchase_return_vat_adjustment_event_id IS NULL
+            )
+            AND
+            (
+                tax_recognition_event_id IS NULL
+                OR purchase_return_input_vat_credit_correction_event_id IS NULL
+            )
+            AND
+            (
                 sales_recognition_event_id IS NULL
                 OR vat_advance_bridge_event_id IS NULL
             )
@@ -441,6 +519,16 @@ class JournalEntry(Base):
             )
             AND
             (
+                sales_recognition_event_id IS NULL
+                OR purchase_return_vat_adjustment_event_id IS NULL
+            )
+            AND
+            (
+                sales_recognition_event_id IS NULL
+                OR purchase_return_input_vat_credit_correction_event_id IS NULL
+            )
+            AND
+            (
                 vat_advance_bridge_event_id IS NULL
                 OR input_vat_fulfillment_bridge_event_id IS NULL
             )
@@ -471,6 +559,16 @@ class JournalEntry(Base):
             )
             AND
             (
+                vat_advance_bridge_event_id IS NULL
+                OR purchase_return_vat_adjustment_event_id IS NULL
+            )
+            AND
+            (
+                vat_advance_bridge_event_id IS NULL
+                OR purchase_return_input_vat_credit_correction_event_id IS NULL
+            )
+            AND
+            (
                 input_vat_fulfillment_bridge_event_id IS NULL
                 OR supplier_advance_clearing_event_id IS NULL
             )
@@ -496,6 +594,16 @@ class JournalEntry(Base):
             )
             AND
             (
+                input_vat_fulfillment_bridge_event_id IS NULL
+                OR purchase_return_vat_adjustment_event_id IS NULL
+            )
+            AND
+            (
+                input_vat_fulfillment_bridge_event_id IS NULL
+                OR purchase_return_input_vat_credit_correction_event_id IS NULL
+            )
+            AND
+            (
                 supplier_advance_clearing_event_id IS NULL
                 OR customer_advance_clearing_event_id IS NULL
             )
@@ -516,6 +624,16 @@ class JournalEntry(Base):
             )
             AND
             (
+                supplier_advance_clearing_event_id IS NULL
+                OR purchase_return_vat_adjustment_event_id IS NULL
+            )
+            AND
+            (
+                supplier_advance_clearing_event_id IS NULL
+                OR purchase_return_input_vat_credit_correction_event_id IS NULL
+            )
+            AND
+            (
                 customer_advance_clearing_event_id IS NULL
                 OR sales_return_recognition_event_id IS NULL
             )
@@ -531,6 +649,16 @@ class JournalEntry(Base):
             )
             AND
             (
+                customer_advance_clearing_event_id IS NULL
+                OR purchase_return_vat_adjustment_event_id IS NULL
+            )
+            AND
+            (
+                customer_advance_clearing_event_id IS NULL
+                OR purchase_return_input_vat_credit_correction_event_id IS NULL
+            )
+            AND
+            (
                 sales_return_recognition_event_id IS NULL
                 OR sales_return_cost_restoration_event_id IS NULL
             )
@@ -541,8 +669,43 @@ class JournalEntry(Base):
             )
             AND
             (
+                sales_return_recognition_event_id IS NULL
+                OR purchase_return_vat_adjustment_event_id IS NULL
+            )
+            AND
+            (
+                sales_return_recognition_event_id IS NULL
+                OR purchase_return_input_vat_credit_correction_event_id IS NULL
+            )
+            AND
+            (
                 sales_return_cost_restoration_event_id IS NULL
                 OR purchase_return_recognition_event_id IS NULL
+            )
+            AND
+            (
+                sales_return_cost_restoration_event_id IS NULL
+                OR purchase_return_vat_adjustment_event_id IS NULL
+            )
+            AND
+            (
+                sales_return_cost_restoration_event_id IS NULL
+                OR purchase_return_input_vat_credit_correction_event_id IS NULL
+            )
+            AND
+            (
+                purchase_return_recognition_event_id IS NULL
+                OR purchase_return_vat_adjustment_event_id IS NULL
+            )
+            AND
+            (
+                purchase_return_recognition_event_id IS NULL
+                OR purchase_return_input_vat_credit_correction_event_id IS NULL
+            )
+            AND
+            (
+                purchase_return_vat_adjustment_event_id IS NULL
+                OR purchase_return_input_vat_credit_correction_event_id IS NULL
             )
             """,
             name=(
@@ -688,8 +851,38 @@ class JournalEntry(Base):
                 "IS NOT NULL"
             ),
         ),
+        Index(
+            (
+                "uq_journal_entry_original_"
+                "purchase_return_vat_adjustment_event"
+            ),
+            "purchase_return_vat_adjustment_event_id",
+            unique=True,
+            postgresql_where=text(
+                "reversal_of_id IS NULL "
+                "AND purchase_return_vat_adjustment_event_id "
+                "IS NOT NULL"
+            ),
+        ),
 
-    )
+
+        Index(
+            "ix_je_pr_input_vat_credit_correction_event_id",
+            "purchase_return_input_vat_credit_correction_event_id",
+            unique=False,
+        ),
+        Index(
+            "uq_je_original_pr_input_vat_credit_correction_event",
+            "purchase_return_input_vat_credit_correction_event_id",
+            unique=True,
+            postgresql_where=text(
+                "reversal_of_id IS NULL "
+                "AND "
+                "purchase_return_input_vat_credit_correction_event_id "
+                "IS NOT NULL"
+            ),
+        ),
+)
 
     id: Mapped[int] = mapped_column(
         primary_key=True,
@@ -788,6 +981,20 @@ class JournalEntry(Base):
     ] = mapped_column(
         nullable=True,
         index=True,
+    )
+
+    purchase_return_vat_adjustment_event_id: Mapped[
+        int | None
+    ] = mapped_column(
+        nullable=True,
+        index=True,
+    )
+
+    purchase_return_input_vat_credit_correction_event_id: Mapped[
+        int | None
+    ] = mapped_column(
+        Integer,
+        nullable=True,
     )
 
     accounting_rule_id: Mapped[int | None] = mapped_column(

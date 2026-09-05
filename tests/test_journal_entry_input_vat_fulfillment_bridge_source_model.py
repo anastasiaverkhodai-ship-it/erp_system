@@ -155,7 +155,7 @@ def test_input_vat_source_is_exclusive_with_all_other_business_sources():
 
     assert sql.count(
         SOURCE
-    ) == 11
+    ) == 13
 
     for other_source in (
         "document_id",
