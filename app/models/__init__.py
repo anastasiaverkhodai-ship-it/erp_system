@@ -70,3 +70,7 @@ from app.models.sales_return_cost_restoration_event import (
 from app.models.sales_return_cost_restoration_fifo_slice import (
     SalesReturnCostRestorationFifoSlice,
 )
+
+from app.models.purchase_return_recognition_event import (
+    PurchaseReturnRecognitionEvent,
+)

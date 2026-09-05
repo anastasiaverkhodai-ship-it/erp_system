@@ -1,3 +1,4 @@
+import re
 from itertools import combinations
 
 from sqlalchemy import (
@@ -11,7 +12,27 @@ from app.models.journal_entry import (
 
 
 SOURCE = (
-    "sales_return_cost_restoration_event_id"
+    "purchase_return_recognition_event_id"
+)
+
+FK_NAME = (
+    "fk_journal_entries_company_"
+    "purchase_return_recognition_event"
+)
+
+LOOKUP_INDEX = (
+    "ix_journal_entries_"
+    "purchase_return_recognition_event_id"
+)
+
+PARTIAL_INDEX = (
+    "uq_journal_entry_original_"
+    "purchase_return_recognition_event"
+)
+
+CHECK_NAME = (
+    "ck_journal_entries_"
+    "at_most_one_business_source"
 )
 
 BUSINESS_SOURCES = (
@@ -25,12 +46,12 @@ BUSINESS_SOURCES = (
     "supplier_advance_clearing_event_id",
     "customer_advance_clearing_event_id",
     "sales_return_recognition_event_id",
+    "sales_return_cost_restoration_event_id",
     SOURCE,
-    "purchase_return_recognition_event_id",
 )
 
 
-def test_source_column_exists_and_is_nullable():
+def test_purchase_return_source_column():
     column = (
         JournalEntry
         .__table__
@@ -40,23 +61,22 @@ def test_source_column_exists_and_is_nullable():
     )
 
     assert column.nullable is True
+    assert column.index is True
 
 
-def test_source_has_composite_company_fk():
+def test_purchase_return_source_composite_company_fk():
+    table = JournalEntry.__table__
+
     constraint = next(
         value
         for value
-        in JournalEntry.__table__.constraints
+        in table.constraints
         if (
             isinstance(
                 value,
                 ForeignKeyConstraint,
             )
-            and value.name
-            == (
-                "fk_journal_entries_company_"
-                "sales_return_cost_restoration_event"
-            )
+            and value.name == FK_NAME
         )
     )
 
@@ -76,29 +96,19 @@ def test_source_has_composite_company_fk():
         for element
         in constraint.elements
     ) == (
-        (
-            "sales_return_cost_restoration_events."
-            "company_id"
-        ),
-        (
-            "sales_return_cost_restoration_events."
-            "id"
-        ),
+        "purchase_return_recognition_events.company_id",
+        "purchase_return_recognition_events.id",
     )
 
     assert constraint.ondelete == "RESTRICT"
 
 
-def test_source_has_nonunique_lookup_index():
+def test_purchase_return_source_has_nonunique_lookup_index():
     index = next(
         value
         for value
         in JournalEntry.__table__.indexes
-        if value.name
-        == (
-            "ix_journal_entries_"
-            "sales_return_cost_restoration_event_id"
-        )
+        if value.name == LOOKUP_INDEX
     )
 
     assert index.unique is False
@@ -112,16 +122,12 @@ def test_source_has_nonunique_lookup_index():
     )
 
 
-def test_original_source_has_partial_unique_index():
+def test_purchase_return_source_original_partial_unique_index():
     index = next(
         value
         for value
         in JournalEntry.__table__.indexes
-        if value.name
-        == (
-            "uq_journal_entry_original_"
-            "sales_return_cost_restoration_event"
-        )
+        if value.name == PARTIAL_INDEX
     )
 
     assert index.unique is True
@@ -134,12 +140,14 @@ def test_original_source_has_partial_unique_index():
         SOURCE,
     )
 
-    where = str(
-        index.dialect_options[
-            "postgresql"
-        ][
-            "where"
-        ]
+    where = " ".join(
+        str(
+            index.dialect_options[
+                "postgresql"
+            ][
+                "where"
+            ]
+        ).split()
     )
 
     assert (
@@ -148,19 +156,16 @@ def test_original_source_has_partial_unique_index():
     )
 
     assert (
-        "sales_return_cost_restoration_event_id "
-        "IS NOT NULL"
+        f"{SOURCE} IS NOT NULL"
         in where
     )
 
 
-def test_current_business_source_contract_is_12_sources():
+def test_business_source_contract_is_12_sources_66_pairs():
     assert len(
         BUSINESS_SOURCES
     ) == 12
 
-
-def test_current_business_source_contract_has_66_pairs():
     pairs = tuple(
         combinations(
             BUSINESS_SOURCES,
@@ -173,9 +178,7 @@ def test_current_business_source_contract_has_66_pairs():
     ) == 66
 
 
-def test_exclusivity_check_contains_all_66_pairs():
-    import re
-
+def test_exclusivity_check_contains_exact_66_pairs():
     constraint = next(
         value
         for value
@@ -185,11 +188,7 @@ def test_exclusivity_check_contains_all_66_pairs():
                 value,
                 CheckConstraint,
             )
-            and value.name
-            == (
-                "ck_journal_entries_"
-                "at_most_one_business_source"
-            )
+            and value.name == CHECK_NAME
         )
     )
 
@@ -218,9 +217,8 @@ def test_exclusivity_check_contains_all_66_pairs():
 
     assert actual_pairs == expected_pairs
 
-def test_new_source_is_exclusive_with_sales_return_recognition():
-    import re
 
+def test_purchase_return_source_has_11_exclusion_pairs():
     constraint = next(
         value
         for value
@@ -230,11 +228,7 @@ def test_new_source_is_exclusive_with_sales_return_recognition():
                 value,
                 CheckConstraint,
             )
-            and value.name
-            == (
-                "ck_journal_entries_"
-                "at_most_one_business_source"
-            )
+            and value.name == CHECK_NAME
         )
     )
 
@@ -254,7 +248,13 @@ def test_new_source_is_exclusive_with_sales_return_recognition():
         )
     )
 
-    assert (
-        "sales_return_recognition_event_id",
-        "sales_return_cost_restoration_event_id",
-    ) in pairs
+    source_pairs = {
+        pair
+        for pair
+        in pairs
+        if SOURCE in pair
+    }
+
+    assert len(
+        source_pairs
+    ) == 11

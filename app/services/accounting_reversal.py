@@ -301,6 +301,43 @@ def _resolve_reversal_sales_return_cost_restoration_event_id(
 
     return override
 
+
+def _resolve_reversal_purchase_return_recognition_event_id(
+    *,
+    original_purchase_return_recognition_event_id: int | None,
+    override: int | None,
+) -> int | None:
+    """
+    Preserve the original Purchase Return Recognition typed
+    source by default.
+
+    Purchase Return Recognition reversal accounting may
+    override it with the immutable reversal
+    PurchaseReturnRecognitionEvent ID.
+    """
+    if override is None:
+        return (
+            original_purchase_return_recognition_event_id
+        )
+
+    if override <= 0:
+        raise AccountingReversalError(
+            "Purchase return recognition event source "
+            "override must be greater than zero"
+        )
+
+    if (
+        original_purchase_return_recognition_event_id
+        is None
+    ):
+        raise AccountingReversalError(
+            "Purchase return recognition event source "
+            "override requires an original Purchase "
+            "Return Recognition journal entry"
+        )
+
+    return override
+
 async def reverse_journal_entry(
     db: AsyncSession,
     company_id: int,
@@ -315,6 +352,7 @@ async def reverse_journal_entry(
     customer_advance_clearing_event_id_override: int | None = None,
     sales_return_recognition_event_id_override: int | None = None,
     sales_return_cost_restoration_event_id_override: int | None = None,
+    purchase_return_recognition_event_id_override: int | None = None,
 ) -> JournalEntry:
     result = await db.execute(
         select(JournalEntry)
@@ -498,6 +536,20 @@ async def reverse_journal_entry(
                 ),
                 override=(
                     sales_return_cost_restoration_event_id_override
+                ),
+            )
+        ),
+        purchase_return_recognition_event_id=(
+            _resolve_reversal_purchase_return_recognition_event_id(
+                original_purchase_return_recognition_event_id=(
+                    getattr(
+                        original_entry,
+                        "purchase_return_recognition_event_id",
+                        None,
+                    )
+                ),
+                override=(
+                    purchase_return_recognition_event_id_override
                 ),
             )
         ),
