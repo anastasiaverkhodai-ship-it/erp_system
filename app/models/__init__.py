@@ -62,6 +62,7 @@ from app.models.supplier_advance_clearing_event import SupplierAdvanceClearingEv
 from app.models.customer_advance_clearing_event import CustomerAdvanceClearingEvent
 from app.models.trade_return_event import TradeReturnEvent
 from app.models.trade_value_correction_event import TradeValueCorrectionEvent
+from app.models.purchase_value_correction_allocation_event import PurchaseValueCorrectionAllocationEvent
 from app.models.sales_return_recognition_event import SalesReturnRecognitionEvent
 
 from app.models.sales_return_cost_restoration_event import (
@@ -82,3 +83,9 @@ from app.models.purchase_return_vat_adjustment_event import (
 from app.models.purchase_return_input_vat_credit_correction_event import (
     PurchaseReturnInputVatCreditCorrectionEvent,
 )
+from app.models.purchase_value_correction_fifo_impact_event import PurchaseValueCorrectionFifoImpactEvent
+from app.models.purchase_value_correction_moving_average_replay_event import PurchaseValueCorrectionMovingAverageReplayEvent
+
+from app.models.purchase_value_correction_vat_adjustment_event import PurchaseValueCorrectionVatAdjustmentEvent
+
+from app.models.purchase_value_correction_input_vat_credit_correction_event import PurchaseValueCorrectionInputVatCreditCorrectionEvent

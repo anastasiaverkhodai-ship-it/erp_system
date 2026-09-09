@@ -102,6 +102,10 @@ async def test_customer_advance_runs_after_economic_before_cost(
             created_events=()
         )
 
+    cost_result = SimpleNamespace(
+        created_events=(),
+    )
+
     async def cost(
         db,
         **kwargs,
@@ -110,7 +114,7 @@ async def test_customer_advance_runs_after_economic_before_cost(
             "cost"
         )
 
-        return "cost-result"
+        return cost_result
 
     monkeypatch.setattr(
         service,
@@ -167,7 +171,7 @@ async def test_customer_advance_runs_after_economic_before_cost(
 
     assert (
         result.cost_result
-        == "cost-result"
+        is cost_result
     )
 
 

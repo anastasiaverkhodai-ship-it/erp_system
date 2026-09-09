@@ -64,6 +64,15 @@ from app.services.trade_document_types import (
     TradeDocumentKind,
     TradeDocumentStatus,
 )
+from app.services.purchase_value_correction_moving_average_issue_reversal_integration_service import (
+    PurchaseValueCorrectionMovingAverageIssueReversalIntegrationError,
+    load_original_moving_average_issues_for_document,
+    reconcile_purchase_value_correction_moving_average_after_issue_reversal,
+)
+from app.services.purchase_value_correction_moving_average_lifecycle_service import (
+    PurchaseValueCorrectionMovingAverageLifecycleError,
+    post_created_purchase_value_correction_moving_average_peer_journals,
+)
 
 
 ZERO = Decimal("0")
@@ -2515,6 +2524,74 @@ async def execute_sales_order_fulfillment_reversal(
             "Warehouse fulfillment document "
             "was not reversed"
         )
+
+
+    # ---------------------------------------------------------
+    # PVC MA TECHNICAL ISSUE REVERSAL
+    # ---------------------------------------------------------
+    #
+    # reverse_document_for_trade_fulfillment() returns only
+    # after BOTH:
+    #
+    #   WarehouseReversalHandler
+    #       -> base MA reversal
+    #
+    #   AccountingReversalHandler
+    #       -> base ISSUE JournalEntry reversal
+    #
+    # Therefore this is the first valid orchestration boundary
+    # for corrected-state PVC replay.
+    #
+    # Commercial Sales Return remains a separate lifecycle.
+    # ---------------------------------------------------------
+
+    original_ma_issues = (
+        await load_original_moving_average_issues_for_document(
+            db,
+            company_id=company_id,
+            document_id=reversed_document.id,
+        )
+    )
+
+    for original_ma_issue in original_ma_issues:
+        try:
+            pvc_ma_reversal_result = (
+                await reconcile_purchase_value_correction_moving_average_after_issue_reversal(
+                    db,
+                    company_id=company_id,
+                    source_moving_average_movement_id=(
+                        original_ma_issue.id
+                    ),
+                    reversal_date=reversal_date,
+                    created_by=reversed_by,
+                )
+            )
+
+            if (
+                pvc_ma_reversal_result
+                .reconciliation_result
+                is not None
+            ):
+                await post_created_purchase_value_correction_moving_average_peer_journals(
+                    db,
+                    result=(
+                        pvc_ma_reversal_result
+                        .reconciliation_result
+                    ),
+                    created_by=reversed_by,
+                )
+
+        except (
+            PurchaseValueCorrectionMovingAverageIssueReversalIntegrationError,
+            PurchaseValueCorrectionMovingAverageLifecycleError,
+        ) as exc:
+            raise (
+                SalesOrderFulfillmentReversalStateError(
+                    "Technical ISSUE reversal PVC "
+                    "moving-average lifecycle failed: "
+                    f"{exc}"
+                )
+            ) from exc
 
     # ---------------------------------------------------------
     # 7. RESTORE RESERVATIONS

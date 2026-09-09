@@ -26,6 +26,7 @@ from app.services.fifo_inventory import (
     reverse_receipt_fifo,
 )
 
+
 from app.services.moving_average_inventory import (
     MovingAverageInventoryError,
     process_moving_average_issue,
@@ -143,6 +144,8 @@ async def process_inventory_issue(
     db: AsyncSession,
     document: Document,
     line: DocumentLine,
+    *,
+    created_by: int,
 ) -> InventoryCostEntry:
     method = await get_inventory_valuation_method(
         db=db,
@@ -218,6 +221,17 @@ async def process_inventory_issue(
     cost_amount=cost_amount,
 )
     db.add(cost_entry)
+
+    if (
+        method
+        == InventoryValuationMethod.WEIGHTED_AVERAGE_MOVING
+    ):
+        # Persist the base MA ISSUE + immutable base ICE first.
+        #
+        # PVC replay must see both exact source rows while the
+        # document is already POSTED inside post_document().
+        await db.flush()
+
 
     return cost_entry
 

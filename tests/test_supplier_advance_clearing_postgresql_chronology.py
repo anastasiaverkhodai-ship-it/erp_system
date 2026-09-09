@@ -4,6 +4,7 @@ import uuid
 
 from datetime import (
     datetime,
+    timedelta,
     timezone,
 )
 from decimal import Decimal
@@ -14,6 +15,16 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import engine
+
+from app.models.trade_value_correction_event import (
+    TradeValueCorrectionEvent,
+)
+from app.services.purchase_value_correction_allocation_reconciliation_service import (
+    reconcile_purchase_value_correction_allocations_for_event,
+)
+from app.services.supplier_advance_clearing_lifecycle_service import (
+    reconcile_supplier_advance_clearing_lifecycle_for_invoice,
+)
 
 from app.services.invoice_fulfillment_allocation_service import (
     create_invoice_fulfillment_allocation,
@@ -69,6 +80,8 @@ BASELINE_TABLES = (
     "invoice_fulfillment_allocations",
     "tax_calculations",
     "input_vat_fulfillment_bridge_events",
+    "trade_value_correction_events",
+    "purchase_value_correction_allocation_events",
     "supplier_advance_clearing_events",
     "journal_entries",
     "journal_entry_lines",
@@ -2376,6 +2389,1156 @@ async def test_supplier_advance_payment_first_chronology_postgresql():
 
     print(
         "FULL E2E TRANSACTION ROLLBACK = PASS"
+    )
+
+    if scenario_error is not None:
+        raise scenario_error.with_traceback(
+            scenario_traceback
+        )
+
+
+@pytest.mark.skipif(
+    not RUN_POSTGRES_E2E,
+    reason=(
+        "Set RUN_POSTGRES_E2E=1 "
+        "to run the real PostgreSQL chronology test"
+    ),
+)
+@pytest.mark.asyncio
+async def test_purchase_value_correction_supplier_clearing_forward_only_postgresql_chronology():
+    """
+    Real PostgreSQL chronology:
+
+        D1 payment:
+            Dr371 / Cr311 = 120
+
+        D1 receipt:
+            Dr281 / Cr631 = 120
+
+        D1 supplier advance clearing:
+            Dr631 / Cr371 = 120
+
+        D5 Purchase Value Correction:
+            economic base 120 -> 108
+
+        D5 supplier-clearing correction:
+            reversal:
+                Dr371 / Cr631 = 120
+
+            replacement:
+                Dr631 / Cr371 = 108
+
+        second D5 reconcile:
+            NOOP
+
+    Important milestone boundary:
+
+    Purchase Value Correction FIFO / inventory GL is NOT implemented
+    by this test yet.
+
+    Therefore after supplier-clearing correction alone:
+
+        371 net = +12
+        631 net = -12
+
+    The following FIFO GL milestone will account for the actual
+    value correction against inventory / historical cost destination
+    and complete the accounting effect on 631.
+    """
+
+    # pytest-asyncio may execute sibling async tests
+    # on different event loops. The shared AsyncEngine
+    # pool can otherwise retain an asyncpg connection
+    # bound to the previous test loop.
+    #
+    # Replace the old pool without attempting to close
+    # old-loop connections from the new loop.
+    await engine.dispose(close=False)
+
+    baseline_counts = (
+        await table_counts()
+    )
+
+    scenario_error = None
+    scenario_traceback = None
+
+    async with engine.connect() as connection:
+        transaction = (
+            await connection.begin()
+        )
+
+        db = AsyncSession(
+            bind=connection,
+            expire_on_commit=False,
+        )
+
+        try:
+            fixture = (
+                await create_business_fixture(
+                    db
+                )
+            )
+
+            d1 = fixture[
+                "business_date"
+            ]
+
+            d5 = (
+                d1
+                + timedelta(
+                    days=4
+                )
+            )
+
+            period_end = await scalar_or_none(
+                db,
+                """
+                SELECT end_date
+                FROM accounting_periods
+                WHERE company_id =
+                      :company_id
+                  AND status =
+                      'open'
+                  AND is_locked IS FALSE
+                  AND start_date <=
+                      :business_date
+                  AND end_date >=
+                      :business_date
+                ORDER BY
+                    start_date DESC,
+                    id DESC
+                LIMIT 1
+                """,
+                {
+                    "company_id":
+                        COMPANY_ID,
+                    "business_date":
+                        d1,
+                },
+            )
+
+            assert period_end is not None, (
+                "Real PostgreSQL PVC -> 631/371 E2E "
+                "requires D1 inside an open unlocked "
+                "accounting period"
+            )
+
+            if d5 > period_end:
+                pytest.skip(
+                    "Real PostgreSQL PVC -> 631/371 E2E "
+                    "requires D1..D5 inside the same "
+                    "open unlocked accounting period"
+                )
+
+            token = fixture[
+                "suffix"
+            ]
+
+            gl_baseline = (
+                await gl_snapshot(
+                    db
+                )
+            )
+
+            # ==================================================
+            # A. D1 PAYMENT = 120
+            #
+            # Dr371 / Cr311
+            # ==================================================
+
+            payment = await confirm_payment(
+                db,
+                company_id=COMPANY_ID,
+                payment_id=(
+                    fixture[
+                        "payment_id"
+                    ]
+                ),
+                confirmed_by=USER_ID,
+            )
+
+            settlement = (
+                await create_payment_settlement_allocation(
+                    db,
+                    company_id=COMPANY_ID,
+                    payment_id=payment.id,
+                    open_item_id=(
+                        fixture[
+                            "open_item_id"
+                        ]
+                    ),
+                    amount=Decimal(
+                        "120.00"
+                    ),
+                    created_by=USER_ID,
+                )
+            )
+
+            before_receipt_events = (
+                await supplier_events(
+                    db,
+                    settlement_id=(
+                        settlement.id
+                    ),
+                )
+            )
+
+            assert (
+                before_receipt_events
+                == []
+            )
+
+            # ==================================================
+            # B. D1 RECEIPT = 120
+            #
+            # Dr281 / Cr631
+            # ==================================================
+
+            receipt = (
+                await execute_purchase_order_fulfillment(
+                    db,
+                    company_id=COMPANY_ID,
+                    trade_document_id=(
+                        fixture[
+                            "order_id"
+                        ]
+                    ),
+                    warehouse_document_number=(
+                        "PVC-631-D1-"
+                        + token
+                    ),
+                    document_date=d1,
+                    accounting_rule_id=(
+                        fixture[
+                            "accounting_rule_id"
+                        ]
+                    ),
+                    created_by=USER_ID,
+                    request_lines=(
+                        PurchaseOrderFulfillmentRequestLine(
+                            trade_document_line_id=(
+                                fixture[
+                                    "order_line_id"
+                                ]
+                            ),
+                            quantity=Decimal(
+                                "120.0000"
+                            ),
+                        ),
+                    ),
+                )
+            )
+
+            receipt_line_id = (
+                await fulfillment_line_id(
+                    db,
+                    fulfillment_id=(
+                        receipt
+                        .fulfillment
+                        .id
+                    ),
+                )
+            )
+
+            # ==================================================
+            # C. D1 IFA = 120
+            #
+            # Commercial settlement already exists.
+            # Creating economic fulfillment allocation makes
+            # supplier clearing eligible:
+            #
+            # Dr631 / Cr371 = 120
+            # ==================================================
+
+            allocation = (
+                await create_invoice_fulfillment_allocation(
+                    db,
+                    company_id=COMPANY_ID,
+                    invoice_id=(
+                        fixture[
+                            "invoice_id"
+                        ]
+                    ),
+                    invoice_line_id=(
+                        fixture[
+                            "invoice_line_id"
+                        ]
+                    ),
+                    fulfillment_id=(
+                        receipt
+                        .fulfillment
+                        .id
+                    ),
+                    fulfillment_line_id=(
+                        receipt_line_id
+                    ),
+                    quantity=Decimal(
+                        "120.0000"
+                    ),
+                    created_by=USER_ID,
+                )
+            )
+
+            initial_events = (
+                await supplier_events(
+                    db,
+                    settlement_id=(
+                        settlement.id
+                    ),
+                )
+            )
+
+            assert len(
+                initial_events
+            ) == 1
+
+            original_clearing = (
+                initial_events[
+                    0
+                ]
+            )
+
+            assert (
+                original_clearing[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            assert (
+                original_clearing[
+                    "invoice_fulfillment_allocation_id"
+                ]
+                == allocation.id
+            )
+
+            assert (
+                original_clearing[
+                    "clearing_date"
+                ]
+                == d1
+            )
+
+            assert Decimal(
+                original_clearing[
+                    "cleared_amount"
+                ]
+            ) == Decimal(
+                "120.00"
+            )
+
+            original_clearing_journal = (
+                await source_journal_id(
+                    db,
+                    source_column=(
+                        "supplier_advance_"
+                        "clearing_event_id"
+                    ),
+                    source_id=(
+                        original_clearing[
+                            "id"
+                        ]
+                    ),
+                )
+            )
+
+            await assert_journal_posting(
+                db,
+                journal_entry_id=(
+                    original_clearing_journal
+                ),
+                expected={
+                    "371": (
+                        MONEY_ZERO,
+                        Decimal(
+                            "120.00"
+                        ),
+                    ),
+                    "631": (
+                        Decimal(
+                            "120.00"
+                        ),
+                        MONEY_ZERO,
+                    ),
+                },
+            )
+
+            original_entry_date = (
+                await scalar(
+                    db,
+                    """
+                    SELECT entry_date
+                    FROM journal_entries
+                    WHERE id =
+                          :journal_entry_id
+                    """,
+                    {
+                        "journal_entry_id":
+                            original_clearing_journal,
+                    },
+                )
+            )
+
+            assert (
+                original_entry_date
+                == d1
+            )
+
+            before_correction_gl = (
+                await gl_snapshot(
+                    db
+                )
+            )
+
+            assert_gl_delta(
+                baseline=gl_baseline,
+                actual=before_correction_gl,
+                expected={
+                    "281": Decimal(
+                        "120"
+                    ),
+                    "311": Decimal(
+                        "-120"
+                    ),
+                    "371": Decimal(
+                        "0"
+                    ),
+                    "631": Decimal(
+                        "0"
+                    ),
+                },
+            )
+
+            print(
+                "D1 ORIGINAL CLEARING: "
+                "Dr631 / Cr371 = 120 = PASS"
+            )
+
+            # ==================================================
+            # D. D5 COMMERCIAL PURCHASE VALUE CORRECTION
+            #
+            # 120 -> 108
+            #
+            # This source event itself does NOT post GL and does
+            # NOT directly mutate supplier clearing.
+            # ==================================================
+
+            correction = (
+                TradeValueCorrectionEvent(
+                    company_id=COMPANY_ID,
+                    direction="purchase",
+                    trade_document_id=(
+                        fixture[
+                            "invoice_id"
+                        ]
+                    ),
+                    trade_document_line_id=(
+                        fixture[
+                            "invoice_line_id"
+                        ]
+                    ),
+                    product_id=(
+                        fixture[
+                            "product_id"
+                        ]
+                    ),
+                    correction_date=d5,
+                    original_gross_amount=Decimal(
+                        "120.00"
+                    ),
+                    original_tax_amount=Decimal(
+                        "0.00"
+                    ),
+                    corrected_gross_amount=Decimal(
+                        "108.00"
+                    ),
+                    corrected_tax_amount=Decimal(
+                        "0.00"
+                    ),
+                    currency_code="UAH",
+                    reason_code=(
+                        "postgres_pvc_631_371_forward_only"
+                    ),
+                    created_by=USER_ID,
+                    reversal_of_id=None,
+                )
+            )
+
+            db.add(
+                correction
+            )
+
+            await db.flush()
+
+            assert (
+                correction.id
+                is not None
+            )
+
+            pvc_result = (
+                await reconcile_purchase_value_correction_allocations_for_event(
+                    db,
+                    company_id=COMPANY_ID,
+                    trade_value_correction_event_id=(
+                        correction.id
+                    ),
+                    adjustment_date=d5,
+                    created_by=USER_ID,
+                )
+            )
+
+            assert (
+                pvc_result.source_is_active
+                is True
+            )
+
+            assert len(
+                pvc_result.created_events
+            ) == 1
+
+            pvc_allocation = (
+                pvc_result
+                .created_events[
+                    0
+                ]
+            )
+
+            assert (
+                pvc_allocation
+                .invoice_fulfillment_allocation_id
+                == allocation.id
+            )
+
+            assert (
+                pvc_allocation
+                .recognition_date
+                == d5
+            )
+
+            assert Decimal(
+                pvc_allocation
+                .original_allocated_base_amount
+            ) == Decimal(
+                "120.00"
+            )
+
+            assert Decimal(
+                pvc_allocation
+                .corrected_allocated_base_amount
+            ) == Decimal(
+                "108.00"
+            )
+
+            assert (
+                pvc_allocation
+                .allocated_base_delta
+                == Decimal(
+                    "-12.00"
+                )
+            )
+
+            after_pvca_before_clearing = (
+                await gl_snapshot(
+                    db
+                )
+            )
+
+            assert (
+                after_pvca_before_clearing
+                == before_correction_gl
+            )
+
+            print(
+                "D5 PVC ECONOMIC ALLOCATION: "
+                "120 -> 108 / DELTA -12 = PASS"
+            )
+
+            # ==================================================
+            # E. D5 RECONCILE ECONOMIC 631 -> SUPPLIER CLEARING
+            #
+            # Economic liability capacity becomes 108.
+            #
+            # Existing clearing is 120.
+            #
+            # Immutable chronology MUST be:
+            #
+            # D1 original 120
+            # -> D5 reversal 120
+            # -> D5 replacement 108
+            # ==================================================
+
+            clearing_result = (
+                await reconcile_supplier_advance_clearing_lifecycle_for_invoice(
+                    db,
+                    company_id=COMPANY_ID,
+                    invoice_id=(
+                        fixture[
+                            "invoice_id"
+                        ]
+                    ),
+                    adjustment_date=d5,
+                    created_by=USER_ID,
+                )
+            )
+
+            liability_total = sum(
+                (
+                    Decimal(
+                        candidate.amount
+                    )
+                    for candidate
+                    in clearing_result
+                    .liability_candidates
+                ),
+                Decimal(
+                    "0.00"
+                ),
+            )
+
+            assert (
+                liability_total
+                == Decimal(
+                    "108.00"
+                )
+            )
+
+            assert len(
+                clearing_result
+                .created_events
+            ) == 2
+
+            reversal_event = (
+                clearing_result
+                .created_events[
+                    0
+                ]
+            )
+
+            replacement_event = (
+                clearing_result
+                .created_events[
+                    1
+                ]
+            )
+
+            assert (
+                reversal_event
+                .reversal_of_id
+                == original_clearing[
+                    "id"
+                ]
+            )
+
+            assert (
+                reversal_event
+                .clearing_date
+                == d5
+            )
+
+            assert Decimal(
+                reversal_event
+                .cleared_amount
+            ) == Decimal(
+                "120.00"
+            )
+
+            assert (
+                replacement_event
+                .reversal_of_id
+                is None
+            )
+
+            assert (
+                replacement_event
+                .clearing_date
+                == d5
+            )
+
+            assert Decimal(
+                replacement_event
+                .cleared_amount
+            ) == Decimal(
+                "108.00"
+            )
+
+            assert (
+                replacement_event
+                .payment_settlement_allocation_id
+                == settlement.id
+            )
+
+            assert (
+                replacement_event
+                .invoice_fulfillment_allocation_id
+                == allocation.id
+            )
+
+            history = (
+                await supplier_events(
+                    db,
+                    settlement_id=(
+                        settlement.id
+                    ),
+                )
+            )
+
+            assert len(
+                history
+            ) == 3
+
+            reversed_ids = {
+                row[
+                    "reversal_of_id"
+                ]
+                for row
+                in history
+                if (
+                    row[
+                        "reversal_of_id"
+                    ]
+                    is not None
+                )
+            }
+
+            active_originals = [
+                row
+                for row
+                in history
+                if (
+                    row[
+                        "reversal_of_id"
+                    ]
+                    is None
+                    and row[
+                        "id"
+                    ]
+                    not in reversed_ids
+                )
+            ]
+
+            assert len(
+                active_originals
+            ) == 1
+
+            active_clearing = (
+                active_originals[
+                    0
+                ]
+            )
+
+            assert (
+                active_clearing[
+                    "id"
+                ]
+                == replacement_event.id
+            )
+
+            assert (
+                active_clearing[
+                    "clearing_date"
+                ]
+                == d5
+            )
+
+            assert Decimal(
+                active_clearing[
+                    "cleared_amount"
+                ]
+            ) == Decimal(
+                "108.00"
+            )
+
+            print(
+                "ECONOMIC 631 CURRENT TRUTH = 108 = PASS"
+            )
+
+            print(
+                "CLEARING HISTORY: "
+                "D1 ORIGINAL 120 -> "
+                "D5 REVERSAL 120 -> "
+                "D5 REPLACEMENT 108 = PASS"
+            )
+
+            # ==================================================
+            # F. JOURNAL ENTRIES MUST ALSO BE D5
+            # ==================================================
+
+            reversal_journal_id = (
+                await source_journal_id(
+                    db,
+                    source_column=(
+                        "supplier_advance_"
+                        "clearing_event_id"
+                    ),
+                    source_id=(
+                        reversal_event.id
+                    ),
+                )
+            )
+
+            replacement_journal_id = (
+                await source_journal_id(
+                    db,
+                    source_column=(
+                        "supplier_advance_"
+                        "clearing_event_id"
+                    ),
+                    source_id=(
+                        replacement_event.id
+                    ),
+                )
+            )
+
+            await assert_journal_posting(
+                db,
+                journal_entry_id=(
+                    reversal_journal_id
+                ),
+                expected={
+                    "371": (
+                        Decimal(
+                            "120.00"
+                        ),
+                        MONEY_ZERO,
+                    ),
+                    "631": (
+                        MONEY_ZERO,
+                        Decimal(
+                            "120.00"
+                        ),
+                    ),
+                },
+            )
+
+            await assert_journal_posting(
+                db,
+                journal_entry_id=(
+                    replacement_journal_id
+                ),
+                expected={
+                    "371": (
+                        MONEY_ZERO,
+                        Decimal(
+                            "108.00"
+                        ),
+                    ),
+                    "631": (
+                        Decimal(
+                            "108.00"
+                        ),
+                        MONEY_ZERO,
+                    ),
+                },
+            )
+
+            reversal_journal_date = (
+                await scalar(
+                    db,
+                    """
+                    SELECT entry_date
+                    FROM journal_entries
+                    WHERE id =
+                          :journal_entry_id
+                    """,
+                    {
+                        "journal_entry_id":
+                            reversal_journal_id,
+                    },
+                )
+            )
+
+            replacement_journal_date = (
+                await scalar(
+                    db,
+                    """
+                    SELECT entry_date
+                    FROM journal_entries
+                    WHERE id =
+                          :journal_entry_id
+                    """,
+                    {
+                        "journal_entry_id":
+                            replacement_journal_id,
+                    },
+                )
+            )
+
+            assert (
+                reversal_journal_date
+                == d5
+            )
+
+            assert (
+                replacement_journal_date
+                == d5
+            )
+
+            print(
+                "D5 REVERSAL JOURNAL DATE = PASS"
+            )
+
+            print(
+                "D5 REPLACEMENT JOURNAL DATE = PASS"
+            )
+
+            # ==================================================
+            # G. CURRENT GL AT THIS MILESTONE BOUNDARY
+            #
+            # PVC inventory / issued-cost GL is intentionally
+            # still NOT posted.
+            #
+            # Supplier clearing alone therefore leaves:
+            #
+            # 371 = +12
+            # 631 = -12
+            #
+            # The next FIFO GL milestone completes the PVC
+            # accounting side.
+            # ==================================================
+
+            after_correction_gl = (
+                await gl_snapshot(
+                    db
+                )
+            )
+
+            assert_gl_delta(
+                baseline=gl_baseline,
+                actual=after_correction_gl,
+                expected={
+                    "281": Decimal(
+                        "120"
+                    ),
+                    "311": Decimal(
+                        "-120"
+                    ),
+                    "371": Decimal(
+                        "12"
+                    ),
+                    "631": Decimal(
+                        "-12"
+                    ),
+                },
+            )
+
+            print(
+                "POST-CLEARING GL: "
+                "371 = +12 / 631 = -12 "
+                "(BEFORE PVC FIFO GL) = PASS"
+            )
+
+            # ==================================================
+            # H. SECOND D5 RECONCILE MUST BE NOOP
+            # ==================================================
+
+            journal_count_before_repeat = (
+                await scalar(
+                    db,
+                    """
+                    SELECT COUNT(*)
+                    FROM journal_entries
+                    WHERE company_id =
+                          :company_id
+                      AND supplier_advance_clearing_event_id
+                          IN (
+                              SELECT id
+                              FROM supplier_advance_clearing_events
+                              WHERE company_id =
+                                    :company_id
+                                AND payment_settlement_allocation_id =
+                                    :settlement_id
+                          )
+                    """,
+                    {
+                        "company_id":
+                            COMPANY_ID,
+                        "settlement_id":
+                            settlement.id,
+                    },
+                )
+            )
+
+            assert (
+                journal_count_before_repeat
+                == 3
+            )
+
+            repeat_result = (
+                await reconcile_supplier_advance_clearing_lifecycle_for_invoice(
+                    db,
+                    company_id=COMPANY_ID,
+                    invoice_id=(
+                        fixture[
+                            "invoice_id"
+                        ]
+                    ),
+                    adjustment_date=d5,
+                    created_by=USER_ID,
+                )
+            )
+
+            assert (
+                repeat_result
+                .created_events
+                == ()
+            )
+
+            assert (
+                repeat_result
+                .reconciliation_targets
+                == ()
+            )
+
+            repeat_history = (
+                await supplier_events(
+                    db,
+                    settlement_id=(
+                        settlement.id
+                    ),
+                )
+            )
+
+            assert len(
+                repeat_history
+            ) == 3
+
+            journal_count_after_repeat = (
+                await scalar(
+                    db,
+                    """
+                    SELECT COUNT(*)
+                    FROM journal_entries
+                    WHERE company_id =
+                          :company_id
+                      AND supplier_advance_clearing_event_id
+                          IN (
+                              SELECT id
+                              FROM supplier_advance_clearing_events
+                              WHERE company_id =
+                                    :company_id
+                                AND payment_settlement_allocation_id =
+                                    :settlement_id
+                          )
+                    """,
+                    {
+                        "company_id":
+                            COMPANY_ID,
+                        "settlement_id":
+                            settlement.id,
+                    },
+                )
+            )
+
+            assert (
+                journal_count_after_repeat
+                == journal_count_before_repeat
+            )
+
+            after_repeat_gl = (
+                await gl_snapshot(
+                    db
+                )
+            )
+
+            assert (
+                after_repeat_gl
+                == after_correction_gl
+            )
+
+            print(
+                "SECOND D5 RECONCILE = NOOP = PASS"
+            )
+
+            print(
+                "NO DUPLICATE SUPPLIER CLEARING JOURNALS = PASS"
+            )
+
+            # ==================================================
+            # I. SOURCE HISTORY MUST REMAIN IMMUTABLE
+            # ==================================================
+
+            stored_original = (
+                await db.execute(
+                    text(
+                        """
+                        SELECT
+                            clearing_date,
+                            cleared_amount,
+                            reversal_of_id
+                        FROM supplier_advance_clearing_events
+                        WHERE id =
+                              :event_id
+                        """
+                    ),
+                    {
+                        "event_id":
+                            original_clearing[
+                                "id"
+                            ],
+                    },
+                )
+            ).mappings().one()
+
+            assert (
+                stored_original[
+                    "clearing_date"
+                ]
+                == d1
+            )
+
+            assert Decimal(
+                stored_original[
+                    "cleared_amount"
+                ]
+            ) == Decimal(
+                "120.00"
+            )
+
+            assert (
+                stored_original[
+                    "reversal_of_id"
+                ]
+                is None
+            )
+
+            print(
+                "D1 ORIGINAL EVENT UNCHANGED = PASS"
+            )
+
+        except BaseException as exc:
+            scenario_error = exc
+            scenario_traceback = (
+                sys.exc_info()[
+                    2
+                ]
+            )
+
+        finally:
+            await db.close()
+
+            if transaction.is_active:
+                await transaction.rollback()
+
+    # ======================================================
+    # J. PROVE FULL DATABASE ROLLBACK
+    # ======================================================
+
+    after_counts = (
+        await table_counts()
+    )
+
+    assert (
+        after_counts
+        == baseline_counts
+    ), (
+        "PVC -> 631/371 PostgreSQL E2E rollback "
+        "did not restore exact baseline counts.\n"
+        f"before={baseline_counts}\n"
+        f"after={after_counts}"
+    )
+
+    print(
+        "PVC -> 631/371 FULL TRANSACTION ROLLBACK = PASS"
     )
 
     if scenario_error is not None:

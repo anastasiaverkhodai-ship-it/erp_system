@@ -39,11 +39,15 @@ BUSINESS_SOURCES = (
     "input_vat_fulfillment_bridge_event_id",
     "supplier_advance_clearing_event_id",
     "customer_advance_clearing_event_id",
-    SOURCE,
+    "sales_return_recognition_event_id",
     "sales_return_cost_restoration_event_id",
     "purchase_return_recognition_event_id",
     "purchase_return_vat_adjustment_event_id",
     "purchase_return_input_vat_credit_correction_event_id",
+    "purchase_value_correction_fifo_impact_event_id",
+    "purchase_value_correction_ma_replay_event_id",
+    "purchase_value_correction_vat_adjustment_event_id",
+    "purchase_value_correction_input_vat_credit_correction_event_id",
 )
 
 
@@ -149,10 +153,10 @@ def test_sales_return_source_original_partial_unique_index():
     )
 
 
-def test_business_source_contract_is_14_sources_91_pairs():
+def test_business_source_contract_is_18_sources_153_pairs():
     assert len(
         BUSINESS_SOURCES
-    ) == 14
+    ) == 18
 
     pairs = tuple(
         combinations(
@@ -163,7 +167,7 @@ def test_business_source_contract_is_14_sources_91_pairs():
 
     assert len(
         pairs
-    ) == 91
+    ) == 153
 
     table = JournalEntry.__table__
 
@@ -188,14 +192,22 @@ def test_business_source_contract_is_14_sources_91_pairs():
     )
 
     for left, right in pairs:
-        assert (
+        forward = (
             f"{left} IS NULL "
             f"OR {right} IS NULL"
-            in sql
+        )
+        reverse = (
+            f"{right} IS NULL "
+            f"OR {left} IS NULL"
+        )
+
+        assert (
+            forward in sql
+            or reverse in sql
         )
 
 
-def test_sales_return_source_has_thirteen_exclusion_pairs():
+def test_sales_return_source_has_seventeen_exclusion_pairs():
     table = JournalEntry.__table__
 
     check = next(
@@ -220,5 +232,5 @@ def test_sales_return_source_has_thirteen_exclusion_pairs():
         sql.count(
             SOURCE
         )
-        == 13
+        == 17
     )

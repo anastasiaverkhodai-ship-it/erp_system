@@ -560,14 +560,18 @@ def _validate_source_history_provenance(
             continue
 
         if (
-            event.clearing_date
-            != target.event_date
+            _decimal(
+                target.amount
+            )
+            != ZERO
+            and event.clearing_date
+            < target.event_date
         ):
             raise (
                 SupplierAdvanceClearingDataIntegrityError(
-                    "Supplier advance clearing "
-                    "historical event_date changed "
-                    "unexpectedly"
+                    "Supplier advance clearing historical "
+                    "clearing_date precedes source-eligible "
+                    "event_date"
                 )
             )
 
@@ -662,12 +666,13 @@ def build_supplier_advance_clearing_source_plan(
 
     if (
         current.event_date
-        != normalized_target.event_date
+        < normalized_target.event_date
     ):
         raise (
             SupplierAdvanceClearingDataIntegrityError(
-                "Supplier advance clearing source "
-                "pair event_date changed unexpectedly"
+                "Supplier advance clearing current "
+                "accounting date precedes source-eligible "
+                "event_date"
             )
         )
 
@@ -978,6 +983,51 @@ async def _load_supplier_advance_clearing_events(
     )
 
 
+def _resolve_supplier_advance_clearing_replacement_date(
+    *,
+    source_event_date: date,
+    adjustment_date: date | None,
+) -> date:
+    """
+    Resolve the actual accounting date for a positive persisted
+    supplier-clearing replacement.
+
+    source_event_date is the earliest date supported by the
+    underlying settlement/liability source pair.
+
+    When reconciliation supplies an adjustment date, a new
+    accounting event must not be backdated before that adjustment.
+    """
+
+    if not isinstance(
+        source_event_date,
+        date,
+    ):
+        raise (
+            SupplierAdvanceClearingDataIntegrityError(
+                "source_event_date must be a date"
+            )
+        )
+
+    if adjustment_date is None:
+        return source_event_date
+
+    if not isinstance(
+        adjustment_date,
+        date,
+    ):
+        raise (
+            SupplierAdvanceClearingDataIntegrityError(
+                "adjustment_date must be a date"
+            )
+        )
+
+    return max(
+        source_event_date,
+        adjustment_date,
+    )
+
+
 async def reconcile_supplier_advance_clearing_source(
     db: AsyncSession,
     *,
@@ -1234,7 +1284,14 @@ async def reconcile_supplier_advance_clearing_source(
                     .liability_source_id
                 ),
                 clearing_date=(
-                    replacement.event_date
+                    _resolve_supplier_advance_clearing_replacement_date(
+                        source_event_date=(
+                            replacement.event_date
+                        ),
+                        adjustment_date=(
+                            reversal_date
+                        ),
+                    )
                 ),
                 cleared_amount=(
                     replacement_amount

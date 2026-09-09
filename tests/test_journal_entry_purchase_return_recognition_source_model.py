@@ -47,9 +47,13 @@ BUSINESS_SOURCES = (
     "customer_advance_clearing_event_id",
     "sales_return_recognition_event_id",
     "sales_return_cost_restoration_event_id",
-    SOURCE,
+    "purchase_return_recognition_event_id",
     "purchase_return_vat_adjustment_event_id",
     "purchase_return_input_vat_credit_correction_event_id",
+    "purchase_value_correction_fifo_impact_event_id",
+    "purchase_value_correction_ma_replay_event_id",
+    "purchase_value_correction_vat_adjustment_event_id",
+    "purchase_value_correction_input_vat_credit_correction_event_id",
 )
 
 
@@ -163,10 +167,10 @@ def test_purchase_return_source_original_partial_unique_index():
     )
 
 
-def test_business_source_contract_is_14_sources_91_pairs():
+def test_business_source_contract_is_18_sources_153_pairs():
     assert len(
         BUSINESS_SOURCES
-    ) == 14
+    ) == 18
 
     pairs = tuple(
         combinations(
@@ -177,10 +181,10 @@ def test_business_source_contract_is_14_sources_91_pairs():
 
     assert len(
         pairs
-    ) == 91
+    ) == 153
 
 
-def test_exclusivity_check_contains_exact_91_pairs():
+def test_exclusivity_check_contains_exact_153_pairs():
     constraint = next(
         value
         for value
@@ -217,10 +221,16 @@ def test_exclusivity_check_contains_exact_91_pairs():
         )
     )
 
-    assert actual_pairs == expected_pairs
+    assert {
+        frozenset(pair)
+        for pair in actual_pairs
+    } == {
+        frozenset(pair)
+        for pair in expected_pairs
+    }
 
 
-def test_purchase_return_source_has_13_exclusion_pairs():
+def test_purchase_return_source_has_17_exclusion_pairs():
     constraint = next(
         value
         for value
@@ -259,4 +269,4 @@ def test_purchase_return_source_has_13_exclusion_pairs():
 
     assert len(
         source_pairs
-    ) == 13
+    ) == 17

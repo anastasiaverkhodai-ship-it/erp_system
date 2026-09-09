@@ -135,7 +135,7 @@ def test_legal_correction_source_indexes():
     )
 
 
-def test_business_source_contract_is_14_91_13():
+def test_business_source_contract_is_18_153_17():
     constraint = next(
         item
         for item
@@ -175,11 +175,11 @@ def test_business_source_contract_is_14_91_13():
 
     assert len(
         counts
-    ) == 14
+    ) == 18
 
     assert len(
         tokens
-    ) == 182
+    ) == 306
 
     assert len(
         re.findall(
@@ -187,17 +187,17 @@ def test_business_source_contract_is_14_91_13():
             sql,
             flags=re.IGNORECASE,
         )
-    ) == 91
+    ) == 153
 
     assert set(
         counts.values()
     ) == {
-        13
+        17
     }
 
     assert (
         counts[
             SOURCE
         ]
-        == 13
+        == 17
     )

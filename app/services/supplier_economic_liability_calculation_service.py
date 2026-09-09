@@ -675,3 +675,396 @@ def build_supplier_economic_liability_candidates(
     return tuple(
         candidates
     )
+
+@dataclass(
+    frozen=True,
+    slots=True,
+)
+class SupplierEconomicLiabilityBaseAdjustment:
+    """
+    One signed VAT-exclusive economic base adjustment attached to an
+    InvoiceFulfillmentAllocation supplier-liability source.
+
+    Purchase Value Correction semantics:
+
+        base_delta
+            = corrected allocated base
+            - original allocated base.
+
+    base_delta may be positive, zero, or negative.
+
+    recognition_date is immutable PurchaseValueCorrectionAllocationEvent
+    chronology. It must not precede the underlying receipt economic date.
+
+    recognition_date deliberately does not replace the receipt-based
+    SupplierEconomicLiabilityCandidate.event_date in this pure current-state
+    calculation. Forward-only accounting action dates belong to the
+    supplier-clearing lifecycle, not to 631 capacity reconstruction.
+    """
+
+    source_id: int
+    recognition_date: date
+    base_delta: Decimal
+    currency_code: str
+
+
+def build_supplier_economic_liability_candidates_with_base_adjustments(
+    *,
+    base_targets: tuple[
+        SupplierReceiptBaseAllocationTarget,
+        ...,
+    ],
+    vat_components: tuple[
+        SupplierVatLiabilityComponent,
+        ...,
+    ],
+    base_adjustments: tuple[
+        SupplierEconomicLiabilityBaseAdjustment,
+        ...,
+    ],
+    currency_code: str,
+) -> tuple[
+    SupplierEconomicLiabilityCandidate,
+    ...,
+]:
+    """
+    Build current positive supplier-liability capacity after signed
+    economic Purchase Value Corrections.
+
+    First reconstruct ordinary current economic 631 truth:
+
+        post-return VAT-exclusive receipt base
+        + current economic INPUT VAT.
+
+    Then apply signed Purchase Value Correction base deltas:
+
+        signed source 631
+            = ordinary current source liability
+            + sum(active correction base deltas for that source).
+
+    A signed correction can produce a debit balance for one source.
+    Supplier Advance Clearing accepts only positive liability capacity,
+    therefore source-local clipping is forbidden.
+
+    Instead:
+
+        invoice signed 631
+            = sum(all signed source 631 amounts).
+
+    If invoice signed 631 <= 0:
+        no positive supplier-clearing liability capacity exists.
+
+    If invoice signed 631 > 0:
+        exactly that positive invoice net is distributed across positive
+        source balances in deterministic receipt chronology:
+
+            receipt event_date
+            -> InvoiceFulfillmentAllocation source_id.
+
+    This preserves total current 631 truth while preventing a negative
+    source from being silently discarded.
+
+    The function is pure. It performs no database access, persistence,
+    JournalEntry posting, VAT/RK legal mutation, commit, or rollback.
+    """
+
+    currency = _currency(
+        currency_code
+    )
+
+    normalized_base_targets = tuple(
+        base_targets
+    )
+
+    normalized_vat_components = tuple(
+        vat_components
+    )
+
+    ordinary_candidates = (
+        build_supplier_economic_liability_candidates(
+            base_targets=normalized_base_targets,
+            vat_components=normalized_vat_components,
+            currency_code=currency,
+        )
+    )
+
+    source_dates: dict[
+        int,
+        date,
+    ] = {}
+
+    for target in normalized_base_targets:
+        if not isinstance(
+            target,
+            SupplierReceiptBaseAllocationTarget,
+        ):
+            raise SupplierEconomicLiabilitySourceError(
+                "base target must be "
+                "SupplierReceiptBaseAllocationTarget"
+            )
+
+        source_id = _source_id(
+            target.source_id,
+            label="Base",
+        )
+
+        if source_id in source_dates:
+            raise SupplierEconomicLiabilitySourceError(
+                "Base source_id values must be unique"
+            )
+
+        source_dates[
+            source_id
+        ] = _event_date(
+            target.event_date,
+            label="Base",
+        )
+
+    ordinary_by_source: dict[
+        int,
+        Decimal,
+    ] = {
+        source_id: ZERO
+        for source_id
+        in source_dates
+    }
+
+    for candidate in ordinary_candidates:
+        source_id = _source_id(
+            candidate.source_id,
+            label="Ordinary liability",
+        )
+
+        if source_id not in ordinary_by_source:
+            raise SupplierEconomicLiabilitySourceError(
+                "Ordinary supplier liability has no "
+                "matching receipt-base source"
+            )
+
+        ordinary_by_source[
+            source_id
+        ] = _money(
+            candidate.amount,
+            currency_code=currency,
+            label="Ordinary liability",
+        )
+
+    adjustment_by_source: dict[
+        int,
+        Decimal,
+    ] = {}
+
+    for adjustment in tuple(
+        base_adjustments
+    ):
+        if not isinstance(
+            adjustment,
+            SupplierEconomicLiabilityBaseAdjustment,
+        ):
+            raise SupplierEconomicLiabilitySourceError(
+                "base adjustment must be "
+                "SupplierEconomicLiabilityBaseAdjustment"
+            )
+
+        source_id = _source_id(
+            adjustment.source_id,
+            label="Value correction",
+        )
+
+        if source_id not in source_dates:
+            raise SupplierEconomicLiabilitySourceError(
+                "Value correction adjustment has no "
+                "matching receipt-base source"
+            )
+
+        recognition_date = _event_date(
+            adjustment.recognition_date,
+            label="Value correction",
+        )
+
+        if (
+            recognition_date
+            < source_dates[
+                source_id
+            ]
+        ):
+            raise SupplierEconomicLiabilitySourceError(
+                "Value correction recognition_date "
+                "cannot precede receipt economic date"
+            )
+
+        if (
+            _currency(
+                adjustment.currency_code
+            )
+            != currency
+        ):
+            raise SupplierEconomicLiabilityCurrencyError(
+                "Value correction adjustment currency "
+                "differs from requested currency"
+            )
+
+        base_delta = _money(
+            adjustment.base_delta,
+            currency_code=currency,
+            label="Value correction base delta",
+        )
+
+        adjustment_by_source[
+            source_id
+        ] = _money(
+            (
+                adjustment_by_source.get(
+                    source_id,
+                    ZERO,
+                )
+                + base_delta
+            ),
+            currency_code=currency,
+            label="Accumulated value correction base delta",
+        )
+
+    signed_by_source: dict[
+        int,
+        Decimal,
+    ] = {}
+
+    for source_id in source_dates:
+        signed_by_source[
+            source_id
+        ] = _money(
+            (
+                ordinary_by_source.get(
+                    source_id,
+                    ZERO,
+                )
+                + adjustment_by_source.get(
+                    source_id,
+                    ZERO,
+                )
+            ),
+            currency_code=currency,
+            label="Signed supplier liability",
+        )
+
+    invoice_signed_total = _money(
+        sum(
+            signed_by_source.values(),
+            ZERO,
+        ),
+        currency_code=currency,
+        label="Invoice signed supplier liability",
+    )
+
+    if invoice_signed_total <= ZERO:
+        return ()
+
+    positive_capacity = _money(
+        sum(
+            (
+                amount
+                for amount
+                in signed_by_source.values()
+                if amount > ZERO
+            ),
+            ZERO,
+        ),
+        currency_code=currency,
+        label="Positive supplier liability capacity",
+    )
+
+    if positive_capacity < invoice_signed_total:
+        raise SupplierEconomicLiabilityAmountError(
+            "Positive source liability capacity "
+            "cannot cover invoice signed liability"
+        )
+
+    remaining = invoice_signed_total
+
+    result = []
+
+    ordered_source_ids = tuple(
+        sorted(
+            source_dates,
+            key=lambda source_id: (
+                source_dates[
+                    source_id
+                ],
+                source_id,
+            ),
+        )
+    )
+
+    for source_id in ordered_source_ids:
+        signed_amount = signed_by_source[
+            source_id
+        ]
+
+        if signed_amount <= ZERO:
+            continue
+
+        allocated_amount = min(
+            signed_amount,
+            remaining,
+        )
+
+        allocated_amount = _money(
+            allocated_amount,
+            currency_code=currency,
+            label="Netted supplier liability",
+        )
+
+        if allocated_amount <= ZERO:
+            continue
+
+        result.append(
+            SupplierEconomicLiabilityCandidate(
+                source_id=source_id,
+                event_date=(
+                    source_dates[
+                        source_id
+                    ]
+                ),
+                amount=allocated_amount,
+            )
+        )
+
+        remaining = _money(
+            (
+                remaining
+                - allocated_amount
+            ),
+            currency_code=currency,
+            label="Remaining supplier liability",
+        )
+
+        if remaining == ZERO:
+            break
+
+    if remaining != ZERO:
+        raise SupplierEconomicLiabilityAmountError(
+            "Invoice supplier liability netting "
+            "did not close exactly"
+        )
+
+    actual_total = _money(
+        sum(
+            (
+                candidate.amount
+                for candidate in result
+            ),
+            ZERO,
+        ),
+        currency_code=currency,
+        label="Netted supplier liability total",
+    )
+
+    if actual_total != invoice_signed_total:
+        raise SupplierEconomicLiabilityAmountError(
+            "Netted supplier liability total "
+            "does not equal invoice signed liability"
+        )
+
+    return tuple(
+        result
+    )

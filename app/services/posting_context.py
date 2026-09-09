@@ -111,6 +111,43 @@ class PostingContext:
 
         return dict(value)
 
+    def add_pvc_ma_issue_reconciliation(
+        self,
+        result: object,
+    ) -> None:
+        current = list(
+            self.get_pvc_ma_issue_reconciliations()
+        )
+        current.append(
+            result
+        )
+        self.shared_data[
+            PostingContextKey.PVC_MA_ISSUE_RECONCILIATIONS
+        ] = tuple(
+            current
+        )
+
+    def get_pvc_ma_issue_reconciliations(
+        self,
+    ) -> tuple[object, ...]:
+        value = self.shared_data.get(
+            PostingContextKey.PVC_MA_ISSUE_RECONCILIATIONS
+        )
+
+        if value is None:
+            return ()
+
+        if not isinstance(
+            value,
+            tuple,
+        ):
+            raise TypeError(
+                "Posting context PVC MA reconciliation "
+                "data has invalid type"
+            )
+
+        return value
+
     def set_journal_entry(
         self,
         journal_entry: JournalEntry,

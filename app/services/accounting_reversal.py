@@ -423,6 +423,10 @@ async def reverse_journal_entry(
     purchase_return_recognition_event_id_override: int | None = None,
     purchase_return_vat_adjustment_event_id_override: int | None = None,
     purchase_return_input_vat_credit_correction_event_id_override: int | None = None,
+    purchase_value_correction_vat_adjustment_event_id_override: int | None = None,
+    purchase_value_correction_input_vat_credit_correction_event_id_override: int | None = None,
+    purchase_value_correction_fifo_impact_event_id_override: int | None = None,
+    purchase_value_correction_ma_replay_event_id_override: int | None = None,
 ) -> JournalEntry:
     result = await db.execute(
         select(JournalEntry)
@@ -646,6 +650,57 @@ async def reverse_journal_entry(
                 override_purchase_return_input_vat_credit_correction_event_id=(
                     purchase_return_input_vat_credit_correction_event_id_override
                 ),
+            )
+        ),
+        purchase_value_correction_vat_adjustment_event_id=(
+            purchase_value_correction_vat_adjustment_event_id_override
+            if (
+                purchase_value_correction_vat_adjustment_event_id_override
+                is not None
+            )
+            else getattr(
+                original_entry,
+                "purchase_value_correction_vat_adjustment_event_id",
+                None,
+            )
+        ),
+        purchase_value_correction_input_vat_credit_correction_event_id=(
+            purchase_value_correction_input_vat_credit_correction_event_id_override
+            if (
+                purchase_value_correction_input_vat_credit_correction_event_id_override
+                is not None
+            )
+            else getattr(
+                original_entry,
+                (
+                    "purchase_value_correction_input_vat_"
+                    "credit_correction_event_id"
+                ),
+                None,
+            )
+        ),
+        purchase_value_correction_fifo_impact_event_id=(
+            purchase_value_correction_fifo_impact_event_id_override
+            if (
+                purchase_value_correction_fifo_impact_event_id_override
+                is not None
+            )
+            else getattr(
+                original_entry,
+                "purchase_value_correction_fifo_impact_event_id",
+                None,
+            )
+        ),
+        purchase_value_correction_ma_replay_event_id=(
+            purchase_value_correction_ma_replay_event_id_override
+            if (
+                purchase_value_correction_ma_replay_event_id_override
+                is not None
+            )
+            else getattr(
+                original_entry,
+                "purchase_value_correction_ma_replay_event_id",
+                None,
             )
         ),
         accounting_rule_id=original_entry.accounting_rule_id,

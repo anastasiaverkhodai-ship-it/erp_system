@@ -126,10 +126,13 @@ def test_decrease_runs_before_increase():
     )
 
 
-def test_existing_pair_date_cannot_change():
+def test_existing_pair_accounting_date_cannot_precede_source_floor():
     with pytest.raises(
         SupplierAdvanceClearingReconciliationDataIntegrityError,
-        match="event_date changed",
+        match=(
+            "current accounting date precedes desired "
+            "source-eligible event_date"
+        ),
     ):
         build_supplier_advance_clearing_reconciliation_targets(
             desired_targets=(
@@ -589,6 +592,24 @@ def test_purchase_return_unknown_liability_source_fails_closed():
 async def test_economic_liability_subtracts_return_base_but_keeps_vat(
     monkeypatch,
 ):
+
+    async def no_active_pvc_vat_overlay(
+        db,
+        *,
+        company_id,
+        vat_components,
+        all_invoice_allocations,
+        active_invoice_source_ids,
+        currency_code,
+    ):
+        return vat_components
+
+    monkeypatch.setattr(
+        service,
+        "_apply_purchase_value_correction_vat_to_supplier_components",
+        no_active_pvc_vat_overlay,
+    )
+
     async def no_active_purchase_return_vat(
         *args,
         **kwargs,
@@ -659,6 +680,18 @@ async def test_economic_liability_subtracts_return_base_but_keeps_vat(
         ),
     )
 
+    async def no_active_purchase_value_correction(
+        *args,
+        **kwargs,
+    ):
+        return ()
+
+    monkeypatch.setattr(
+        service,
+        "_load_active_purchase_value_correction_base_adjustments",
+        no_active_purchase_value_correction,
+    )
+
     result = await (
         service
         ._load_supplier_economic_liability_candidates(
@@ -686,6 +719,24 @@ async def test_economic_liability_subtracts_return_base_but_keeps_vat(
 async def test_full_base_return_keeps_current_vat_liability(
     monkeypatch,
 ):
+
+    async def no_active_pvc_vat_overlay(
+        db,
+        *,
+        company_id,
+        vat_components,
+        all_invoice_allocations,
+        active_invoice_source_ids,
+        currency_code,
+    ):
+        return vat_components
+
+    monkeypatch.setattr(
+        service,
+        "_apply_purchase_value_correction_vat_to_supplier_components",
+        no_active_pvc_vat_overlay,
+    )
+
     async def no_active_purchase_return_vat(
         *args,
         **kwargs,
@@ -754,6 +805,18 @@ async def test_full_base_return_keeps_current_vat_liability(
                 ),
             )
         ),
+    )
+
+    async def no_active_purchase_value_correction(
+        *args,
+        **kwargs,
+    ):
+        return ()
+
+    monkeypatch.setattr(
+        service,
+        "_load_active_purchase_value_correction_base_adjustments",
+        no_active_purchase_value_correction,
     )
 
     result = await (
@@ -1071,6 +1134,24 @@ async def test_active_purchase_return_vat_loader_resolves_immutable_history():
 async def test_supplier_liability_loader_applies_active_prvat_reduction(
     monkeypatch,
 ):
+
+    async def no_active_pvc_vat_overlay(
+        db,
+        *,
+        company_id,
+        vat_components,
+        all_invoice_allocations,
+        active_invoice_source_ids,
+        currency_code,
+    ):
+        return vat_components
+
+    monkeypatch.setattr(
+        service,
+        "_apply_purchase_value_correction_vat_to_supplier_components",
+        no_active_pvc_vat_overlay,
+    )
+
     from datetime import date
     from decimal import Decimal
     from types import SimpleNamespace
@@ -1191,6 +1272,18 @@ async def test_supplier_liability_loader_applies_active_prvat_reduction(
         load_return_vat,
     )
 
+    async def no_active_purchase_value_correction(
+        *args,
+        **kwargs,
+    ):
+        return ()
+
+    monkeypatch.setattr(
+        service,
+        "_load_active_purchase_value_correction_base_adjustments",
+        no_active_purchase_value_correction,
+    )
+
     result = (
         await service._load_supplier_economic_liability_candidates(
             object(),
@@ -1222,4 +1315,559 @@ async def test_supplier_liability_loader_applies_active_prvat_reduction(
         == Decimal(
             "75.00"
         )
+    )
+
+
+PVC631_D1 = date(
+    2026,
+    9,
+    1,
+)
+
+PVC631_D2 = date(
+    2026,
+    9,
+    2,
+)
+
+PVC631_D3 = date(
+    2026,
+    9,
+    3,
+)
+
+
+def _pvc631_event(
+    *,
+    event_id,
+    correction_id=100,
+    source_id=10,
+    recognition_date=PVC631_D2,
+    original="100.00",
+    corrected="90.00",
+    reversal_of_id=None,
+):
+    event = (
+        service
+        .PurchaseValueCorrectionAllocationEvent(
+            company_id=1,
+            trade_value_correction_event_id=(
+                correction_id
+            ),
+            invoice_fulfillment_allocation_id=(
+                source_id
+            ),
+            recognition_date=(
+                recognition_date
+            ),
+            original_allocated_base_amount=Decimal(
+                original
+            ),
+            corrected_allocated_base_amount=Decimal(
+                corrected
+            ),
+            currency_code="UAH",
+            created_by=1,
+            reversal_of_id=(
+                reversal_of_id
+            ),
+        )
+    )
+
+    event.id = event_id
+
+    return event
+
+
+def test_pvc631_active_adjustment_decrease():
+    result = (
+        service
+        ._build_active_purchase_value_correction_base_adjustments(
+            events=(
+                _pvc631_event(
+                    event_id=1,
+                ),
+            ),
+            active_source_ids={
+                10,
+            },
+            currency_code="UAH",
+        )
+    )
+
+    assert len(
+        result
+    ) == 1
+
+    assert result[0].source_id == 10
+    assert (
+        result[0].recognition_date
+        == PVC631_D2
+    )
+    assert (
+        result[0].base_delta
+        == Decimal(
+            "-10.00"
+        )
+    )
+
+
+def test_pvc631_reversed_original_contributes_nothing():
+    original = _pvc631_event(
+        event_id=1,
+    )
+
+    reversal = _pvc631_event(
+        event_id=2,
+        recognition_date=PVC631_D3,
+        reversal_of_id=1,
+    )
+
+    result = (
+        service
+        ._build_active_purchase_value_correction_base_adjustments(
+            events=(
+                original,
+                reversal,
+            ),
+            active_source_ids={
+                10,
+            },
+            currency_code="UAH",
+        )
+    )
+
+    assert result == ()
+
+
+def test_pvc631_replacement_after_reversal_is_active():
+    original = _pvc631_event(
+        event_id=1,
+        corrected="90.00",
+    )
+
+    reversal = _pvc631_event(
+        event_id=2,
+        corrected="90.00",
+        recognition_date=PVC631_D3,
+        reversal_of_id=1,
+    )
+
+    replacement = _pvc631_event(
+        event_id=3,
+        recognition_date=PVC631_D3,
+        corrected="95.00",
+    )
+
+    result = (
+        service
+        ._build_active_purchase_value_correction_base_adjustments(
+            events=(
+                original,
+                reversal,
+                replacement,
+            ),
+            active_source_ids={
+                10,
+            },
+            currency_code="UAH",
+        )
+    )
+
+    assert len(
+        result
+    ) == 1
+
+    assert (
+        result[0].base_delta
+        == Decimal(
+            "-5.00"
+        )
+    )
+
+
+def test_pvc631_multiple_independent_corrections_same_ifa_remain_distinct():
+    first = _pvc631_event(
+        event_id=1,
+        correction_id=100,
+        original="100.00",
+        corrected="90.00",
+    )
+
+    second = _pvc631_event(
+        event_id=2,
+        correction_id=101,
+        recognition_date=PVC631_D3,
+        original="90.00",
+        corrected="80.00",
+    )
+
+    result = (
+        service
+        ._build_active_purchase_value_correction_base_adjustments(
+            events=(
+                first,
+                second,
+            ),
+            active_source_ids={
+                10,
+            },
+            currency_code="UAH",
+        )
+    )
+
+    assert tuple(
+        item.base_delta
+        for item in result
+    ) == (
+        Decimal("-10.00"),
+        Decimal("-10.00"),
+    )
+
+
+def test_pvc631_reversal_changed_snapshot_fails_closed():
+    original = _pvc631_event(
+        event_id=1,
+    )
+
+    bad_reversal = _pvc631_event(
+        event_id=2,
+        recognition_date=PVC631_D3,
+        corrected="80.00",
+        reversal_of_id=1,
+    )
+
+    with pytest.raises(
+        service
+        .SupplierAdvanceClearingReconciliationDataIntegrityError,
+        match="immutable monetary state",
+    ):
+        (
+            service
+            ._build_active_purchase_value_correction_base_adjustments(
+                events=(
+                    original,
+                    bad_reversal,
+                ),
+                active_source_ids={
+                    10,
+                },
+                currency_code="UAH",
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_pvc631_empty_active_sources_skip_database():
+    class ForbiddenDb:
+        async def execute(
+            self,
+            statement,
+        ):
+            raise AssertionError(
+                "DB must not be queried"
+            )
+
+    result = (
+        await service
+        ._load_active_purchase_value_correction_base_adjustments(
+            ForbiddenDb(),
+            company_id=1,
+            active_source_ids=set(),
+            currency_code="UAH",
+        )
+    )
+
+    assert result == ()
+
+
+@pytest.mark.asyncio
+async def test_pvc631_supplier_liability_loader_wires_adjustments(
+    monkeypatch,
+):
+    class Obj:
+        def __init__(
+            self,
+            **values,
+        ):
+            for key, value in values.items():
+                setattr(
+                    self,
+                    key,
+                    value,
+                )
+
+    invoice = Obj(
+        company_id=1,
+    )
+
+    allocation = Obj(
+        id=10,
+        status=(
+            service
+            .InvoiceFulfillmentAllocationStatus
+            .ACTIVE
+        ),
+    )
+
+    async def peers(
+        db,
+        *,
+        company_id,
+        active_invoice_allocations,
+    ):
+        return (
+            "peer",
+        )
+
+    def base_targets(
+        *,
+        peers,
+        invoice_source_ids,
+        currency_code,
+    ):
+        return (
+            service
+            .SupplierReceiptBaseAllocationTarget(
+                source_id=10,
+                event_date=PVC631_D1,
+                amount=Decimal(
+                    "100.00"
+                ),
+                currency_code="UAH",
+            ),
+        )
+
+    async def return_base(
+        db,
+        *,
+        company_id,
+        active_source_ids,
+        currency_code,
+    ):
+        return {}
+
+    def apply_return_base(
+        *,
+        base_targets,
+        active_return_base_by_source,
+        currency_code,
+    ):
+        return base_targets
+
+    async def vat_components(
+        db,
+        *,
+        company_id,
+        all_invoice_allocations,
+        active_invoice_source_ids,
+        currency_code,
+    ):
+        return ()
+
+    async def return_vat(
+        db,
+        *,
+        company_id,
+        active_source_ids,
+        currency_code,
+    ):
+        return {}
+
+    def apply_return_vat(
+        *,
+        vat_components,
+        active_return_vat_by_source,
+        currency_code,
+    ):
+        return vat_components
+
+    expected_adjustment = (
+        service
+        .SupplierEconomicLiabilityBaseAdjustment(
+            source_id=10,
+            recognition_date=PVC631_D2,
+            base_delta=Decimal(
+                "-10.00"
+            ),
+            currency_code="UAH",
+        )
+    )
+
+    async def pvc_adjustments(
+        db,
+        *,
+        company_id,
+        active_source_ids,
+        currency_code,
+    ):
+        assert active_source_ids == {
+            10,
+        }
+
+        return (
+            expected_adjustment,
+        )
+
+    captured = {}
+
+    def adjusted_builder(
+        *,
+        base_targets,
+        vat_components,
+        base_adjustments,
+        currency_code,
+    ):
+        captured[
+            "base_targets"
+        ] = base_targets
+
+        captured[
+            "vat_components"
+        ] = vat_components
+
+        captured[
+            "base_adjustments"
+        ] = base_adjustments
+
+        captured[
+            "currency_code"
+        ] = currency_code
+
+        return ()
+
+    monkeypatch.setattr(
+        service,
+        "_load_receipt_peer_snapshots",
+        peers,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "build_supplier_receipt_base_targets_for_invoice",
+        base_targets,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_load_active_purchase_return_base_by_source",
+        return_base,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "apply_purchase_return_base_to_supplier_receipt_targets",
+        apply_return_base,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_load_supplier_vat_components",
+        vat_components,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_load_active_purchase_return_vat_by_source",
+        return_vat,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "apply_purchase_return_vat_to_supplier_vat_components",
+        apply_return_vat,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_load_active_purchase_value_correction_base_adjustments",
+        pvc_adjustments,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "build_supplier_economic_liability_candidates_with_base_adjustments",
+        adjusted_builder,
+    )
+
+    result = (
+        await service
+        ._load_supplier_economic_liability_candidates(
+            object(),
+            invoice=invoice,
+            all_invoice_allocations=(
+                allocation,
+            ),
+            currency_code="UAH",
+        )
+    )
+
+    assert result == ()
+
+    assert (
+        captured[
+            "base_adjustments"
+        ]
+        == (
+            expected_adjustment,
+        )
+    )
+
+    assert (
+        captured[
+            "currency_code"
+        ]
+        == "UAH"
+    )
+
+
+def test_later_current_accounting_date_allows_earlier_source_floor_noop():
+    current = clearing_target(
+        event_date=D3,
+        amount="60.00",
+    )
+
+    desired = clearing_target(
+        event_date=D2,
+        amount="60.00",
+    )
+
+    result = (
+        build_supplier_advance_clearing_reconciliation_targets(
+            desired_targets=(
+                desired,
+            ),
+            current_targets=(
+                current,
+            ),
+        )
+    )
+
+    assert result == ()
+
+
+def test_later_current_accounting_date_allows_changed_source_floor_target():
+    current = clearing_target(
+        event_date=D3,
+        amount="60.00",
+    )
+
+    desired = clearing_target(
+        event_date=D2,
+        amount="40.00",
+    )
+
+    result = (
+        build_supplier_advance_clearing_reconciliation_targets(
+            desired_targets=(
+                desired,
+            ),
+            current_targets=(
+                current,
+            ),
+        )
+    )
+
+    assert result == (
+        desired,
     )

@@ -18,6 +18,12 @@ from app.models.stock_ledger import (
 from app.models.trade_return_event import (
     TradeReturnEvent,
 )
+from app.services.purchase_value_correction_moving_average_sales_return_reconciliation_service import (
+    reconcile_purchase_value_correction_moving_average_sales_return,
+)
+from app.services.purchase_value_correction_moving_average_lifecycle_service import (
+    post_created_purchase_value_correction_moving_average_sales_return_journals,
+)
 from app.services.customer_advance_clearing_lifecycle_service import (
     CustomerAdvanceClearingLifecycleError,
     reconcile_customer_advance_clearing_lifecycle_for_invoice,
@@ -40,6 +46,9 @@ from app.services.sales_return_warehouse_quantity_service import (
     SalesReturnWarehouseQuantityError,
     apply_sales_return_warehouse_quantity_event,
 )
+
+from app.services.purchase_value_correction_moving_average_sales_return_reconciliation_service import PurchaseValueCorrectionMovingAverageSalesReturnReconciliationError
+from app.services.purchase_value_correction_moving_average_lifecycle_service import PurchaseValueCorrectionMovingAverageLifecycleError
 
 
 class SalesReturnOperationalError(
@@ -550,6 +559,80 @@ async def _apply_loaded_sales_return_operational_event(
     except SalesReturnCostRestorationLifecycleError as exc:
         raise SalesReturnOperationalError(
             "Sales Return cost + COGS lifecycle failed: "
+            f"{exc}"
+        ) from exc
+
+    # PVC moving-average Sales Return reconciliation intentionally runs
+    # AFTER base cost restoration and its COGS JournalEntry.
+    #
+    # The Sales Return PVC source loader rejects reversal events as
+    # anchors. Therefore:
+    #
+    #   original / replacement -> anchor is event.id
+    #   reversal               -> anchor is event.reversal_of_id
+    #
+    # For reversal + replacement, the later replacement overwrites the
+    # same ICE key. For a pure reversal, the historical original is the
+    # anchor and the loader derives the final ACTIVE return state from
+    # immutable history.
+    #
+    # This avoids intermediate overlay churn and reconciles once per ICE.
+    pvc_ma_return_results = []
+
+    latest_wam_cost_anchor_by_ice = {}
+
+    for cost_event in cost_result.created_events:
+        if cost_event.valuation_method != 'weighted_average_moving':
+            continue
+
+        anchor_event_id = (
+            cost_event.reversal_of_id
+            if cost_event.reversal_of_id is not None
+            else cost_event.id
+        )
+
+        if anchor_event_id is None or anchor_event_id <= 0:
+            raise SalesReturnOperationalError(
+                "Sales Return WAM cost event has invalid "
+                "PVC reconciliation anchor"
+            )
+
+        latest_wam_cost_anchor_by_ice[
+            cost_event.inventory_cost_entry_id
+        ] = anchor_event_id
+
+    try:
+        for cost_restoration_event_id in (
+            latest_wam_cost_anchor_by_ice.values()
+        ):
+            pvc_ma_result = (
+                await reconcile_purchase_value_correction_moving_average_sales_return(
+                    db,
+                    company_id=company_id,
+                    cost_restoration_event_id=(
+                        cost_restoration_event_id
+                    ),
+                    adjustment_date=event.return_date,
+                    created_by=created_by,
+                )
+            )
+
+            await post_created_purchase_value_correction_moving_average_sales_return_journals(
+                db,
+                result=pvc_ma_result,
+                created_by=created_by,
+            )
+
+            pvc_ma_return_results.append(
+                pvc_ma_result
+            )
+
+    except (
+        PurchaseValueCorrectionMovingAverageSalesReturnReconciliationError,
+        PurchaseValueCorrectionMovingAverageLifecycleError,
+    ) as exc:
+        raise SalesReturnOperationalError(
+            "Sales Return PVC moving-average lifecycle failed: "
             f"{exc}"
         ) from exc
 

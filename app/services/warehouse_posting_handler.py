@@ -1,9 +1,16 @@
 from decimal import Decimal
 
+from app.models.company import (
+    InventoryValuationMethod,
+)
 from app.models.document import DocumentType
 from app.models.stock_ledger import (
     StockLedger,
     StockMovementType,
+)
+from app.services.purchase_value_correction_moving_average_issue_integration_service import (
+    PurchaseValueCorrectionMovingAverageIssueIntegrationError,
+    reconcile_purchase_value_correction_moving_average_after_issue,
 )
 from app.services.inventory_costing import (
     InventoryCostingError,
@@ -172,6 +179,7 @@ class WarehousePostingHandler:
                         db=db,
                         document=document,
                         line=line,
+                        created_by=context.created_by,
                     )
                 except InventoryCostingError as exc:
                     raise WarehousePostingHandlerError(
@@ -182,3 +190,33 @@ class WarehousePostingHandler:
                     document_line_id=line.id,
                     cost_entry=cost_entry,
                 )
+
+                if (
+                    cost_entry.valuation_method
+                    == InventoryValuationMethod.WEIGHTED_AVERAGE_MOVING
+                ):
+                    try:
+                        pvc_ma_result = (
+                            await reconcile_purchase_value_correction_moving_average_after_issue(
+                                db=db,
+                                company_id=context.company_id,
+                                product_id=line.product_id,
+                                warehouse_id=line.warehouse_id,
+                                issue_date=context.operation_date,
+                                created_by=context.created_by,
+                            )
+                        )
+                    except (
+                        PurchaseValueCorrectionMovingAverageIssueIntegrationError
+                    ) as exc:
+                        raise WarehousePostingHandlerError(
+                            str(exc)
+                        ) from exc
+
+                    if (
+                        pvc_ma_result.reconciliation_result
+                        is not None
+                    ):
+                        context.add_pvc_ma_issue_reconciliation(
+                            pvc_ma_result.reconciliation_result
+                        )

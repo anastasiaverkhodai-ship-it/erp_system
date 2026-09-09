@@ -283,7 +283,7 @@ def test_duplicate_active_pair_fails_closed():
         )
 
 
-def test_historical_event_date_cannot_change():
+def test_historical_accounting_date_cannot_precede_source_floor():
     original = event(
         event_id=1,
     )
@@ -296,7 +296,10 @@ def test_historical_event_date_cannot_change():
 
     with pytest.raises(
         SupplierAdvanceClearingDataIntegrityError,
-        match="historical event_date",
+        match=(
+            "historical clearing_date precedes "
+            "source-eligible event_date"
+        ),
     ):
         build_supplier_advance_clearing_source_plan(
             events=(
@@ -481,7 +484,7 @@ async def test_executor_changed_amount_reverses_and_replaces(
 
     assert (
         replacement.clearing_date
-        == D1
+        == D2
     )
 
     assert (
@@ -722,4 +725,88 @@ async def test_get_persistent_target(
         settlement_source_id=10,
         liability_source_id=20,
         lock_rows=False,
+    )
+
+
+def test_forward_only_replacement_date_uses_adjustment_date():
+    result = (
+        service
+        ._resolve_supplier_advance_clearing_replacement_date(
+            source_event_date=D1,
+            adjustment_date=D2,
+        )
+    )
+
+    assert result == D2
+
+
+def test_forward_only_replacement_date_never_precedes_source_date():
+    result = (
+        service
+        ._resolve_supplier_advance_clearing_replacement_date(
+            source_event_date=D2,
+            adjustment_date=D1,
+        )
+    )
+
+    assert result == D2
+
+
+def test_later_accounting_date_is_valid_for_same_source_floor():
+    plan = (
+        build_supplier_advance_clearing_source_plan(
+            events=(
+                event(
+                    event_id=1,
+                    clearing_date=D2,
+                ),
+            ),
+            target=target(
+                event_date=D1,
+            ),
+            currency_code="UAH",
+        )
+    )
+
+    assert plan.is_noop
+
+
+def test_zero_target_after_forward_replacement_can_reverse():
+    history = (
+        event(
+            event_id=1,
+            clearing_date=D1,
+        ),
+        event(
+            event_id=2,
+            clearing_date=D2,
+            reversal_of_id=1,
+        ),
+        event(
+            event_id=3,
+            clearing_date=D2,
+        ),
+    )
+
+    plan = (
+        build_supplier_advance_clearing_source_plan(
+            events=history,
+            target=target(
+                event_date=D2,
+                amount="0.00",
+            ),
+            currency_code="UAH",
+        )
+    )
+
+    assert (
+        plan.reversal_event_ids
+        == (
+            3,
+        )
+    )
+
+    assert (
+        plan.replacement_target
+        is None
     )

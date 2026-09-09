@@ -18,6 +18,14 @@ from app.services import (
 )
 
 
+
+async def fake_load_original_ma_issues(
+    *args,
+    **kwargs,
+):
+    return ()
+
+
 class FakeDB:
     def __init__(self):
         self.flush_count = 0
@@ -249,6 +257,13 @@ async def test_atomic_partial_fulfillment_reversal(
 
         return reversed_document
 
+    async def fake_load_original_ma_issues(
+        *args,
+        **kwargs,
+    ):
+        return ()
+
+
     async def fake_reserve(
         db,
         *,
@@ -310,6 +325,12 @@ async def test_atomic_partial_fulfillment_reversal(
         service,
         "reverse_document_for_trade_fulfillment",
         fake_reverse,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "load_original_moving_average_issues_for_document",
+        fake_load_original_ma_issues,
     )
 
     monkeypatch.setattr(
@@ -470,6 +491,12 @@ async def test_reversal_from_fulfilled_returns_partial(
         "reverse_document_for_trade_fulfillment",
         reverse,
     )
+    monkeypatch.setattr(
+        service,
+        "load_original_moving_average_issues_for_document",
+        fake_load_original_ma_issues,
+    )
+
     monkeypatch.setattr(
         service,
         "reserve_source_line",
