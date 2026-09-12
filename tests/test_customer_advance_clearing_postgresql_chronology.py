@@ -42,7 +42,6 @@ from app.models.document import (
 from app.models.document_line import (
     DocumentLine,
 )
-from app.models.payment import Payment
 from app.models.sales_recognition_event import (
     SalesRecognitionEvent,
 )
@@ -66,12 +65,17 @@ from app.services.invoice_fulfillment_allocation_service import (
     create_invoice_fulfillment_allocation,
 )
 from app.services.payment_lifecycle_service import (
+    PaymentStatusError,
+    cancel_payment,
     confirm_payment,
+    create_payment_draft,
 )
 from app.services.payment_settlement_service import (
+    PaymentSettlementReversalStateError,
     create_payment_settlement_allocation,
     get_open_item_settlement_balance,
     get_payment_settlement_reconciliation,
+    reverse_payment_settlement_allocation,
 )
 from app.services.payment_types import (
     PaymentDirection,
@@ -203,7 +207,10 @@ async def gl_snapshot(
                     COALESCE(
                         SUM(
                             CASE
-                                WHEN je.status = 'posted'
+                                WHEN je.status IN (
+                                    'posted',
+                                    'reversed'
+                                )
                                 THEN jel.debit
                                 ELSE 0
                             END
@@ -213,7 +220,10 @@ async def gl_snapshot(
                     COALESCE(
                         SUM(
                             CASE
-                                WHEN je.status = 'posted'
+                                WHEN je.status IN (
+                                    'posted',
+                                    'reversed'
+                                )
                                 THEN jel.credit
                                 ELSE 0
                             END
@@ -379,6 +389,7 @@ async def assert_journal_posting(
     *,
     journal_entry_id: int,
     expected,
+    expected_reversal_of_id: int | None = None,
 ):
     header = (
         await db.execute(
@@ -412,7 +423,7 @@ async def assert_journal_posting(
 
     assert (
         header["reversal_of_id"]
-        is None
+        == expected_reversal_of_id
     )
 
     rows = (
@@ -935,35 +946,10 @@ async def create_business_fixture(
         original_amount=ONE_TWENTY,
     )
 
-    payment = Payment(
-        company_id=COMPANY_ID,
-        counterparty_id=customer.id,
-        contract_id=contract.id,
-        number=(
-            "CAC-PAYMENT-"
-            + token
-        ),
-        direction=(
-            PaymentDirection.INCOMING
-        ),
-        status=(
-            PaymentStatus.DRAFT
-        ),
-        payment_date=BUSINESS_DATE,
-        currency_code=CURRENCY,
-        amount=ONE_TWENTY,
-        external_reference=None,
-        description=(
-            "Customer advance chronology E2E"
-        ),
-        created_by=USER_ID,
-    )
 
-    db.add_all(
-        [
-            open_item,
-            payment,
-        ]
+
+    db.add(
+        open_item
     )
 
     await db.flush()
@@ -1069,6 +1055,30 @@ async def create_business_fixture(
                 fulfillment_line,
             )
         )
+
+    payment = await create_payment_draft(
+        db,
+        company_id=COMPANY_ID,
+        counterparty_id=customer.id,
+        contract_id=contract.id,
+        number=f"PAY-{uuid4().hex[:12]}",
+        direction=PaymentDirection.INCOMING,
+        payment_date=BUSINESS_DATE,
+        currency_code=CURRENCY,
+        amount=ONE_TWENTY,
+        created_by=USER_ID,
+        external_reference=None,
+        description=(
+            "Customer advance payment-first "
+            "PostgreSQL chronology"
+        ),
+    )
+
+    assert payment.id is not None
+    assert (
+        enum_value(payment.status)
+        == PaymentStatus.DRAFT.value
+    )
 
     return {
         "customer": customer,
@@ -1241,6 +1251,38 @@ async def test_customer_advance_payment_first_chronology_postgresql():
                 },
             )
 
+            # ==================================================
+            # A1. CONFIRM RE-ENTRY MUST BE REJECTED
+            #
+            # Confirmation is not an idempotent command.
+            # Only DRAFT -> CONFIRMED is legal.
+            # Existing Payment JE must remain unique.
+            # ==================================================
+            with pytest.raises(
+                PaymentStatusError,
+                match=(
+                    "Only draft Payments can be confirmed"
+                ),
+            ):
+                await confirm_payment(
+                    db,
+                    company_id=COMPANY_ID,
+                    payment_id=payment.id,
+                    confirmed_by=USER_ID,
+                )
+
+            payment_journals_after_reconfirm = (
+                await journal_ids_for_source(
+                    db,
+                    source_kind="payment",
+                    source_id=payment.id,
+                )
+            )
+
+            assert payment_journals_after_reconfirm == (
+                payment_journal_id,
+            )
+
             after_payment = (
                 await gl_snapshot(
                     db
@@ -1303,6 +1345,41 @@ async def test_customer_advance_payment_first_chronology_postgresql():
                     settlement.status
                 )
                 == "active"
+            )
+
+            # ==================================================
+            # B1. ACTIVE SETTLEMENT BLOCKS PAYMENT CANCELLATION
+            # ==================================================
+            with pytest.raises(
+                PaymentStatusError,
+                match=(
+                    "Payment has ACTIVE settlement "
+                    "allocations; reverse them before "
+                    "cancellation"
+                ),
+            ):
+                await cancel_payment(
+                    db,
+                    company_id=COMPANY_ID,
+                    payment_id=payment.id,
+                    cancelled_by=USER_ID,
+                )
+
+            assert (
+                enum_value(payment.status)
+                == PaymentStatus.CONFIRMED.value
+            )
+
+            payment_journals_after_blocked_cancel = (
+                await journal_ids_for_source(
+                    db,
+                    source_kind="payment",
+                    source_id=payment.id,
+                )
+            )
+
+            assert payment_journals_after_blocked_cancel == (
+                payment_journal_id,
             )
 
             settlement_journals = (
@@ -1993,6 +2070,399 @@ async def test_customer_advance_payment_first_chronology_postgresql():
                 ),
                 ZERO_MONEY,
             ) == ONE_TWENTY
+
+            # ==================================================
+            # F. REVERSE COMMERCIAL SETTLEMENT
+            #
+            # Full economic sales recognition already exists.
+            # Reversing settlement must restore an unpaid
+            # receivable and reverse customer clearing history.
+            # ==================================================
+            reversed_settlement = (
+                await reverse_payment_settlement_allocation(
+                    db,
+                    company_id=COMPANY_ID,
+                    allocation_id=settlement.id,
+                    reversed_by=USER_ID,
+                )
+            )
+
+            assert (
+                enum_value(
+                    reversed_settlement.status
+                )
+                == "reversed"
+            )
+
+            reversed_open_item_balance = (
+                await get_open_item_settlement_balance(
+                    db,
+                    company_id=COMPANY_ID,
+                    open_item_id=(
+                        fixture[
+                            "open_item"
+                        ].id
+                    ),
+                )
+            )
+
+            assert (
+                Decimal(
+                    reversed_open_item_balance
+                    .settled_amount
+                )
+                == ZERO_MONEY
+            )
+
+            assert (
+                Decimal(
+                    reversed_open_item_balance
+                    .open_amount
+                )
+                == ONE_TWENTY
+            )
+
+            clearing_after_settlement_reversal = (
+                await load_customer_clearing_events(
+                    db,
+                    settlement_id=settlement.id,
+                )
+            )
+
+            original_clearing_ids = {
+                event.id
+                for event
+                in final_clearing_events
+            }
+
+            clearing_reversals = tuple(
+                event
+                for event
+                in clearing_after_settlement_reversal
+                if event.reversal_of_id is not None
+            )
+
+            assert len(
+                clearing_reversals
+            ) == 2
+
+            assert {
+                event.reversal_of_id
+                for event
+                in clearing_reversals
+            } == original_clearing_ids
+
+            assert sum(
+                (
+                    Decimal(
+                        event.cleared_amount
+                    )
+                    for event
+                    in clearing_reversals
+                ),
+                ZERO_MONEY,
+            ) == ONE_TWENTY
+
+            after_settlement_reversal = (
+                await gl_snapshot(
+                    db
+                )
+            )
+
+            # Immutable ledger history includes both:
+            #
+            #   original JE (POSTED or later REVERSED)
+            #   separate POSTED reversal JE
+            #
+            # Draft entries remain excluded.
+            #
+            # Gross history after settlement reversal:
+            #
+            # Payment:
+            #   Dr 311 120 / Cr 681 120
+            #
+            # Sales:
+            #   Dr 361 120 / Cr 702 120
+            #
+            # Original clearing:
+            #   Dr 681 120 / Cr 361 120
+            #
+            # Clearing reversal:
+            #   Dr 361 120 / Cr 681 120
+            #
+            # Net:
+            #   311 = Dr 120
+            #   361 = Dr 120
+            #   681 = Cr 120
+            #   702 = Cr 120
+            assert_gl_delta(
+                before=gl_baseline,
+                after=after_settlement_reversal,
+                expected={
+                    "311": (
+                        ONE_TWENTY,
+                        ZERO_MONEY,
+                    ),
+                    "361": (
+                        ONE_TWENTY * 2,
+                        ONE_TWENTY,
+                    ),
+                    "681": (
+                        ONE_TWENTY,
+                        ONE_TWENTY * 2,
+                    ),
+                    "702": (
+                        ZERO_MONEY,
+                        ONE_TWENTY,
+                    ),
+                },
+            )
+
+            # Reversing an already REVERSED commercial
+            # settlement is an illegal transition.
+            with pytest.raises(
+                PaymentSettlementReversalStateError,
+                match=(
+                    "Only ACTIVE settlement allocation "
+                    "can be reversed"
+                ),
+            ):
+                await reverse_payment_settlement_allocation(
+                    db,
+                    company_id=COMPANY_ID,
+                    allocation_id=settlement.id,
+                    reversed_by=USER_ID,
+                )
+
+            # ==================================================
+            # G. CANCEL CONFIRMED PAYMENT AFTER SETTLEMENT
+            #    HAS BEEN REVERSED
+            #
+            # Original JE remains immutable.
+            # Cancellation creates a reversing JE:
+            #
+            #     Dr 681 120
+            #     Cr 311 120
+            # ==================================================
+            cancelled_payment = await cancel_payment(
+                db,
+                company_id=COMPANY_ID,
+                payment_id=payment.id,
+                cancelled_by=USER_ID,
+            )
+
+            assert (
+                enum_value(
+                    cancelled_payment.status
+                )
+                == PaymentStatus.CANCELLED.value
+            )
+
+            assert (
+                cancelled_payment.cancelled_by
+                == USER_ID
+            )
+
+            assert (
+                cancelled_payment.cancelled_at
+                is not None
+            )
+
+            reversal_rows = (
+                await db.execute(
+                    text(
+                        '''
+                        SELECT id
+                        FROM journal_entries
+                        WHERE company_id = :company_id
+                          AND reversal_of_id = :original_id
+                        ORDER BY id
+                        '''
+                    ),
+                    {
+                        "company_id": COMPANY_ID,
+                        "original_id": (
+                            payment_journal_id
+                        ),
+                    },
+                )
+            ).scalars().all()
+
+            assert len(
+                reversal_rows
+            ) == 1
+
+            payment_reversal_journal_id = (
+                reversal_rows[0]
+            )
+
+            await assert_journal_posting(
+                db,
+                journal_entry_id=(
+                    payment_reversal_journal_id
+                ),
+                expected={
+                    "311": (
+                        ZERO_MONEY,
+                        ONE_TWENTY,
+                    ),
+                    "681": (
+                        ONE_TWENTY,
+                        ZERO_MONEY,
+                    ),
+                },
+                expected_reversal_of_id=(
+                    payment_journal_id
+                ),
+            )
+
+            final_after_payment_cancel = (
+                await gl_snapshot(
+                    db
+                )
+            )
+
+            # Payment cancellation adds:
+            #   Dr 681 120 / Cr 311 120
+            #
+            # The original payment JE is retained as REVERSED;
+            # the cancellation JE is retained as POSTED.
+            #
+            # Therefore gross immutable history is:
+            #
+            #   311 Dr120 / Cr120
+            #   361 Dr240 / Cr120
+            #   681 Dr240 / Cr240
+            #   702 Dr0   / Cr120
+            #
+            # Net final business state:
+            #
+            #   311 = 0
+            #   681 = 0
+            #   361 = Dr120
+            #   702 = Cr120
+            assert_gl_delta(
+                before=gl_baseline,
+                after=final_after_payment_cancel,
+                expected={
+                    "311": (
+                        ONE_TWENTY,
+                        ONE_TWENTY,
+                    ),
+                    "361": (
+                        ONE_TWENTY * 2,
+                        ONE_TWENTY,
+                    ),
+                    "681": (
+                        ONE_TWENTY * 2,
+                        ONE_TWENTY * 2,
+                    ),
+                    "702": (
+                        ZERO_MONEY,
+                        ONE_TWENTY,
+                    ),
+                },
+            )
+
+            # Final business meaning:
+            #
+            # payment cancelled
+            # settlement reversed
+            # customer clearing reversed
+            # sales remains recognized
+            # receivable 361 = 120 remains outstanding.
+
+            final_open_item_balance = (
+                await get_open_item_settlement_balance(
+                    db,
+                    company_id=COMPANY_ID,
+                    open_item_id=(
+                        fixture[
+                            "open_item"
+                        ].id
+                    ),
+                )
+            )
+
+            assert (
+                Decimal(
+                    final_open_item_balance
+                    .settled_amount
+                )
+                == ZERO_MONEY
+            )
+
+            assert (
+                Decimal(
+                    final_open_item_balance
+                    .open_amount
+                )
+                == ONE_TWENTY
+            )
+
+            # CANCELLED is terminal for this lifecycle.
+            with pytest.raises(
+                PaymentStatusError,
+                match=(
+                    "Only draft or confirmed Payments "
+                    "can be cancelled"
+                ),
+            ):
+                await cancel_payment(
+                    db,
+                    company_id=COMPANY_ID,
+                    payment_id=payment.id,
+                    cancelled_by=USER_ID,
+                )
+
+            reversal_rows_after_recancel = (
+                await db.execute(
+                    text(
+                        '''
+                        SELECT id
+                        FROM journal_entries
+                        WHERE company_id = :company_id
+                          AND reversal_of_id = :original_id
+                        ORDER BY id
+                        '''
+                    ),
+                    {
+                        "company_id": COMPANY_ID,
+                        "original_id": (
+                            payment_journal_id
+                        ),
+                    },
+                )
+            ).scalars().all()
+
+            assert reversal_rows_after_recancel == (
+                reversal_rows
+            )
+
+            print(
+                "CONFIRM RE-ENTRY REJECTED = PASS"
+            )
+            print(
+                "ACTIVE SETTLEMENT CANCEL BLOCK = PASS"
+            )
+            print(
+                "SETTLEMENT REVERSAL = PASS"
+            )
+            print(
+                "CUSTOMER CLEARING REVERSALS = PASS"
+            )
+            print(
+                "PAYMENT CANCELLATION = PASS"
+            )
+            print(
+                "PAYMENT JE REVERSAL Dr681 / Cr311 = PASS"
+            )
+            print(
+                "CANCEL RE-ENTRY REJECTED = PASS"
+            )
+            print(
+                "FINAL RECEIVABLE 361 = 120 = PASS"
+            )
 
             print(
                 "PAYMENT Dr311 / Cr681 = PASS"

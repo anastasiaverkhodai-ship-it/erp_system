@@ -32,7 +32,10 @@ from app.services.invoice_fulfillment_allocation_service import (
 )
 
 from app.services.payment_lifecycle_service import (
+    PaymentStatusError,
+    cancel_payment,
     confirm_payment,
+    create_payment_draft,
 )
 
 from app.services.payment_settlement_service import (
@@ -273,6 +276,7 @@ async def assert_journal_posting(
     *,
     journal_entry_id,
     expected,
+    expected_reversal_of_id=None,
 ):
     rows = (
         await db.execute(
@@ -325,6 +329,28 @@ async def assert_journal_posting(
     }
 
     assert actual == expected
+
+    reversal_of_id = (
+        await db.execute(
+            text(
+                """
+                SELECT reversal_of_id
+                FROM journal_entries
+                WHERE id = :journal_entry_id
+                """
+            ),
+            {
+                "journal_entry_id": (
+                    journal_entry_id
+                ),
+            },
+        )
+    ).scalar_one()
+
+    assert (
+        reversal_of_id
+        == expected_reversal_of_id
+    )
 
 
 async def supplier_events(
@@ -1123,52 +1149,26 @@ async def create_business_fixture(
         },
     )
 
-    payment_id = await scalar(
+    payment = await create_payment_draft(
         db,
-        """
-        INSERT INTO payments (
-            company_id,
-            counterparty_id,
-            contract_id,
-            number,
-            direction,
-            status,
-            payment_date,
-            currency_code,
-            amount,
-            created_by
-        )
-        VALUES (
-            :company_id,
-            :counterparty_id,
-            NULL,
-            :number,
-            'outgoing',
-            'draft',
-            :payment_date,
-            'UAH',
-            120.00,
-            :created_by
-        )
-        RETURNING id
-        """,
-        {
-            "company_id": (
-                COMPANY_ID
-            ),
-            "counterparty_id": (
-                supplier_id
-            ),
-            "number": (
-                "PAY-E2E-"
-                + suffix
-            ),
-            "payment_date": (
-                business_date
-            ),
-            "created_by": USER_ID,
-        },
+        company_id=COMPANY_ID,
+        counterparty_id=supplier_id,
+        contract_id=None,
+        number=(
+            "PAY-E2E-"
+            + suffix
+        ),
+        direction="outgoing",
+        payment_date=business_date,
+        currency_code="UAH",
+        amount=Decimal(
+            "120.00"
+        ),
+        created_by=USER_ID,
+        external_reference=None,
+        description=None,
     )
+    payment_id = payment.id
 
     return {
         "suffix": suffix,
@@ -2067,6 +2067,9 @@ async def test_supplier_advance_payment_first_chronology_postgresql():
                         ),
                     ),
                 },
+                expected_reversal_of_id=(
+                    second_clearing_journal
+                ),
             )
 
             after_allocation_reversal = (
@@ -2113,6 +2116,52 @@ async def test_supplier_advance_payment_first_chronology_postgresql():
             print(
                 "FULFILLMENT ALLOCATION REVERSAL: "
                 "Dr371 / Cr631 = 60 = PASS"
+            )
+
+            # ==================================================
+            # E2. ACTIVE SETTLEMENT BLOCKS PAYMENT CANCELLATION
+            # ==================================================
+
+            with pytest.raises(
+                PaymentStatusError,
+                match=(
+                    "Payment has ACTIVE settlement "
+                    "allocations; reverse them before "
+                    "cancellation"
+                ),
+            ):
+                await cancel_payment(
+                    db,
+                    company_id=COMPANY_ID,
+                    payment_id=fixture[
+                        "payment_id"
+                    ],
+                    cancelled_by=USER_ID,
+                )
+
+            payment_status_after_blocked_cancel = (
+                await scalar(
+                    db,
+                    """
+                    SELECT status
+                    FROM payments
+                    WHERE id = :payment_id
+                    """,
+                    {
+                        "payment_id": fixture[
+                            "payment_id"
+                        ],
+                    },
+                )
+            )
+
+            assert (
+                payment_status_after_blocked_cancel
+                == "confirmed"
+            )
+
+            print(
+                "ACTIVE SETTLEMENT CANCEL GUARD = PASS"
             )
 
             # ==================================================
@@ -2198,6 +2247,9 @@ async def test_supplier_advance_payment_first_chronology_postgresql():
                         ),
                     ),
                 },
+                expected_reversal_of_id=(
+                    first_clearing_journal
+                ),
             )
 
             final_gl = (
@@ -2353,6 +2405,214 @@ async def test_supplier_advance_payment_first_chronology_postgresql():
 
             print(
                 "SUPPLIER-TYPED JOURNALS = 4 = PASS"
+            )
+
+            # ==================================================
+            # G. CANCEL CONFIRMED PAYMENT AFTER SETTLEMENT
+            #    REVERSAL
+            #
+            # Original outgoing payment:
+            #   Dr 371 120 / Cr 311 120
+            #
+            # Cancellation reversal:
+            #   Dr 311 120 / Cr 371 120
+            #
+            # Final net:
+            #   311 = 0
+            #   371 = 0
+            #   281 = Dr120
+            #   631 = Cr120
+            # ==================================================
+
+            payment_journal_id = (
+                await source_journal_id(
+                    db,
+                    source_column="payment_id",
+                    source_id=fixture[
+                        "payment_id"
+                    ],
+                )
+            )
+
+            cancelled_payment = (
+                await cancel_payment(
+                    db,
+                    company_id=COMPANY_ID,
+                    payment_id=fixture[
+                        "payment_id"
+                    ],
+                    cancelled_by=USER_ID,
+                )
+            )
+
+            assert (
+                cancelled_payment.status.value
+                == "cancelled"
+            )
+            assert (
+                cancelled_payment.cancelled_by
+                == USER_ID
+            )
+            assert (
+                cancelled_payment.cancelled_at
+                is not None
+            )
+
+            reversal_rows = (
+                await db.execute(
+                    text(
+                        """
+                        SELECT id
+                        FROM journal_entries
+                        WHERE company_id = :company_id
+                          AND reversal_of_id = :original_id
+                        ORDER BY id
+                        """
+                    ),
+                    {
+                        "company_id": COMPANY_ID,
+                        "original_id": (
+                            payment_journal_id
+                        ),
+                    },
+                )
+            ).scalars().all()
+
+            assert len(
+                reversal_rows
+            ) == 1
+
+            payment_reversal_journal_id = (
+                reversal_rows[0]
+            )
+
+            await assert_journal_posting(
+                db,
+                journal_entry_id=(
+                    payment_reversal_journal_id
+                ),
+                expected={
+                    "311": (
+                        Decimal("120.00"),
+                        MONEY_ZERO,
+                    ),
+                    "371": (
+                        MONEY_ZERO,
+                        Decimal("120.00"),
+                    ),
+                },
+                expected_reversal_of_id=(
+                    payment_journal_id
+                ),
+            )
+
+            after_payment_cancel = (
+                await gl_snapshot(
+                    db
+                )
+            )
+
+            assert_gl_delta(
+                baseline=gl_baseline,
+                actual=after_payment_cancel,
+                expected={
+                    "281": Decimal("120"),
+                    "311": MONEY_ZERO,
+                    "371": MONEY_ZERO,
+                    "631": Decimal("-120"),
+                },
+            )
+
+            final_settlement_status = (
+                await scalar(
+                    db,
+                    """
+                    SELECT status
+                    FROM payment_settlement_allocations
+                    WHERE id = :settlement_id
+                    """,
+                    {
+                        "settlement_id": (
+                            settlement.id
+                        ),
+                    },
+                )
+            )
+
+            assert (
+                final_settlement_status
+                == "reversed"
+            )
+
+            final_open_item_status = (
+                await scalar(
+                    db,
+                    """
+                    SELECT status
+                    FROM counterparty_open_items
+                    WHERE id = :open_item_id
+                    """,
+                    {
+                        "open_item_id": fixture[
+                            "open_item_id"
+                        ],
+                    },
+                )
+            )
+
+            assert (
+                final_open_item_status
+                == "open"
+            )
+
+            with pytest.raises(
+                PaymentStatusError,
+                match=(
+                    "Only draft or confirmed Payments "
+                    "can be cancelled"
+                ),
+            ):
+                await cancel_payment(
+                    db,
+                    company_id=COMPANY_ID,
+                    payment_id=fixture[
+                        "payment_id"
+                    ],
+                    cancelled_by=USER_ID,
+                )
+
+            reversal_count_after_reentry = (
+                await scalar(
+                    db,
+                    """
+                    SELECT COUNT(*)
+                    FROM journal_entries
+                    WHERE company_id = :company_id
+                      AND reversal_of_id = :original_id
+                    """,
+                    {
+                        "company_id": COMPANY_ID,
+                        "original_id": (
+                            payment_journal_id
+                        ),
+                    },
+                )
+            )
+
+            assert (
+                reversal_count_after_reentry
+                == 1
+            )
+
+            print(
+                "SUPPLIER PAYMENT CANCELLATION: "
+                "Dr311 / Cr371 = 120 = PASS"
+            )
+            print(
+                "PAYMENT REVERSAL PROVENANCE = PASS"
+            )
+            print(
+                "PAYMENT CANCEL RE-ENTRY = REJECTED = PASS"
             )
 
         except BaseException as exc:
