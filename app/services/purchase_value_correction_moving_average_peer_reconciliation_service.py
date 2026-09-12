@@ -3,6 +3,15 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.purchase_value_correction_moving_average_replay_calculation_service import (
+    PurchaseValueCorrectionMovingAverageReplayResult,
+)
+
+from app.services.purchase_value_correction_moving_average_transfer_composition_service import (
+    PurchaseValueCorrectionMovingAverageComposedImpact,
+    compose_purchase_value_correction_moving_average_transfer_replay,
+)
+
 from app.models.purchase_value_correction_moving_average_replay_event import (
     PurchaseValueCorrectionMovingAverageReplayEvent,
 )
@@ -112,6 +121,61 @@ def _target_from_peer_impact(
             impact.source_inventory_cost_entry_id
         ),
         recognition_date=recognition_date,
+        quantity=impact.quantity,
+        original_valuation_amount=(
+            impact.original_valuation_amount
+        ),
+        corrected_valuation_amount=(
+            impact.corrected_valuation_amount
+        ),
+        currency_code=(
+            source.base_source.currency_code
+        ),
+    )
+
+
+def _target_from_composed_peer_impact(
+    *,
+    source: PurchaseValueCorrectionMovingAveragePeerSource,
+    allocation_event_id: int,
+    impact: PurchaseValueCorrectionMovingAverageComposedImpact,
+) -> PurchaseValueCorrectionMovingAverageReplayTarget:
+    """
+    Map one final routed marginal peer impact into existing immutable
+    replay persistence.
+
+    The allocation remains owned by the peer, while warehouse,
+    recognition date and downstream ISSUE provenance come from the
+    composed cross-warehouse result.
+    """
+    if impact.company_id != source.company_id:
+        raise (
+            PurchaseValueCorrectionMovingAverageReplayDataIntegrityError(
+                "Composed peer MA impact company does not match source"
+            )
+        )
+
+    if impact.product_id != source.product_id:
+        raise (
+            PurchaseValueCorrectionMovingAverageReplayDataIntegrityError(
+                "Composed peer MA impact product does not match source"
+            )
+        )
+
+    return PurchaseValueCorrectionMovingAverageReplayTarget(
+        purchase_value_correction_allocation_event_id=(
+            allocation_event_id
+        ),
+        product_id=impact.product_id,
+        warehouse_id=impact.warehouse_id,
+        effect_kind=impact.effect_kind,
+        source_moving_average_movement_id=(
+            impact.source_moving_average_movement_id
+        ),
+        source_inventory_cost_entry_id=(
+            impact.source_inventory_cost_entry_id
+        ),
+        recognition_date=impact.recognition_date,
         quantity=impact.quantity,
         original_valuation_amount=(
             impact.original_valuation_amount
@@ -278,12 +342,53 @@ async def reconcile_purchase_value_correction_moving_average_peers(
                 )
             )
 
+        marginal_replay_result = (
+            PurchaseValueCorrectionMovingAverageReplayResult(
+                receipt_value_delta=(
+                    step.attributed_delta_total
+                ),
+                impacts=tuple(
+                    step.attributed_impacts
+                ),
+                replay_states=(),
+                final_quantity=(
+                    step.replay_result.final_quantity
+                ),
+                original_final_value=(
+                    step.replay_result.original_final_value
+                ),
+                corrected_final_value=(
+                    step.replay_result.corrected_final_value
+                ),
+            )
+        )
+
+        peer_base_source = replace(
+            base,
+            recognition_date=(
+                peer.recognition_date
+            ),
+        )
+
+        composition = (
+            await compose_purchase_value_correction_moving_average_transfer_replay(
+                db,
+                source=peer_base_source,
+                source_replay_result=(
+                    marginal_replay_result
+                ),
+            )
+        )
+
         targets = tuple(
-            _target_from_peer_impact(
+            _target_from_composed_peer_impact(
                 source=source,
+                allocation_event_id=(
+                    peer.allocation_event_id
+                ),
                 impact=impact,
             )
-            for impact in step.attributed_impacts
+            for impact in composition.impacts
         )
 
         rows = await _reconcile_one_peer(

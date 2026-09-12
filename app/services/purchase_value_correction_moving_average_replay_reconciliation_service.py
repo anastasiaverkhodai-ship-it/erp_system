@@ -6,6 +6,11 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.purchase_value_correction_moving_average_transfer_composition_service import (
+    PurchaseValueCorrectionMovingAverageTransferCompositionResult,
+    compose_purchase_value_correction_moving_average_transfer_replay,
+)
+
 from app.models.purchase_value_correction_moving_average_replay_event import (
     PurchaseValueCorrectionMovingAverageReplayEvent,
 )
@@ -176,6 +181,99 @@ def _build_desired_targets(
     )
 
 
+def _build_composed_desired_targets(
+    *,
+    source: PurchaseValueCorrectionMovingAverageReplaySource,
+    composition: PurchaseValueCorrectionMovingAverageTransferCompositionResult,
+) -> tuple[
+    PurchaseValueCorrectionMovingAverageReplayTarget,
+    ...,
+]:
+    """
+    Convert final cross-warehouse economic MA impacts into the
+    existing immutable persistence target contract.
+
+    Warehouse and recognition date come from the composed impact,
+    not from the original receipt warehouse.
+    """
+    targets = []
+    seen = set()
+
+    for impact in composition.impacts:
+        if impact.company_id != source.company_id:
+            raise (
+                PurchaseValueCorrectionMovingAverageReplayDataIntegrityError(
+                    "Composed MA impact company does not match source"
+                )
+            )
+
+        if impact.product_id != source.product_id:
+            raise (
+                PurchaseValueCorrectionMovingAverageReplayDataIntegrityError(
+                    "Composed MA impact product does not match source"
+                )
+            )
+
+        target = PurchaseValueCorrectionMovingAverageReplayTarget(
+            purchase_value_correction_allocation_event_id=(
+                source
+                .purchase_value_correction_allocation_event_id
+            ),
+            product_id=impact.product_id,
+            warehouse_id=impact.warehouse_id,
+            effect_kind=impact.effect_kind,
+            source_moving_average_movement_id=(
+                impact.source_moving_average_movement_id
+            ),
+            source_inventory_cost_entry_id=(
+                impact.source_inventory_cost_entry_id
+            ),
+            recognition_date=impact.recognition_date,
+            quantity=impact.quantity,
+            original_valuation_amount=(
+                impact.original_valuation_amount
+            ),
+            corrected_valuation_amount=(
+                impact.corrected_valuation_amount
+            ),
+            currency_code=source.currency_code,
+        )
+
+        key = _target_key(
+            target
+        )
+
+        if key in seen:
+            raise (
+                PurchaseValueCorrectionMovingAverageReplayDataIntegrityError(
+                    "Composed MA replay produced duplicate "
+                    "cross-warehouse destination key"
+                )
+            )
+
+        seen.add(
+            key
+        )
+
+        targets.append(
+            target
+        )
+
+    return tuple(
+        sorted(
+            targets,
+            key=lambda target: (
+                target.warehouse_id,
+                target.effect_kind,
+                target.source_moving_average_movement_id
+                or 0,
+                target.source_inventory_cost_entry_id
+                or 0,
+            ),
+        )
+    )
+
+
 def _removal_target(
     event: PurchaseValueCorrectionMovingAverageReplayEvent,
 ) -> PurchaseValueCorrectionMovingAverageReplayTarget:
@@ -275,9 +373,17 @@ async def reconcile_purchase_value_correction_moving_average_replay(
         )
     )
 
-    desired = _build_desired_targets(
+    composition = (
+        await compose_purchase_value_correction_moving_average_transfer_replay(
+            db,
+            source=source,
+            source_replay_result=replay_result,
+        )
+    )
+
+    desired = _build_composed_desired_targets(
         source=source,
-        replay_result=replay_result,
+        composition=composition,
     )
 
     history = await _load_history_for_update(

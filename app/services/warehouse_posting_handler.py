@@ -164,7 +164,13 @@ class WarehousePostingHandler:
                         db=db,
                         document=document,
                         line=line,
-                    )
+
+                        exact_valuation_amount=(
+                            context.get_receipt_exact_valuation_amount(
+                                line.id
+                            )
+                        ),
+)
                 except InventoryCostingError as exc:
                     raise WarehousePostingHandlerError(
                         str(exc)

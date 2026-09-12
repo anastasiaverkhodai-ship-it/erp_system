@@ -97,6 +97,8 @@ async def process_moving_average_receipt(
     movement_date: date,
     quantity: Decimal,
     unit_cost: Decimal,
+    *,
+    exact_valuation_amount: Decimal | None = None,
 ) -> MovingAverageBalance:
     quantity = Decimal(quantity)
     unit_cost = Decimal(unit_cost)
@@ -106,9 +108,39 @@ async def process_moving_average_receipt(
             "Receipt quantity must be greater than zero"
         )
 
+    if not quantity.is_finite():
+        raise MovingAverageInventoryError(
+            "Receipt quantity must be finite"
+        )
+
+    if not unit_cost.is_finite():
+        raise MovingAverageInventoryError(
+            "Receipt unit cost must be finite"
+        )
+
     if unit_cost < Decimal("0"):
         raise MovingAverageInventoryError(
             "Receipt unit cost cannot be negative"
+        )
+
+    if exact_valuation_amount is not None:
+        exact_valuation_amount = Decimal(
+            exact_valuation_amount
+        )
+
+        if not exact_valuation_amount.is_finite():
+            raise MovingAverageInventoryError(
+                "Exact receipt valuation amount must be finite"
+            )
+
+        if exact_valuation_amount < Decimal("0"):
+            raise MovingAverageInventoryError(
+                "Exact receipt valuation amount "
+                "cannot be negative"
+            )
+
+        exact_valuation_amount = _valuation_amount(
+            exact_valuation_amount
         )
 
     balance = await get_locked_moving_average_balance(
@@ -137,9 +169,25 @@ async def process_moving_average_receipt(
             )
         )
 
-    receipt_value = _valuation_amount(
-        quantity * unit_cost
-    )
+    if exact_valuation_amount is None:
+        # Legacy receipt semantics.
+        #
+        # Ordinary purchase/warehouse receipts continue to derive
+        # receipt value from DocumentLine quantity * price exactly
+        # as before this optional transfer-specific path existed.
+        receipt_value = _valuation_amount(
+            quantity * unit_cost
+        )
+    else:
+        # Exact immutable source valuation path.
+        #
+        # Warehouse transfers may carry an 8-decimal source ISSUE
+        # valuation amount that cannot be reconstructed from
+        # DocumentLine.price (Numeric(18,4)).
+        #
+        # Do not redefine this exact amount by multiplying the
+        # rounded receipt price again.
+        receipt_value = exact_valuation_amount
 
     new_quantity = (
         old_quantity

@@ -224,6 +224,31 @@ def install_loaders(
             impact_history
         )
 
+    async def preload_no_transfer_router(
+        db,
+        *,
+        company_id,
+        active_consumptions,
+    ):
+        class NoTransferRouter:
+            def route(
+                self,
+                *,
+                source_consumption,
+                local_start,
+                local_end,
+                source_recognition_date,
+            ):
+                return None
+
+        return NoTransferRouter()
+
+    monkeypatch.setattr(
+        service,
+        "_preload_fifo_transfer_router",
+        preload_no_transfer_router,
+    )
+
     monkeypatch.setattr(
         service,
         "_lock_fulfillment_line_and_receipt",

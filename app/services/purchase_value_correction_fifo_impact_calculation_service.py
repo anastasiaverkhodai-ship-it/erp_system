@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import (
     date,
@@ -92,6 +93,40 @@ class ActiveFifoConsumptionCandidate:
     frozen=True,
     slots=True,
 )
+class FifoTransferRoutedDestinationSlice:
+    """
+    Pure calculation-layer destination produced when
+    one FIFO StockLotConsumption is a warehouse-transfer
+    routing boundary.
+
+    Router result:
+      None
+          normal FIFO ISSUE semantics remain unchanged;
+
+      tuple[FifoTransferRoutedDestinationSlice, ...]
+          source transfer ISSUE is replaced by exact
+          downstream destination slices BEFORE monetary
+          allocation.
+    """
+
+    stock_lot_id: int
+
+    destination_kind: (
+        PurchaseValueCorrectionFifoDestinationKind
+    )
+
+    stock_lot_consumption_id: int | None
+    issue_document_id: int | None
+    issue_document_line_id: int | None
+
+    quantity: Decimal
+    recognition_date: date
+
+
+@dataclass(
+    frozen=True,
+    slots=True,
+)
 class PurchaseValueCorrectionFifoImpactTarget:
     purchase_value_correction_allocation_event_id: int
     invoice_fulfillment_allocation_id: int
@@ -157,6 +192,8 @@ class _ConsumptionInterval:
     slots=True,
 )
 class _DestinationSlice:
+    stock_lot_id: int | None
+
     destination_kind: (
         PurchaseValueCorrectionFifoDestinationKind
     )
@@ -793,10 +830,27 @@ def _build_destination_slices(
     ],
     current_consumed_quantity: Decimal,
     receipt_quantity: Decimal,
+    transfer_destination_router: Callable | None = None,
 ) -> tuple[
     _DestinationSlice,
     ...,
 ]:
+    """
+    Build physical FIFO destinations for one correction
+    allocation interval.
+
+    Normal ISSUE:
+        retains historical source StockLotConsumption.
+
+    Warehouse-transfer ISSUE:
+        optional pure router replaces only the overlap
+        inside that source consumption with destination
+        FIFO slices.
+
+    Monetary allocation deliberately happens later in
+    _allocate_source_amounts().
+    """
+
     slices = []
 
     for consumption in consumptions:
@@ -810,31 +864,217 @@ def _build_destination_slices(
         if quantity == ZERO:
             continue
 
-        slices.append(
-            _DestinationSlice(
-                destination_kind="issued",
-                stock_lot_consumption_id=(
-                    consumption
-                    .candidate
-                    .stock_lot_consumption_id
+        routed = None
+
+        if transfer_destination_router is not None:
+            overlap_start = max(
+                allocation.start,
+                consumption.start,
+            )
+            overlap_end = min(
+                allocation.end,
+                consumption.end,
+            )
+
+            local_start = (
+                overlap_start
+                - consumption.start
+            )
+
+            local_end = (
+                overlap_end
+                - consumption.start
+            )
+
+            routed = transfer_destination_router(
+                source_consumption=(
+                    consumption.candidate
                 ),
-                issue_document_id=(
-                    consumption
-                    .candidate
-                    .issue_document_id
-                ),
-                issue_document_line_id=(
-                    consumption
-                    .candidate
-                    .issue_document_line_id
-                ),
-                quantity=quantity,
-                recognition_date=max(
-                    source_recognition_date,
-                    consumption.candidate.issue_event_date,
+                local_start=local_start,
+                local_end=local_end,
+                source_recognition_date=(
+                    source_recognition_date
                 ),
             )
+
+        if routed is None:
+            slices.append(
+                _DestinationSlice(
+                    stock_lot_id=None,
+                    destination_kind="issued",
+                    stock_lot_consumption_id=(
+                        consumption
+                        .candidate
+                        .stock_lot_consumption_id
+                    ),
+                    issue_document_id=(
+                        consumption
+                        .candidate
+                        .issue_document_id
+                    ),
+                    issue_document_line_id=(
+                        consumption
+                        .candidate
+                        .issue_document_line_id
+                    ),
+                    quantity=quantity,
+                    recognition_date=max(
+                        source_recognition_date,
+                        consumption
+                        .candidate
+                        .issue_event_date,
+                    ),
+                )
+            )
+
+            continue
+
+        routed = tuple(
+            routed
         )
+
+        routed_total = ZERO
+
+        for item in routed:
+            if not isinstance(
+                item,
+                FifoTransferRoutedDestinationSlice,
+            ):
+                raise PurchaseValueCorrectionFifoImpactSourceError(
+                    "transfer destination router returned "
+                    "invalid slice type"
+                )
+
+            destination_stock_lot_id = _positive_id(
+                item.stock_lot_id,
+                field=(
+                    "transfer destination stock_lot_id"
+                ),
+            )
+
+            destination_kind = (
+                item.destination_kind
+            )
+
+            if destination_kind not in (
+                "issued",
+                "on_hand",
+            ):
+                raise PurchaseValueCorrectionFifoImpactSourceError(
+                    "transfer destination_kind must be "
+                    "issued or on_hand"
+                )
+
+            routed_quantity = _decimal(
+                item.quantity,
+                field=(
+                    "transfer destination quantity"
+                ),
+            )
+
+            if routed_quantity <= ZERO:
+                raise PurchaseValueCorrectionFifoImpactQuantityError(
+                    "transfer destination quantity "
+                    "must be positive"
+                )
+
+            recognition_date = _business_date(
+                item.recognition_date,
+                field=(
+                    "transfer destination "
+                    "recognition_date"
+                ),
+            )
+
+            if (
+                recognition_date
+                < source_recognition_date
+            ):
+                raise PurchaseValueCorrectionFifoImpactSourceError(
+                    "transfer destination recognition_date "
+                    "cannot predate correction recognition"
+                )
+
+            if destination_kind == "issued":
+                stock_lot_consumption_id = (
+                    _positive_id(
+                        item.stock_lot_consumption_id,
+                        field=(
+                            "transfer destination "
+                            "stock_lot_consumption_id"
+                        ),
+                    )
+                )
+
+                issue_document_id = _positive_id(
+                    item.issue_document_id,
+                    field=(
+                        "transfer destination "
+                        "issue_document_id"
+                    ),
+                )
+
+                issue_document_line_id = _positive_id(
+                    item.issue_document_line_id,
+                    field=(
+                        "transfer destination "
+                        "issue_document_line_id"
+                    ),
+                )
+
+            else:
+                if (
+                    item.stock_lot_consumption_id
+                    is not None
+                    or item.issue_document_id
+                    is not None
+                    or item.issue_document_line_id
+                    is not None
+                ):
+                    raise PurchaseValueCorrectionFifoImpactSourceError(
+                        "transfer on_hand destination "
+                        "must not carry ISSUE provenance"
+                    )
+
+                stock_lot_consumption_id = None
+                issue_document_id = None
+                issue_document_line_id = None
+
+            slices.append(
+                _DestinationSlice(
+                    stock_lot_id=(
+                        destination_stock_lot_id
+                    ),
+                    destination_kind=(
+                        destination_kind
+                    ),
+                    stock_lot_consumption_id=(
+                        stock_lot_consumption_id
+                    ),
+                    issue_document_id=(
+                        issue_document_id
+                    ),
+                    issue_document_line_id=(
+                        issue_document_line_id
+                    ),
+                    quantity=(
+                        routed_quantity
+                    ),
+                    recognition_date=(
+                        recognition_date
+                    ),
+                )
+            )
+
+            routed_total += (
+                routed_quantity
+            )
+
+        if routed_total != quantity:
+            raise PurchaseValueCorrectionFifoImpactQuantityError(
+                "transfer destination slices do not "
+                "conserve source transfer overlap quantity"
+            )
 
     on_hand_quantity = _intersection_quantity(
         left_start=allocation.start,
@@ -846,12 +1086,15 @@ def _build_destination_slices(
     if on_hand_quantity > ZERO:
         slices.append(
             _DestinationSlice(
+                stock_lot_id=None,
                 destination_kind="on_hand",
                 stock_lot_consumption_id=None,
                 issue_document_id=None,
                 issue_document_line_id=None,
                 quantity=on_hand_quantity,
-                recognition_date=source_recognition_date,
+                recognition_date=(
+                    source_recognition_date
+                ),
             )
         )
 
@@ -946,7 +1189,11 @@ def _allocate_source_amounts(
                 invoice_fulfillment_allocation_id=(
                     source.invoice_fulfillment_allocation_id
                 ),
-                stock_lot_id=stock_lot_id,
+                stock_lot_id=(
+                    item.stock_lot_id
+                    if item.stock_lot_id is not None
+                    else stock_lot_id
+                ),
                 destination_kind=(
                     item.destination_kind
                 ),
@@ -1056,6 +1303,7 @@ def build_purchase_value_correction_fifo_impact_targets(
         ActiveFifoConsumptionCandidate,
         ...,
     ],
+    transfer_destination_router: Callable | None = None,
 ) -> tuple[
     PurchaseValueCorrectionFifoImpactTarget,
     ...,
@@ -1187,6 +1435,9 @@ def build_purchase_value_correction_fifo_impact_targets(
                 current_consumed_quantity
             ),
             receipt_quantity=receipt_quantity,
+            transfer_destination_router=(
+                transfer_destination_router
+            ),
         )
 
         targets.extend(

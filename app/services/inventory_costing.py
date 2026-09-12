@@ -90,6 +90,8 @@ async def process_inventory_receipt(
     db: AsyncSession,
     document: Document,
     line: DocumentLine,
+    *,
+    exact_valuation_amount: Decimal | None = None,
 ) -> None:
     method = await get_inventory_valuation_method(
         db=db,
@@ -126,6 +128,9 @@ async def process_inventory_receipt(
     movement_date=document.document_date,
     quantity=line.quantity,
     unit_cost=line.price,
+    exact_valuation_amount=(
+        exact_valuation_amount
+    ),
 )
         except MovingAverageInventoryError as exc:
             raise InventoryCostingError(

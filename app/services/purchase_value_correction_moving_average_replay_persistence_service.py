@@ -134,7 +134,16 @@ def _enum_value(
 def _target_key(
     target: PurchaseValueCorrectionMovingAverageReplayTarget,
 ) -> tuple:
+    """
+    Economic replay destination identity.
+
+    warehouse_id is part of identity because one PVC correction may
+    cross immutable warehouse-transfer boundaries and can therefore
+    have otherwise identical on_hand / issued provenance in different
+    warehouse streams.
+    """
     return (
+        target.warehouse_id,
         target.effect_kind,
         target.source_moving_average_movement_id,
         target.source_inventory_cost_entry_id,
@@ -144,7 +153,13 @@ def _target_key(
 def _event_key(
     event: PurchaseValueCorrectionMovingAverageReplayEvent,
 ) -> tuple:
+    """
+    Persisted counterpart of _target_key().
+
+    Keep target/event identity structurally identical.
+    """
     return (
+        event.warehouse_id,
         event.effect_kind,
         event.source_moving_average_movement_id,
         event.source_inventory_cost_entry_id,

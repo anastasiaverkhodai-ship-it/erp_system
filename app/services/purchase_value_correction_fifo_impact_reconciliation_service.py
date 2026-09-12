@@ -40,8 +40,14 @@ from app.services.purchase_value_correction_fifo_impact_calculation_service impo
     ActiveFifoAllocationPeerCandidate,
     ActiveFifoConsumptionCandidate,
     PurchaseValueCorrectionFifoAllocationCandidate,
+    FifoTransferRoutedDestinationSlice,
     PurchaseValueCorrectionFifoImpactTarget,
     build_purchase_value_correction_fifo_impact_targets,
+)
+
+from app.services.purchase_value_correction_fifo_transfer_orchestration_service import (
+    PurchaseValueCorrectionFifoTransferRouter,
+    preload_purchase_value_correction_fifo_transfer_router,
 )
 from app.services.purchase_value_correction_fifo_impact_persistence_service import (
     _active_originals as _active_impact_originals,
@@ -906,6 +912,87 @@ def _removal_target(
     )
 
 
+async def _preload_fifo_transfer_router(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    active_consumptions: tuple[
+        ActiveFifoConsumptionCandidate,
+        ...,
+    ],
+) -> PurchaseValueCorrectionFifoTransferRouter:
+    """
+    DB-aware preload boundary for FIFO Transfer↔PVC.
+
+    The returned router is a synchronous immutable
+    in-memory snapshot used by the pure calculator.
+    """
+
+    return (
+        await preload_purchase_value_correction_fifo_transfer_router(
+            db,
+            company_id=company_id,
+            active_consumptions=active_consumptions,
+        )
+    )
+
+
+def _calculate_fifo_targets_with_transfer_router(
+    *,
+    stock_lot_id: int,
+    receipt_quantity: Decimal,
+    current_consumed_quantity: Decimal,
+    active_allocation_peers: tuple[
+        ActiveFifoAllocationPeerCandidate,
+        ...,
+    ],
+    allocation_candidates: tuple[
+        PurchaseValueCorrectionFifoAllocationCandidate,
+        ...,
+    ],
+    active_consumptions: tuple[
+        ActiveFifoConsumptionCandidate,
+        ...,
+    ],
+    transfer_router: (
+        PurchaseValueCorrectionFifoTransferRouter
+        | None
+    ),
+) -> tuple[
+    PurchaseValueCorrectionFifoImpactTarget,
+    ...,
+]:
+    """
+    Single pure-calculation wiring boundary.
+
+    No SQL occurs here.
+    """
+
+    return (
+        build_purchase_value_correction_fifo_impact_targets(
+            stock_lot_id=stock_lot_id,
+            receipt_quantity=receipt_quantity,
+            current_consumed_quantity=(
+                current_consumed_quantity
+            ),
+            active_allocation_peers=(
+                active_allocation_peers
+            ),
+            allocation_candidates=(
+                allocation_candidates
+            ),
+            active_consumptions=(
+                active_consumptions
+            ),
+            transfer_destination_router=(
+                transfer_router.route
+                if transfer_router is not None
+                else None
+            ),
+        )
+    )
+
+
 async def reconcile_purchase_value_correction_fifo_impacts_for_fulfillment_line(
     db: AsyncSession,
     *,
@@ -1034,6 +1121,14 @@ async def reconcile_purchase_value_correction_fifo_impacts_for_fulfillment_line(
         )
     )
 
+    transfer_router = (
+        await _preload_fifo_transfer_router(
+            db,
+            company_id=company_id,
+            active_consumptions=consumptions,
+        )
+    )
+
     impact_history = (
         await _load_impact_history_for_update(
             db,
@@ -1110,7 +1205,7 @@ async def reconcile_purchase_value_correction_fifo_impacts_for_fulfillment_line(
         ]
 
         source_targets = (
-            build_purchase_value_correction_fifo_impact_targets(
+            _calculate_fifo_targets_with_transfer_router(
                 stock_lot_id=stock_lot.id,
                 receipt_quantity=receipt_quantity,
                 current_consumed_quantity=(
@@ -1146,6 +1241,7 @@ async def reconcile_purchase_value_correction_fifo_impacts_for_fulfillment_line(
                     ),
                 ),
                 active_consumptions=consumptions,
+                transfer_router=transfer_router,
             )
         )
 

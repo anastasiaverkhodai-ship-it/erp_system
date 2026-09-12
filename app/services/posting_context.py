@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from decimal import Decimal
 from datetime import date, datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -147,6 +148,57 @@ class PostingContext:
             )
 
         return value
+
+    def set_receipt_exact_valuation_amount(
+        self,
+        document_line_id: int,
+        valuation_amount: Decimal,
+    ) -> None:
+        values = dict(
+            self.shared_data.get(
+                PostingContextKey.RECEIPT_EXACT_VALUATION_AMOUNTS,
+                {},
+            )
+        )
+
+        values[
+            document_line_id
+        ] = Decimal(
+            valuation_amount
+        )
+
+        self.shared_data[
+            PostingContextKey.RECEIPT_EXACT_VALUATION_AMOUNTS
+        ] = values
+
+    def get_receipt_exact_valuation_amount(
+        self,
+        document_line_id: int,
+    ) -> Decimal | None:
+        values = self.shared_data.get(
+            PostingContextKey.RECEIPT_EXACT_VALUATION_AMOUNTS
+        )
+
+        if values is None:
+            return None
+
+        if not isinstance(
+            values,
+            dict,
+        ):
+            raise TypeError(
+                "Posting context receipt exact valuation "
+                "data has invalid type"
+            )
+
+        value = values.get(
+            document_line_id
+        )
+
+        if value is None:
+            return None
+
+        return Decimal(value)
 
     def set_journal_entry(
         self,

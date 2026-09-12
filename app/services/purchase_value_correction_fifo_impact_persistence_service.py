@@ -21,6 +21,9 @@ from app.models.stock_lot_consumption import (
 from app.models.trade_fulfillment_line import (
     TradeFulfillmentLine,
 )
+from app.models.warehouse_transfer_valuation_layer import (
+    WarehouseTransferValuationLayer,
+)
 from app.services.purchase_value_correction_fifo_impact_calculation_service import (
     PurchaseValueCorrectionFifoImpactTarget,
 )
@@ -494,6 +497,67 @@ async def _load_history_for_update(
     )
 
 
+def _transfer_destination_stock_lot_matches_allocation_source(
+    *,
+    company_id: int,
+    transfer_layer: WarehouseTransferValuationLayer,
+    destination_stock_lot: StockLot,
+    source_consumption: StockLotConsumption,
+    source_stock_lot: StockLot,
+    fulfillment_line: TradeFulfillmentLine,
+) -> bool:
+    """
+    Validate the immutable FIFO transfer provenance chain:
+
+        allocation receipt line
+          -> source StockLot
+          -> source StockLotConsumption
+          -> WarehouseTransferValuationLayer
+          -> destination receipt line
+          -> destination StockLot
+
+    This is deliberately strict.
+
+    It is NOT a generic permission for a FIFO impact to point
+    at an arbitrary later StockLot.
+    """
+
+    return (
+        transfer_layer.company_id
+        == company_id
+        and _enum_value(
+            transfer_layer.valuation_method
+        )
+        == "fifo"
+        and transfer_layer.source_stock_lot_consumption_id
+        == source_consumption.id
+        and transfer_layer.destination_receipt_document_id
+        == destination_stock_lot.source_document_id
+        and transfer_layer.destination_receipt_document_line_id
+        == destination_stock_lot.source_document_line_id
+        and transfer_layer.product_id
+        == destination_stock_lot.product_id
+        and transfer_layer.destination_warehouse_id
+        == destination_stock_lot.warehouse_id
+        and source_consumption.company_id
+        == company_id
+        and source_consumption.stock_lot_id
+        == source_stock_lot.id
+        and _decimal(
+            source_consumption.quantity
+        )
+        == _decimal(
+            transfer_layer.quantity
+        )
+        and source_stock_lot.company_id
+        == company_id
+        and source_stock_lot.product_id
+        == destination_stock_lot.product_id
+        and source_stock_lot.source_document_line_id
+        == fulfillment_line.warehouse_document_line_id
+    )
+
+
 async def _validate_positive_target_sources(
     db: AsyncSession,
     *,
@@ -705,12 +769,129 @@ async def _validate_positive_target_sources(
         stock_lot.source_document_line_id
         != fulfillment_line.warehouse_document_line_id
     ):
-        raise (
-            PurchaseValueCorrectionFifoImpactDataIntegrityError(
-                "StockLot does not belong to "
-                "allocation receipt line"
+        transfer_layers = (
+            (
+                await db.execute(
+                    select(
+                        WarehouseTransferValuationLayer
+                    )
+                    .where(
+                        WarehouseTransferValuationLayer.company_id
+                        == company_id,
+                        (
+                            WarehouseTransferValuationLayer
+                            .destination_receipt_document_id
+                        )
+                        == stock_lot.source_document_id,
+                        (
+                            WarehouseTransferValuationLayer
+                            .destination_receipt_document_line_id
+                        )
+                        == stock_lot.source_document_line_id,
+                    )
+                    .order_by(
+                        WarehouseTransferValuationLayer.id
+                    )
+                    .with_for_update()
+                )
             )
+            .scalars()
+            .all()
         )
+
+        if len(
+            transfer_layers
+        ) != 1:
+            raise (
+                PurchaseValueCorrectionFifoImpactDataIntegrityError(
+                    "StockLot does not belong to "
+                    "allocation receipt line or one exact "
+                    "FIFO warehouse-transfer provenance chain"
+                )
+            )
+
+        transfer_layer = transfer_layers[
+            0
+        ]
+
+        if (
+            transfer_layer.source_stock_lot_consumption_id
+            is None
+        ):
+            raise (
+                PurchaseValueCorrectionFifoImpactDataIntegrityError(
+                    "FIFO warehouse-transfer provenance "
+                    "does not reference source "
+                    "StockLotConsumption"
+                )
+            )
+
+        source_consumption = (
+            await db.execute(
+                select(
+                    StockLotConsumption
+                )
+                .where(
+                    StockLotConsumption.company_id
+                    == company_id,
+                    StockLotConsumption.id
+                    == (
+                        transfer_layer
+                        .source_stock_lot_consumption_id
+                    ),
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+
+        if source_consumption is None:
+            raise (
+                PurchaseValueCorrectionFifoImpactSourceNotFoundError(
+                    "FIFO warehouse-transfer source "
+                    "StockLotConsumption was not found"
+                )
+            )
+
+        source_stock_lot = (
+            await db.execute(
+                select(
+                    StockLot
+                )
+                .where(
+                    StockLot.company_id
+                    == company_id,
+                    StockLot.id
+                    == source_consumption.stock_lot_id,
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+
+        if source_stock_lot is None:
+            raise (
+                PurchaseValueCorrectionFifoImpactSourceNotFoundError(
+                    "FIFO warehouse-transfer source "
+                    "StockLot was not found"
+                )
+            )
+
+        if not (
+            _transfer_destination_stock_lot_matches_allocation_source(
+                company_id=company_id,
+                transfer_layer=transfer_layer,
+                destination_stock_lot=stock_lot,
+                source_consumption=source_consumption,
+                source_stock_lot=source_stock_lot,
+                fulfillment_line=fulfillment_line,
+            )
+        ):
+            raise (
+                PurchaseValueCorrectionFifoImpactDataIntegrityError(
+                    "StockLot warehouse-transfer provenance "
+                    "does not lead back to allocation "
+                    "receipt line"
+                )
+            )
 
     if (
         _decimal(
