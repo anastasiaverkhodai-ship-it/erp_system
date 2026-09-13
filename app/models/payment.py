@@ -57,6 +57,18 @@ class Payment(Base):
         ForeignKeyConstraint(
             [
                 "company_id",
+                "bank_account_id",
+            ],
+            [
+                "bank_accounts.company_id",
+                "bank_accounts.id",
+            ],
+            name="fk_payments_company_bank_account",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "company_id",
                 "counterparty_id",
             ],
             [
@@ -138,6 +150,12 @@ class Payment(Base):
             ondelete="RESTRICT",
         ),
         nullable=False,
+        index=True,
+    )
+
+    bank_account_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
         index=True,
     )
 

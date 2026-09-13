@@ -1,4 +1,7 @@
 from app.models.account import Account
+from app.models.bank_account import BankAccount
+from app.models.bank_statement import BankStatement
+from app.models.bank_statement_line import BankStatementLine
 from app.models.accounting_period import AccountingPeriod
 from app.models.audit_log import AuditLog
 from app.models.company import Company
@@ -94,3 +97,8 @@ from app.models.inventory_count_event import InventoryCountEvent
 from app.models.inventory_count_variance_event import InventoryCountVarianceDirection, InventoryCountVarianceEvent
 from app.models.warehouse_transfer_line import WarehouseTransferLine
 from app.models.warehouse_transfer_valuation_layer import WarehouseTransferValuationLayer
+
+from app.models.bank_statement_reconciliation import (
+    BankStatementReconciliation,
+    BankStatementReconciliationActiveLink,
+)

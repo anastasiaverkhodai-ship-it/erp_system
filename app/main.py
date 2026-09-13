@@ -6,6 +6,8 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.companies import router as companies_router
 from app.api.v1.counterparties import router as counterparties_router
 from app.api.v1.payments import router as payments_router
+from app.api.v1.bank_accounts import router as bank_accounts_router
+from app.api.v1.bank_statements import router as bank_statements_router
 from app.api.v1.counterparty_open_items import router as counterparty_open_items_router
 from app.api.v1.contracts import router as contracts_router
 from app.api.v1.company_users import router as company_users_router
@@ -104,3 +106,12 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+app.include_router(
+    bank_accounts_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    bank_statements_router,
+    prefix="/api/v1",
+)

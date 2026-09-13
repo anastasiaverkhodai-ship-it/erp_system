@@ -24,6 +24,11 @@ class PaymentCreateRequest(BaseModel):
         gt=0,
     )
 
+    bank_account_id: int | None = Field(
+        default=None,
+        gt=0,
+    )
+
     contract_id: int | None = Field(
         default=None,
         gt=0,
@@ -74,6 +79,7 @@ class PaymentResponse(BaseModel):
     id: int
     company_id: int
     counterparty_id: int
+    bank_account_id: int | None
     contract_id: int | None
 
     number: str

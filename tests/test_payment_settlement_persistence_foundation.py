@@ -81,6 +81,7 @@ def test_payment_table_contract():
     ) == {
         "id",
         "company_id",
+        "bank_account_id",
         "counterparty_id",
         "contract_id",
         "number",

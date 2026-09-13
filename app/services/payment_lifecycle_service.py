@@ -4,6 +4,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.bank_account import BankAccount
 from app.models.company import Company
 from app.models.contract import Contract
 from app.models.counterparty import Counterparty
@@ -45,6 +46,12 @@ class PaymentStatusError(
 
 
 class PaymentCompanyInvalidError(
+    PaymentLifecycleError
+):
+    pass
+
+
+class PaymentBankAccountInvalidError(
     PaymentLifecycleError
 ):
     pass
@@ -278,6 +285,43 @@ async def revalidate_payment_references(
             "or belongs to another company"
         )
 
+    if payment.bank_account_id is not None:
+        bank_account = (
+            await db.execute(
+                select(BankAccount).where(
+                    BankAccount.id
+                    == payment.bank_account_id,
+                    BankAccount.company_id
+                    == payment.company_id,
+                    BankAccount.is_active.is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+
+        if bank_account is None:
+            raise PaymentBankAccountInvalidError(
+                "Payment BankAccount is missing, inactive, "
+                "or belongs to another company"
+            )
+
+        bank_currency = (
+            normalize_payment_currency_code(
+                bank_account.currency_code
+            )
+        )
+
+        payment_currency = (
+            normalize_payment_currency_code(
+                payment.currency_code
+            )
+        )
+
+        if bank_currency != payment_currency:
+            raise PaymentCurrencyError(
+                "Payment currency does not match "
+                "BankAccount currency"
+            )
+
     if payment.contract_id is None:
         return
 
@@ -341,6 +385,7 @@ async def create_payment_draft(
     created_by: int,
     external_reference: str | None = None,
     description: str | None = None,
+    bank_account_id: int | None = None,
 ) -> Payment:
     """
     Create one DRAFT Payment.
@@ -355,6 +400,7 @@ async def create_payment_draft(
 
     payment = Payment(
         company_id=company_id,
+        bank_account_id=bank_account_id,
         counterparty_id=counterparty_id,
         contract_id=contract_id,
         number=normalize_payment_number(

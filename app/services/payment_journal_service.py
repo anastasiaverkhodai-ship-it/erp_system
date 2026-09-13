@@ -5,6 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.account import Account
+from app.models.bank_account import BankAccount
 from app.models.journal_entry import (
     JournalEntry,
     JournalEntryStatus,
@@ -16,6 +18,7 @@ from app.models.payment import Payment
 from app.models.payment_settlement_allocation import (
     PaymentSettlementAllocation,
 )
+from app.services.accounting_account_roles import AccountingAccountRole
 from app.services.accounting_account_role_resolver import (
     AccountingAccountRoleResolutionError,
     resolve_company_account_roles,
@@ -86,31 +89,69 @@ async def _build_journal_lines(
     company_id: int,
     plan: PaymentAccountingPlan,
     description: str,
+    bank_accounting_account_id: int | None = None,
 ) -> list[JournalEntryLine]:
-    try:
-        accounts = await resolve_company_account_roles(
-            db,
-            company_id=company_id,
-            roles=required_roles_for_plan(
-                plan
-            ),
+    roles = tuple(
+        role
+        for role in required_roles_for_plan(plan)
+        if not (
+            role
+            == AccountingAccountRole.BANK_CURRENT_UAH
+            and bank_accounting_account_id is not None
         )
-    except AccountingAccountRoleResolutionError as exc:
-        raise PaymentJournalError(
-            str(exc)
-        ) from exc
+    )
 
-    lines: list[
-        JournalEntryLine
-    ] = []
+    accounts = {}
+
+    if roles:
+        try:
+            accounts = await resolve_company_account_roles(
+                db,
+                company_id=company_id,
+                roles=roles,
+            )
+        except AccountingAccountRoleResolutionError as exc:
+            raise PaymentJournalError(
+                str(exc)
+            ) from exc
+
+    bank_accounting_account = None
+
+    if bank_accounting_account_id is not None:
+        bank_accounting_account = (
+            await db.execute(
+                select(Account).where(
+                    Account.id
+                    == bank_accounting_account_id,
+                    Account.company_id
+                    == company_id,
+                    Account.is_active.is_(True),
+                    Account.is_postable.is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+
+        if bank_accounting_account is None:
+            raise PaymentJournalError(
+                "BankAccount accounting account is missing, "
+                "inactive, non-postable, or belongs to "
+                "another company"
+            )
+
+    lines: list[JournalEntryLine] = []
 
     for line_no, planned in enumerate(
         plan.lines,
         start=1,
     ):
-        account = accounts[
+        if (
             planned.role
-        ]
+            == AccountingAccountRole.BANK_CURRENT_UAH
+            and bank_accounting_account is not None
+        ):
+            account = bank_accounting_account
+        else:
+            account = accounts[planned.role]
 
         lines.append(
             JournalEntryLine(
@@ -219,11 +260,45 @@ async def generate_and_post_payment_journal_entry(
         f"Payment {payment.number}"
     )
 
+    bank_accounting_account_id = None
+
+    if payment.bank_account_id is not None:
+        bank_account = (
+            await db.execute(
+                select(BankAccount).where(
+                    BankAccount.id
+                    == payment.bank_account_id,
+                    BankAccount.company_id
+                    == payment.company_id,
+                    BankAccount.is_active.is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+
+        if bank_account is None:
+            raise PaymentJournalSourceStateError(
+                "Payment BankAccount is missing, inactive, "
+                "or belongs to another company"
+            )
+
+        if bank_account.currency_code != payment.currency_code:
+            raise PaymentJournalCurrencyError(
+                "Payment currency does not match "
+                "BankAccount currency"
+            )
+
+        bank_accounting_account_id = (
+            bank_account.accounting_account_id
+        )
+
     lines = await _build_journal_lines(
         db,
         company_id=payment.company_id,
         plan=plan,
         description=description,
+        bank_accounting_account_id=(
+            bank_accounting_account_id
+        ),
     )
 
     journal_entry = JournalEntry(

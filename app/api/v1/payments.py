@@ -199,6 +199,7 @@ def _payment_response(
         id=payment.id,
         company_id=payment.company_id,
         counterparty_id=payment.counterparty_id,
+        bank_account_id=payment.bank_account_id,
         contract_id=payment.contract_id,
         number=payment.number,
         direction=payment.direction,
@@ -366,6 +367,9 @@ async def create_payment(
                 company_id=company_id,
                 counterparty_id=(
                     data.counterparty_id
+                ),
+                bank_account_id=(
+                    data.bank_account_id
                 ),
                 contract_id=(
                     data.contract_id
