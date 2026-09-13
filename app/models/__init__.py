@@ -102,3 +102,5 @@ from app.models.bank_statement_reconciliation import (
     BankStatementReconciliation,
     BankStatementReconciliationActiveLink,
 )
+
+from app.models.cash_desk import CashDesk
