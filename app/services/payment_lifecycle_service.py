@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.bank_account import BankAccount
+from app.models.cash_desk import CashDesk
 from app.models.company import Company
 from app.models.contract import Contract
 from app.models.counterparty import Counterparty
@@ -322,6 +323,43 @@ async def revalidate_payment_references(
                 "BankAccount currency"
             )
 
+    if (
+        payment.bank_account_id is not None
+        and payment.cash_desk_id is not None
+    ):
+        raise PaymentStatusError(
+            "Payment cannot have both BankAccount and CashDesk source"
+        )
+
+    if payment.cash_desk_id is not None:
+        cash_desk = (
+            await db.execute(
+                select(CashDesk).where(
+                    CashDesk.id == payment.cash_desk_id,
+                    CashDesk.company_id == payment.company_id,
+                    CashDesk.is_active.is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+
+        if cash_desk is None:
+            raise PaymentStatusError(
+                "Payment CashDesk is missing, inactive, "
+                "or belongs to another company"
+            )
+
+        cash_currency = normalize_payment_currency_code(
+            cash_desk.currency_code
+        )
+        payment_currency = normalize_payment_currency_code(
+            payment.currency_code
+        )
+
+        if cash_currency != payment_currency:
+            raise PaymentCurrencyError(
+                "Payment currency does not match CashDesk currency"
+            )
+
     if payment.contract_id is None:
         return
 
@@ -386,6 +424,7 @@ async def create_payment_draft(
     external_reference: str | None = None,
     description: str | None = None,
     bank_account_id: int | None = None,
+    cash_desk_id: int | None = None,
 ) -> Payment:
     """
     Create one DRAFT Payment.
@@ -401,6 +440,7 @@ async def create_payment_draft(
     payment = Payment(
         company_id=company_id,
         bank_account_id=bank_account_id,
+        cash_desk_id=cash_desk_id,
         counterparty_id=counterparty_id,
         contract_id=contract_id,
         number=normalize_payment_number(

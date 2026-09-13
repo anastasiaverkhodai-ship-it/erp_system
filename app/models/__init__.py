@@ -104,3 +104,5 @@ from app.models.bank_statement_reconciliation import (
 )
 
 from app.models.cash_desk import CashDesk
+
+from app.models.cash_document import CashDocument

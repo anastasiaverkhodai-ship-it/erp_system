@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.account import Account
 from app.models.bank_account import BankAccount
+from app.models.cash_desk import CashDesk
 from app.models.journal_entry import (
     JournalEntry,
     JournalEntryStatus,
@@ -90,6 +91,7 @@ async def _build_journal_lines(
     plan: PaymentAccountingPlan,
     description: str,
     bank_accounting_account_id: int | None = None,
+    cash_accounting_account_id: int | None = None,
 ) -> list[JournalEntryLine]:
     roles = tuple(
         role
@@ -97,7 +99,10 @@ async def _build_journal_lines(
         if not (
             role
             == AccountingAccountRole.BANK_CURRENT_UAH
-            and bank_accounting_account_id is not None
+            and (
+                bank_accounting_account_id is not None
+                or cash_accounting_account_id is not None
+            )
         )
     )
 
@@ -138,6 +143,28 @@ async def _build_journal_lines(
                 "another company"
             )
 
+    cash_accounting_account = None
+    if cash_accounting_account_id is not None:
+        cash_accounting_account = (
+            await db.execute(
+                select(Account).where(
+                    Account.id
+                    == cash_accounting_account_id,
+                    Account.company_id
+                    == company_id,
+                    Account.is_active.is_(True),
+                    Account.is_postable.is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+
+        if cash_accounting_account is None:
+            raise PaymentJournalError(
+                "CashDesk accounting account is missing, "
+                "inactive, non-postable, or belongs to "
+                "another company"
+            )
+
     lines: list[JournalEntryLine] = []
 
     for line_no, planned in enumerate(
@@ -150,6 +177,12 @@ async def _build_journal_lines(
             and bank_accounting_account is not None
         ):
             account = bank_accounting_account
+        elif (
+            planned.role
+            == AccountingAccountRole.BANK_CURRENT_UAH
+            and cash_accounting_account is not None
+        ):
+            account = cash_accounting_account
         else:
             account = accounts[planned.role]
 
@@ -260,6 +293,15 @@ async def generate_and_post_payment_journal_entry(
         f"Payment {payment.number}"
     )
 
+    if (
+        payment.bank_account_id is not None
+        and payment.cash_desk_id is not None
+    ):
+        raise PaymentJournalSourceStateError(
+            "Payment cannot have both BankAccount "
+            "and CashDesk source"
+        )
+
     bank_accounting_account_id = None
 
     if payment.bank_account_id is not None:
@@ -291,6 +333,37 @@ async def generate_and_post_payment_journal_entry(
             bank_account.accounting_account_id
         )
 
+    cash_accounting_account_id = None
+
+    if payment.cash_desk_id is not None:
+        cash_desk = (
+            await db.execute(
+                select(CashDesk).where(
+                    CashDesk.id
+                    == payment.cash_desk_id,
+                    CashDesk.company_id
+                    == payment.company_id,
+                    CashDesk.is_active.is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+
+        if cash_desk is None:
+            raise PaymentJournalSourceStateError(
+                "Payment CashDesk is missing, inactive, "
+                "or belongs to another company"
+            )
+
+        if cash_desk.currency_code != payment.currency_code:
+            raise PaymentJournalCurrencyError(
+                "Payment currency does not match "
+                "CashDesk currency"
+            )
+
+        cash_accounting_account_id = (
+            cash_desk.accounting_account_id
+        )
+
     lines = await _build_journal_lines(
         db,
         company_id=payment.company_id,
@@ -298,6 +371,9 @@ async def generate_and_post_payment_journal_entry(
         description=description,
         bank_accounting_account_id=(
             bank_accounting_account_id
+        ),
+        cash_accounting_account_id=(
+            cash_accounting_account_id
         ),
     )
 

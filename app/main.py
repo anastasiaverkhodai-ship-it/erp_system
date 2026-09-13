@@ -9,6 +9,7 @@ from app.api.v1.payments import router as payments_router
 from app.api.v1.bank_accounts import router as bank_accounts_router
 from app.api.v1.bank_statements import router as bank_statements_router
 from app.api.v1.cash_desks import router as cash_desks_router
+from app.api.v1.cash_documents import router as cash_documents_router
 from app.api.v1.counterparty_open_items import router as counterparty_open_items_router
 from app.api.v1.contracts import router as contracts_router
 from app.api.v1.company_users import router as company_users_router
@@ -119,5 +120,9 @@ app.include_router(
 
 app.include_router(
     cash_desks_router,
+    prefix="/api/v1",
+)
+app.include_router(
+    cash_documents_router,
     prefix="/api/v1",
 )

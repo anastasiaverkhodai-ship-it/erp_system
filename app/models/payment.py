@@ -69,6 +69,22 @@ class Payment(Base):
         ForeignKeyConstraint(
             [
                 "company_id",
+                "cash_desk_id",
+            ],
+            [
+                "cash_desks.company_id",
+                "cash_desks.id",
+            ],
+            name="fk_payments_company_cash_desk",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "bank_account_id IS NULL OR cash_desk_id IS NULL",
+            name="ck_payments_single_money_source",
+        ),
+        ForeignKeyConstraint(
+            [
+                "company_id",
                 "counterparty_id",
             ],
             [
@@ -154,6 +170,12 @@ class Payment(Base):
     )
 
     bank_account_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+    )
+
+    cash_desk_id: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
         index=True,
