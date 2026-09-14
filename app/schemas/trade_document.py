@@ -69,6 +69,31 @@ class TradeDocumentLineCreate(BaseModel):
         max_digits=18,
         decimal_places=4,
     )
+    price_type_code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+    )
+
+    @field_validator(
+        "price_type_code",
+        mode="before",
+    )
+    @classmethod
+    def normalize_price_type_code(
+        cls,
+        value: Any,
+    ) -> Any:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        code = value.strip().upper()
+        if not code:
+            raise ValueError(
+                "Price type code cannot be blank"
+            )
+        return code
 
     tax_rate_code: str | None = Field(
         default=None,
@@ -105,6 +130,22 @@ class TradeDocumentLineCreate(BaseModel):
             )
 
         return code
+
+    @model_validator(
+        mode="after",
+    )
+    def validate_price_source(
+        self,
+    ):
+        if (
+            self.price_type_code is not None
+            and "unit_price" in self.model_fields_set
+        ):
+            raise ValueError(
+                "unit_price and price_type_code "
+                "cannot be provided together"
+            )
+        return self
 
     @model_validator(
         mode="after",
@@ -307,6 +348,11 @@ class TradeDocumentLineResponse(BaseModel):
 
     quantity: Decimal
     unit_price: Decimal
+
+    price_type_code: str | None
+    source_product_price_id: int | None
+    price_uom_code: str | None
+    price_effective_from: date | None
 
     tax_rate_code: str | None
     tax_recognition_method: (

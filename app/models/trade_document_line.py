@@ -1,8 +1,10 @@
+from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
+    Date,
     Enum as SQLEnum,
     ForeignKey,
     ForeignKeyConstraint,
@@ -130,6 +132,75 @@ class TradeDocumentLine(Base):
         ),
         CheckConstraint(
             (
+                "("
+                "price_type_code IS NULL "
+                "AND source_product_price_id IS NULL "
+                "AND price_uom_code IS NULL "
+                "AND price_effective_from IS NULL"
+                ") OR ("
+                "price_type_code IS NOT NULL "
+                "AND source_product_price_id IS NOT NULL "
+                "AND price_uom_code IS NOT NULL "
+                "AND price_effective_from IS NOT NULL"
+                ")"
+            ),
+            name=(
+                "ck_trade_document_line_"
+                "price_provenance_state"
+            ),
+        ),
+        CheckConstraint(
+            (
+                "price_type_code IS NULL "
+                "OR length(trim(price_type_code)) > 0"
+            ),
+            name=(
+                "ck_trade_document_line_"
+                "price_type_code_nonempty"
+            ),
+        ),
+        CheckConstraint(
+            (
+                "price_uom_code IS NULL "
+                "OR length(trim(price_uom_code)) > 0"
+            ),
+            name=(
+                "ck_trade_document_line_"
+                "price_uom_code_nonempty"
+            ),
+        ),
+        ForeignKeyConstraint(
+            [
+                "company_id",
+                "price_type_code",
+            ],
+            [
+                "price_types.company_id",
+                "price_types.code",
+            ],
+            name=(
+                "fk_trade_document_lines_"
+                "company_price_type"
+            ),
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "company_id",
+                "source_product_price_id",
+            ],
+            [
+                "product_prices.company_id",
+                "product_prices.id",
+            ],
+            name=(
+                "fk_trade_document_lines_"
+                "company_source_product_price"
+            ),
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            (
                 "(tax_rate_code IS NULL "
                 "AND tax_recognition_method IS NULL) "
                 "OR "
@@ -233,6 +304,22 @@ class TradeDocumentLine(Base):
         Numeric(18, 4),
         default=Decimal("0"),
         nullable=False,
+    )
+    price_type_code: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    source_product_price_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    price_uom_code: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    price_effective_from: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
     )
 
     tax_rate_code: Mapped[str | None] = mapped_column(
