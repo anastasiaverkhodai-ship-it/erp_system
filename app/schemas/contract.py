@@ -78,6 +78,12 @@ class ContractCreate(BaseModel):
         max_length=3,
     )
 
+    default_sales_price_type_code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+    )
+
     payment_term_days: int = Field(
         default=0,
         ge=0,
@@ -106,6 +112,28 @@ class ContractCreate(BaseModel):
             return None
 
         return value
+
+    @field_validator(
+        "default_sales_price_type_code",
+        mode="before",
+    )
+    @classmethod
+    def normalize_default_sales_price_type_code(
+        cls,
+        value,
+    ):
+        if value is None:
+            return None
+
+        if not isinstance(value, str):
+            return value
+
+        code = value.strip().upper()
+
+        if not code:
+            return None
+
+        return code
 
     @field_validator(
         "currency_code",
@@ -179,6 +207,12 @@ class ContractUpdate(BaseModel):
         max_length=3,
     )
 
+    default_sales_price_type_code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+    )
+
     payment_term_days: int | None = Field(
         default=None,
         ge=0,
@@ -207,6 +241,28 @@ class ContractUpdate(BaseModel):
             return None
 
         return value
+
+    @field_validator(
+        "default_sales_price_type_code",
+        mode="before",
+    )
+    @classmethod
+    def normalize_default_sales_price_type_code(
+        cls,
+        value,
+    ):
+        if value is None:
+            return None
+
+        if not isinstance(value, str):
+            return value
+
+        code = value.strip().upper()
+
+        if not code:
+            return None
+
+        return code
 
     @field_validator(
         "currency_code",
@@ -244,6 +300,7 @@ class ContractResponse(BaseModel):
     end_date: date | None
 
     currency_code: str
+    default_sales_price_type_code: str | None
 
     payment_term_days: int
     credit_limit: Decimal

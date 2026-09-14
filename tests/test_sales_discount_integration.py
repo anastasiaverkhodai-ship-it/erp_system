@@ -6,6 +6,9 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.v1 import trade_documents
+from app.services.sales_commercial_policy_service import (
+    ResolvedSalesCommercialPolicy,
+)
 from app.services.invoice_tax_calculation_service import (
     calculate_invoice_line_tax,
 )
@@ -46,6 +49,42 @@ def _line_data(
         discount_amount_per_unit=(
             discount_amount_per_unit
         ),
+        model_fields_set=(
+            {"unit_price"}
+            if unit_price != Decimal("0")
+            else (
+                {"price_type_code"}
+                if price_type_code is not None
+                else set()
+            )
+        ),
+    )
+
+
+@pytest.fixture(autouse=True)
+def isolate_commercial_policy(monkeypatch):
+    async def fake_resolve_sales_commercial_policy(
+        db,
+        *,
+        company_id,
+        counterparty_id,
+        contract_id,
+        explicit_price_type_code,
+        explicit_unit_price,
+    ):
+        if explicit_unit_price:
+            return ResolvedSalesCommercialPolicy(
+                price_type_code=None,
+            )
+
+        return ResolvedSalesCommercialPolicy(
+            price_type_code=explicit_price_type_code,
+        )
+
+    monkeypatch.setattr(
+        trade_documents,
+        "resolve_sales_commercial_policy",
+        fake_resolve_sales_commercial_policy,
     )
 
 
@@ -56,6 +95,8 @@ async def test_manual_percent_discount_snapshot():
         ._resolve_trade_line_price_snapshot(
             _FakeDB(),
             company_id=1,
+            counterparty_id=1,
+            contract_id=None,
             line_data=_line_data(
                 unit_price=Decimal("100"),
                 discount_percent=Decimal("10"),
@@ -101,6 +142,8 @@ async def test_manual_amount_discount_snapshot():
         ._resolve_trade_line_price_snapshot(
             _FakeDB(),
             company_id=1,
+            counterparty_id=1,
+            contract_id=None,
             line_data=_line_data(
                 unit_price=Decimal("100"),
                 discount_amount_per_unit=(
@@ -168,6 +211,8 @@ async def test_master_percent_discount_preserves_master_provenance(
         ._resolve_trade_line_price_snapshot(
             _FakeDB(),
             company_id=1,
+            counterparty_id=1,
+            contract_id=None,
             line_data=_line_data(
                 price_type_code="RETAIL",
                 discount_percent=Decimal("20"),
@@ -223,6 +268,8 @@ async def test_invalid_amount_discount_is_http_422():
             ._resolve_trade_line_price_snapshot(
                 _FakeDB(),
                 company_id=1,
+                counterparty_id=1,
+                contract_id=None,
                 line_data=_line_data(
                     unit_price=Decimal("100"),
                     discount_amount_per_unit=(

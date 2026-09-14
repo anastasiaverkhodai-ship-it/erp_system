@@ -25,6 +25,10 @@ from app.services.sales_pricing_service import (
     SalesPricingNotFoundError,
     resolve_sales_master_price,
 )
+from app.services.sales_commercial_policy_service import (
+    SalesCommercialPolicyConfigurationError,
+    resolve_sales_commercial_policy,
+)
 
 from app.services.sales_discount_service import (
     SalesDiscountError,
@@ -241,6 +245,8 @@ async def _resolve_trade_line_price_snapshot(
     db: AsyncSession,
     *,
     company_id: int,
+    counterparty_id: int,
+    contract_id: int | None,
     line_data,
     direction: TradeDirection,
     document_date,
@@ -250,22 +256,45 @@ async def _resolve_trade_line_price_snapshot(
     Resolve one immutable commercial TradeDocumentLine
     price + discount snapshot.
 
-    Manual pricing:
-        explicitly supplied unit_price is the
-        PRE-DISCOUNT base price.
+    Explicit manual price wins over inherited policy.
+    Explicit master PriceType wins over inherited policy.
+    Contract default wins over Counterparty default.
 
-    Master pricing:
-        ProductPrice.amount is the PRE-DISCOUNT
-        base price.
-
-    TradeDocumentLine.unit_price always persists the
-    FINAL effective commercial price.
+    TradeDocumentLine.unit_price remains the FINAL
+    effective commercial price.
 
     Master-price provenance and discount provenance
     remain independent.
     """
 
-    if line_data.price_type_code is None:
+    try:
+        policy = await resolve_sales_commercial_policy(
+            db,
+            company_id=company_id,
+            counterparty_id=counterparty_id,
+            contract_id=contract_id,
+            explicit_price_type_code=(
+                line_data.price_type_code
+            ),
+            explicit_unit_price=(
+                "unit_price"
+                in line_data.model_fields_set
+            ),
+        )
+
+    except SalesCommercialPolicyConfigurationError as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_422_UNPROCESSABLE_CONTENT
+            ),
+            detail=str(exc),
+        ) from exc
+
+    effective_price_type_code = (
+        policy.price_type_code
+    )
+
+    if effective_price_type_code is None:
         base_price = line_data.unit_price
 
         price_type_code = None
@@ -280,7 +309,7 @@ async def _resolve_trade_line_price_snapshot(
                 company_id=company_id,
                 product_id=line_data.product_id,
                 price_type_code=(
-                    line_data.price_type_code
+                    effective_price_type_code
                 ),
                 document_date=document_date,
                 document_currency_code=currency_code,
@@ -677,6 +706,8 @@ async def create_trade_document(
             await _resolve_trade_line_price_snapshot(
                 db,
                 company_id=company_id,
+                counterparty_id=data.counterparty_id,
+                contract_id=data.contract_id,
                 line_data=line_data,
                 direction=data.direction,
                 document_date=data.document_date,
@@ -999,6 +1030,8 @@ async def update_trade_document(
                 await _resolve_trade_line_price_snapshot(
                     db,
                     company_id=company_id,
+                    counterparty_id=new_counterparty_id,
+                    contract_id=new_contract_id,
                     line_data=line_data,
                     direction=new_direction,
                     document_date=new_document_date,

@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SQLEnum,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     Numeric,
     String,
@@ -72,6 +73,21 @@ class Counterparty(Base):
         CheckConstraint(
             "char_length(default_currency_code) = 3",
             name="ck_counterparty_currency_code_length",
+        ),
+        ForeignKeyConstraint(
+            [
+                "company_id",
+                "default_sales_price_type_code",
+            ],
+            [
+                "price_types.company_id",
+                "price_types.code",
+            ],
+            name=(
+                "fk_counterparties_company_"
+                "default_sales_price_type"
+            ),
+            ondelete="RESTRICT",
         ),
     )
 
@@ -156,6 +172,13 @@ class Counterparty(Base):
         nullable=False,
         default="UAH",
         server_default="UAH",
+    )
+
+    default_sales_price_type_code: Mapped[
+        str | None
+    ] = mapped_column(
+        String(100),
+        nullable=True,
     )
 
     payment_term_days: Mapped[int] = mapped_column(

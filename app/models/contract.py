@@ -104,6 +104,21 @@ class Contract(Base):
                 "length"
             ),
         ),
+        ForeignKeyConstraint(
+            [
+                "company_id",
+                "default_sales_price_type_code",
+            ],
+            [
+                "price_types.company_id",
+                "price_types.code",
+            ],
+            name=(
+                "fk_contracts_company_"
+                "default_sales_price_type"
+            ),
+            ondelete="RESTRICT",
+        ),
     )
 
     id: Mapped[int] = mapped_column(
@@ -186,6 +201,13 @@ class Contract(Base):
         nullable=False,
         default="UAH",
         server_default="UAH",
+    )
+
+    default_sales_price_type_code: Mapped[
+        str | None
+    ] = mapped_column(
+        String(100),
+        nullable=True,
     )
 
     payment_term_days: Mapped[int] = mapped_column(

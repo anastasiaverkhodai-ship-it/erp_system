@@ -66,6 +66,12 @@ class CounterpartyCreate(BaseModel):
         pattern=r"^[A-Z]{3}$",
     )
 
+    default_sales_price_type_code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+    )
+
     payment_term_days: int = Field(
         default=0,
         ge=0,
@@ -97,6 +103,28 @@ class CounterpartyCreate(BaseModel):
             return None
 
         return value
+
+    @field_validator(
+        "default_sales_price_type_code",
+        mode="before",
+    )
+    @classmethod
+    def normalize_default_sales_price_type_code(
+        cls,
+        value,
+    ):
+        if value is None:
+            return None
+
+        if not isinstance(value, str):
+            return value
+
+        code = value.strip().upper()
+
+        if not code:
+            return None
+
+        return code
 
     @field_validator(
         "default_currency_code",
@@ -166,6 +194,12 @@ class CounterpartyUpdate(BaseModel):
         pattern=r"^[A-Z]{3}$",
     )
 
+    default_sales_price_type_code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+    )
+
     payment_term_days: int | None = Field(
         default=None,
         ge=0,
@@ -199,6 +233,28 @@ class CounterpartyUpdate(BaseModel):
             return None
 
         return value
+
+    @field_validator(
+        "default_sales_price_type_code",
+        mode="before",
+    )
+    @classmethod
+    def normalize_default_sales_price_type_code(
+        cls,
+        value,
+    ):
+        if value is None:
+            return None
+
+        if not isinstance(value, str):
+            return value
+
+        code = value.strip().upper()
+
+        if not code:
+            return None
+
+        return code
 
     @field_validator(
         "default_currency_code",
@@ -235,6 +291,7 @@ class CounterpartyResponse(BaseModel):
     vat_number: str | None
 
     default_currency_code: str
+    default_sales_price_type_code: str | None
 
     payment_term_days: int
     credit_limit: Decimal
