@@ -69,6 +69,19 @@ class TradeDocumentLineCreate(BaseModel):
         max_digits=18,
         decimal_places=4,
     )
+    discount_percent: Decimal | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+        max_digits=9,
+        decimal_places=4,
+    )
+    discount_amount_per_unit: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=18,
+        decimal_places=4,
+    )
     price_type_code: str | None = Field(
         default=None,
         min_length=1,
@@ -145,6 +158,17 @@ class TradeDocumentLineCreate(BaseModel):
                 "unit_price and price_type_code "
                 "cannot be provided together"
             )
+
+        if (
+            self.discount_percent is not None
+            and self.discount_amount_per_unit is not None
+        ):
+            raise ValueError(
+                "discount_percent and "
+                "discount_amount_per_unit cannot "
+                "be provided together"
+            )
+
         return self
 
     @model_validator(
@@ -348,6 +372,10 @@ class TradeDocumentLineResponse(BaseModel):
 
     quantity: Decimal
     unit_price: Decimal
+
+    base_unit_price: Decimal | None
+    discount_percent: Decimal | None
+    discount_amount_per_unit: Decimal | None
 
     price_type_code: str | None
     source_product_price_id: int | None

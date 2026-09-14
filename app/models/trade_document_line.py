@@ -133,6 +133,77 @@ class TradeDocumentLine(Base):
         CheckConstraint(
             (
                 "("
+                "base_unit_price IS NULL "
+                "AND discount_percent IS NULL "
+                "AND discount_amount_per_unit IS NULL"
+                ") OR ("
+                "base_unit_price IS NOT NULL "
+                "AND ("
+                "("
+                "discount_percent IS NOT NULL "
+                "AND discount_amount_per_unit IS NULL"
+                ") OR ("
+                "discount_percent IS NULL "
+                "AND discount_amount_per_unit IS NOT NULL"
+                ")"
+                ")"
+                ")"
+            ),
+            name=(
+                "ck_trade_document_line_"
+                "discount_state"
+            ),
+        ),
+        CheckConstraint(
+            (
+                "base_unit_price IS NULL "
+                "OR base_unit_price >= 0"
+            ),
+            name=(
+                "ck_trade_document_line_"
+                "base_unit_price_nonnegative"
+            ),
+        ),
+        CheckConstraint(
+            (
+                "discount_percent IS NULL "
+                "OR ("
+                "discount_percent >= 0 "
+                "AND discount_percent <= 100"
+                ")"
+            ),
+            name=(
+                "ck_trade_document_line_"
+                "discount_percent_range"
+            ),
+        ),
+        CheckConstraint(
+            (
+                "discount_amount_per_unit IS NULL "
+                "OR discount_amount_per_unit >= 0"
+            ),
+            name=(
+                "ck_trade_document_line_"
+                "discount_amount_nonnegative"
+            ),
+        ),
+        CheckConstraint(
+            (
+                "discount_amount_per_unit IS NULL "
+                "OR ("
+                "base_unit_price IS NOT NULL "
+                "AND discount_amount_per_unit "
+                "<= base_unit_price"
+                ")"
+            ),
+            name=(
+                "ck_trade_document_line_"
+                "discount_amount_not_above_base"
+            ),
+        ),
+        CheckConstraint(
+            (
+                "("
                 "price_type_code IS NULL "
                 "AND source_product_price_id IS NULL "
                 "AND price_uom_code IS NULL "
@@ -304,6 +375,18 @@ class TradeDocumentLine(Base):
         Numeric(18, 4),
         default=Decimal("0"),
         nullable=False,
+    )
+    base_unit_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 4),
+        nullable=True,
+    )
+    discount_percent: Mapped[Decimal | None] = mapped_column(
+        Numeric(9, 4),
+        nullable=True,
+    )
+    discount_amount_per_unit: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 4),
+        nullable=True,
     )
     price_type_code: Mapped[str | None] = mapped_column(
         String(100),

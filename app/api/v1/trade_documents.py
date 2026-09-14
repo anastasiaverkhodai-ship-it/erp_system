@@ -25,6 +25,11 @@ from app.services.sales_pricing_service import (
     SalesPricingNotFoundError,
     resolve_sales_master_price,
 )
+
+from app.services.sales_discount_service import (
+    SalesDiscountError,
+    calculate_sales_discount_snapshot,
+)
 from app.schemas.invoice_fulfillment_allocation import (
     InvoiceFulfillmentAllocationCreateRequest,
     InvoiceFulfillmentAllocationResponse,
@@ -242,39 +247,85 @@ async def _resolve_trade_line_price_snapshot(
     currency_code: str,
 ) -> dict:
     """
-    Resolve one commercial TradeDocumentLine price.
+    Resolve one immutable commercial TradeDocumentLine
+    price + discount snapshot.
 
-    Manual pricing keeps the explicitly supplied unit_price
-    and persists no master-price provenance.
+    Manual pricing:
+        explicitly supplied unit_price is the
+        PRE-DISCOUNT base price.
 
-    Master pricing is opt-in through price_type_code and
-    snapshots the effective ProductPrice into unit_price.
+    Master pricing:
+        ProductPrice.amount is the PRE-DISCOUNT
+        base price.
+
+    TradeDocumentLine.unit_price always persists the
+    FINAL effective commercial price.
+
+    Master-price provenance and discount provenance
+    remain independent.
     """
+
     if line_data.price_type_code is None:
-        return {
-            "unit_price": line_data.unit_price,
-            "price_type_code": None,
-            "source_product_price_id": None,
-            "price_uom_code": None,
-            "price_effective_from": None,
-        }
+        base_price = line_data.unit_price
+
+        price_type_code = None
+        source_product_price_id = None
+        price_uom_code = None
+        price_effective_from = None
+
+    else:
+        try:
+            resolved = await resolve_sales_master_price(
+                db,
+                company_id=company_id,
+                product_id=line_data.product_id,
+                price_type_code=(
+                    line_data.price_type_code
+                ),
+                document_date=document_date,
+                document_currency_code=currency_code,
+                document_direction=direction,
+            )
+
+        except (
+            SalesPricingConfigurationError,
+            SalesPricingNotFoundError,
+        ) as exc:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT
+                ),
+                detail=str(exc),
+            ) from exc
+
+        base_price = resolved.unit_price
+        price_type_code = (
+            resolved.price_type_code
+        )
+        source_product_price_id = (
+            resolved.source_product_price_id
+        )
+        price_uom_code = (
+            resolved.price_uom_code
+        )
+        price_effective_from = (
+            resolved.price_effective_from
+        )
 
     try:
-        resolved = await resolve_sales_master_price(
-            db,
-            company_id=company_id,
-            product_id=line_data.product_id,
-            price_type_code=(
-                line_data.price_type_code
-            ),
-            document_date=document_date,
-            document_currency_code=currency_code,
-            document_direction=direction,
+        discount_snapshot = (
+            calculate_sales_discount_snapshot(
+                base_price=base_price,
+                discount_percent=(
+                    line_data.discount_percent
+                ),
+                discount_amount_per_unit=(
+                    line_data.discount_amount_per_unit
+                ),
+            )
         )
-    except (
-        SalesPricingConfigurationError,
-        SalesPricingNotFoundError,
-    ) as exc:
+
+    except SalesDiscountError as exc:
         raise HTTPException(
             status_code=(
                 status.HTTP_422_UNPROCESSABLE_CONTENT
@@ -283,21 +334,27 @@ async def _resolve_trade_line_price_snapshot(
         ) from exc
 
     return {
-        "unit_price": resolved.unit_price,
-        "price_type_code": (
-            resolved.price_type_code
+        "unit_price": (
+            discount_snapshot.unit_price
         ),
+        "base_unit_price": (
+            discount_snapshot.base_unit_price
+        ),
+        "discount_percent": (
+            discount_snapshot.discount_percent
+        ),
+        "discount_amount_per_unit": (
+            discount_snapshot.discount_amount_per_unit
+        ),
+        "price_type_code": price_type_code,
         "source_product_price_id": (
-            resolved.source_product_price_id
+            source_product_price_id
         ),
-        "price_uom_code": (
-            resolved.price_uom_code
-        ),
+        "price_uom_code": price_uom_code,
         "price_effective_from": (
-            resolved.price_effective_from
+            price_effective_from
         ),
     }
-
 
 async def _validate_lines(
     db: AsyncSession,
@@ -680,6 +737,21 @@ async def create_trade_document(
                     unit_price=(
                         price_snapshot["unit_price"]
                     ),
+                    base_unit_price=(
+                        price_snapshot[
+                            "base_unit_price"
+                        ]
+                    ),
+                    discount_percent=(
+                        price_snapshot[
+                            "discount_percent"
+                        ]
+                    ),
+                    discount_amount_per_unit=(
+                        price_snapshot[
+                            "discount_amount_per_unit"
+                        ]
+                    ),
                     price_type_code=(
                         price_snapshot[
                             "price_type_code"
@@ -1002,6 +1074,21 @@ async def update_trade_document(
                         unit_price=(
                             price_snapshot[
                                 "unit_price"
+                            ]
+                        ),
+                        base_unit_price=(
+                            price_snapshot[
+                                "base_unit_price"
+                            ]
+                        ),
+                        discount_percent=(
+                            price_snapshot[
+                                "discount_percent"
+                            ]
+                        ),
+                        discount_amount_per_unit=(
+                            price_snapshot[
+                                "discount_amount_per_unit"
                             ]
                         ),
                         price_type_code=(
