@@ -17,12 +17,36 @@ from app.schemas.product import (
     ProductResponse,
     ProductUpdate,
 )
+from app.services.uom_catalog_service import (
+    SYSTEM_UOM_CATALOG,
+    UnitOfMeasureNotFoundError,
+)
 
 
 router = APIRouter(
     prefix="/companies/{company_id}/products",
     tags=["Products"],
 )
+
+
+def _normalize_base_uom_code(
+    value: str,
+) -> str:
+    code = value.strip().lower()
+
+    try:
+        SYSTEM_UOM_CATALOG.get(code)
+    except UnitOfMeasureNotFoundError as exc:
+        raise HTTPException(
+            status_code=(
+                status.HTTP_422_UNPROCESSABLE_CONTENT
+            ),
+            detail=(
+                "Product base UOM is not registered"
+            ),
+        ) from exc
+
+    return code
 
 
 # ---------------------------------------------------------
@@ -149,10 +173,15 @@ async def create_product(
                 ),
             )
 
+        base_uom_code = _normalize_base_uom_code(
+            data.base_uom_code
+        )
+
         product = Product(
             company_id=company_id,
             name=data.name,
             sku=data.sku,
+            base_uom_code=base_uom_code,
             is_active=True,
         )
 
@@ -248,6 +277,31 @@ async def update_product(
                         "in this company"
                     ),
                 )
+
+        if "base_uom_code" in update_data:
+            requested_base_uom = (
+                _normalize_base_uom_code(
+                    update_data["base_uom_code"]
+                )
+            )
+
+            if (
+                product.base_uom_code is not None
+                and requested_base_uom
+                != product.base_uom_code
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Product base UOM cannot be "
+                        "changed after it has been "
+                        "assigned"
+                    ),
+                )
+
+            update_data["base_uom_code"] = (
+                requested_base_uom
+            )
 
         for field, value in update_data.items():
             setattr(

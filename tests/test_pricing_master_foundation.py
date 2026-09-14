@@ -48,7 +48,7 @@ def test_price_master_normalization():
     assert _normalize_code(" retail ") == "RETAIL"
     assert _normalize_name(" Retail ") == "Retail"
     assert _normalize_currency(" uah ") == "UAH"
-    assert _normalize_uom(" pcs ") == "PCS"
+    assert _normalize_uom(" pcs ") == "pcs"
 
 
 @pytest.mark.parametrize(

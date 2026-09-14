@@ -12,6 +12,11 @@ class ProductCreate(BaseModel):
         max_length=100,
     )
 
+    base_uom_code: str = Field(
+        min_length=1,
+        max_length=20,
+    )
+
 
 class ProductUpdate(BaseModel):
     name: str | None = Field(
@@ -28,6 +33,12 @@ class ProductUpdate(BaseModel):
 
     is_active: bool | None = None
 
+    base_uom_code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=20,
+    )
+
 
 class ProductResponse(BaseModel):
     model_config = ConfigDict(
@@ -38,4 +49,5 @@ class ProductResponse(BaseModel):
     company_id: int
     name: str
     sku: str
+    base_uom_code: str | None
     is_active: bool

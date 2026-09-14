@@ -9,6 +9,10 @@ from app.models.price_type import PriceType
 from app.models.product import Product
 from app.models.product_price import ProductPrice
 from app.services.price_types import PriceKind
+from app.services.uom_catalog_service import (
+    SYSTEM_UOM_CATALOG,
+    UnitOfMeasureNotFoundError,
+)
 
 
 class PricingMasterError(Exception):
@@ -55,9 +59,22 @@ def _normalize_currency(value: str) -> str:
 
 
 def _normalize_uom(value: str) -> str:
-    normalized = value.strip().upper()
+    normalized = value.strip().lower()
+
     if not normalized:
-        raise PricingMasterError("UOM code cannot be blank")
+        raise PricingMasterError(
+            "UOM code cannot be blank"
+        )
+
+    try:
+        SYSTEM_UOM_CATALOG.get(
+            normalized
+        )
+    except UnitOfMeasureNotFoundError as exc:
+        raise PricingMasterError(
+            "UOM code is not registered"
+        ) from exc
+
     return normalized
 
 

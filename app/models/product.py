@@ -1,9 +1,4 @@
-from sqlalchemy import (
-    Boolean,
-    ForeignKey,
-    String,
-    UniqueConstraint,
-)
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -22,6 +17,14 @@ class Product(Base):
             "company_id",
             "id",
             name="uq_products_company_id_id",
+        ),
+        CheckConstraint(
+            "base_uom_code IS NULL OR "
+            "length(trim(base_uom_code)) > 0",
+            name=(
+                "ck_products_"
+                "base_uom_code_nonblank"
+            ),
         ),
     )
 
@@ -48,6 +51,10 @@ class Product(Base):
         nullable=False,
     )
 
+    base_uom_code: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
