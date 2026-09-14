@@ -106,3 +106,6 @@ from app.models.bank_statement_reconciliation import (
 from app.models.cash_desk import CashDesk
 
 from app.models.cash_document import CashDocument
+
+from app.models.price_type import PriceType
+from app.models.product_price import ProductPrice
