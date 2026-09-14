@@ -59,6 +59,11 @@ from app.services.invoice_fulfillment_allocation_service import (
     reverse_invoice_fulfillment_allocation,
 )
 
+from app.services.sales_credit_control_service import (
+    SalesCreditDataIntegrityError,
+    SalesCreditLimitExceededError,
+)
+
 from app.services.trade_document_types import (
     TradeDirection,
     TradeDocumentKind,
@@ -1020,6 +1025,7 @@ async def confirm_trade_document_sales_order(
         SalesOrderLinesRequiredError,
         SalesOrderWarehouseRequiredError,
         SalesOrderReferenceError,
+        SalesCreditLimitExceededError,
         PurchaseOrderTypeError,
         PurchaseOrderLinesRequiredError,
         PurchaseOrderWarehouseRequiredError,
@@ -1035,6 +1041,13 @@ async def confirm_trade_document_sales_order(
             status_code=(
                 status.HTTP_422_UNPROCESSABLE_CONTENT
             ),
+            detail=str(exc),
+        ) from exc
+
+    except SalesCreditDataIntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from exc
 

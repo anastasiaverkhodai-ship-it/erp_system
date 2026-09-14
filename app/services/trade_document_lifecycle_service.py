@@ -31,6 +31,10 @@ from app.services.invoice_tax_calculation_service import (
     InvoiceTaxCalculationError,
     create_tax_calculations_for_invoice,
 )
+from app.services.sales_credit_control_service import (
+    enforce_sales_credit_limit,
+)
+
 from app.services.trade_document_types import (
     TradeDirection,
     TradeDocumentKind,
@@ -559,6 +563,11 @@ async def confirm_sales_order(
     )
 
     await revalidate_sales_order_references(
+        db,
+        document=document,
+    )
+
+    await enforce_sales_credit_limit(
         db,
         document=document,
     )

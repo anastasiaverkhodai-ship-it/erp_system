@@ -396,3 +396,131 @@ async def test_fulfillment_reversal_rejects_invoice(
     purchase.assert_not_awaited()
 
     db.rollback.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_confirm_sales_order_credit_limit_exceeded_maps_to_422(
+    monkeypatch,
+):
+    from app.api.v1 import trade_documents as api
+    from app.services.sales_credit_control_service import (
+        SalesCreditLimitExceededError,
+    )
+
+    class _DB:
+        def __init__(self):
+            self.rollback_called = False
+            self.commit_called = False
+
+        async def rollback(self):
+            self.rollback_called = True
+
+        async def commit(self):
+            self.commit_called = True
+
+    db = _DB()
+
+    async def _identity(*args, **kwargs):
+        return (
+            api.TradeDirection.SALE,
+            api.TradeDocumentKind.ORDER,
+        )
+
+    async def _confirm(*args, **kwargs):
+        raise SalesCreditLimitExceededError(
+            "Sales credit limit exceeded"
+        )
+
+    monkeypatch.setattr(
+        api,
+        "_get_trade_document_lifecycle_identity",
+        _identity,
+    )
+
+    monkeypatch.setattr(
+        api,
+        "confirm_sales_order",
+        _confirm,
+    )
+
+    with pytest.raises(
+        api.HTTPException
+    ) as exc_info:
+        await api.confirm_trade_document_sales_order(
+            company_id=1,
+            document_id=2,
+            db=db,
+            _permission=None,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert (
+        exc_info.value.detail
+        == "Sales credit limit exceeded"
+    )
+    assert db.rollback_called is True
+    assert db.commit_called is False
+
+
+@pytest.mark.asyncio
+async def test_confirm_sales_order_credit_data_integrity_maps_to_409(
+    monkeypatch,
+):
+    from app.api.v1 import trade_documents as api
+    from app.services.sales_credit_control_service import (
+        SalesCreditDataIntegrityError,
+    )
+
+    class _DB:
+        def __init__(self):
+            self.rollback_called = False
+            self.commit_called = False
+
+        async def rollback(self):
+            self.rollback_called = True
+
+        async def commit(self):
+            self.commit_called = True
+
+    db = _DB()
+
+    async def _identity(*args, **kwargs):
+        return (
+            api.TradeDirection.SALE,
+            api.TradeDocumentKind.ORDER,
+        )
+
+    async def _confirm(*args, **kwargs):
+        raise SalesCreditDataIntegrityError(
+            "Credit exposure currency mismatch"
+        )
+
+    monkeypatch.setattr(
+        api,
+        "_get_trade_document_lifecycle_identity",
+        _identity,
+    )
+
+    monkeypatch.setattr(
+        api,
+        "confirm_sales_order",
+        _confirm,
+    )
+
+    with pytest.raises(
+        api.HTTPException
+    ) as exc_info:
+        await api.confirm_trade_document_sales_order(
+            company_id=1,
+            document_id=2,
+            db=db,
+            _permission=None,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert (
+        exc_info.value.detail
+        == "Credit exposure currency mismatch"
+    )
+    assert db.rollback_called is True
+    assert db.commit_called is False
