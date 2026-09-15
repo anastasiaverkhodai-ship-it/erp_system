@@ -427,6 +427,7 @@ async def reverse_journal_entry(
     purchase_value_correction_input_vat_credit_correction_event_id_override: int | None = None,
     purchase_value_correction_fifo_impact_event_id_override: int | None = None,
     purchase_value_correction_ma_replay_event_id_override: int | None = None,
+    landed_cost_valuation_event_id: int | None = None,
 ) -> JournalEntry:
     result = await db.execute(
         select(JournalEntry)
@@ -464,6 +465,17 @@ async def reverse_journal_entry(
         raise AccountingReversalError(
             "Journal entry has no lines to reverse"
         )
+
+    from app.models.purchase_landed_cost_valuation_event import PurchaseLandedCostValuationEvent
+    from app.services.purchase_landed_cost_capitalization_service import has_capitalized_expenses_for_journal
+    linked_valuation = (await db.execute(select(PurchaseLandedCostValuationEvent.id).where(
+        PurchaseLandedCostValuationEvent.company_id == company_id,
+        PurchaseLandedCostValuationEvent.journal_entry_id == original_entry.id,
+    ))).scalar_one_or_none()
+    if linked_valuation is not None and linked_valuation != landed_cost_valuation_event_id:
+        raise AccountingReversalError("Reverse landed-cost valuation through its lifecycle")
+    if await has_capitalized_expenses_for_journal(db, company_id=company_id, journal_entry_id=original_entry.id):
+        raise AccountingReversalError("Expense has active capitalized landed costs; reverse them first")
 
     await ensure_period_open(
         company_id=company_id,

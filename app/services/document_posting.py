@@ -26,6 +26,8 @@ from app.services.posting_factory import (
 )
 from app.models.journal_entry import JournalEntry
 
+from app.services.landed_cost_inventory_lifecycle import landed_cost_inventory_operation
+
 class DocumentPostingError(Exception):
     """Business error raised when a document cannot be posted."""
 
@@ -56,6 +58,7 @@ async def get_stock_balance(
     return Decimal(quantity)
 
 
+@landed_cost_inventory_operation(result_date=lambda result: result[0].document_date)
 async def post_document(
     db: AsyncSession,
     company_id: int,

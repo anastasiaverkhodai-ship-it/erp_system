@@ -1616,7 +1616,7 @@ async def tax_row(
 
 
 @pytest.mark.asyncio
-async def test_purchase_return_recognition_postgresql_chronology():
+async def test_purchase_return_recognition_postgresql_chronology(monkeypatch):
     baseline = await table_counts()
 
     token = uuid4().hex[
@@ -1706,6 +1706,18 @@ async def test_purchase_return_recognition_postgresql_chronology():
                 "Real PostgreSQL E2E requires "
                 "an open unlocked accounting period"
             )
+
+            # The scenario chooses a historical open period. Settlement uses
+            # the current UTC date, so pin its clock to this scenario's date.
+            from datetime import datetime as RealDatetime, time, timezone
+            import app.services.payment_settlement_service as settlement_service
+            class ScenarioDatetime(RealDatetime):
+                @classmethod
+                def now(cls, tz=None):
+                    value = RealDatetime.combine(business_date, time(12), tzinfo=timezone.utc)
+                    return value.astimezone(tz) if tz else value.replace(tzinfo=None)
+            monkeypatch.setattr(settlement_service, "datetime", ScenarioDatetime)
+
 
             product_id = int(
                 await scalar(

@@ -626,3 +626,12 @@ async def test_public_entrypoint_loads_then_applies(
         event=value,
         created_by=7,
     )
+
+
+@pytest.fixture(autouse=True)
+def isolate_landed_cost_boundary(monkeypatch):
+    """This module tests the original service body; boundary has separate tests."""
+    from unittest.mock import AsyncMock
+    import app.services.landed_cost_inventory_lifecycle as boundary
+    monkeypatch.setattr(boundary, "lock_landed_cost_company", AsyncMock())
+    monkeypatch.setattr(boundary, "reconcile_landed_cost_valuation", AsyncMock())

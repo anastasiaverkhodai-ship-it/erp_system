@@ -535,3 +535,12 @@ def _default_no_active_fulfillment_allocations(
             return_value=False
         ),
     )
+
+
+@pytest.fixture(autouse=True)
+def isolate_landed_cost_boundary(monkeypatch):
+    """This module tests the original service body; boundary has separate tests."""
+    from unittest.mock import AsyncMock
+    import app.services.landed_cost_inventory_lifecycle as boundary
+    monkeypatch.setattr(boundary, "lock_landed_cost_company", AsyncMock())
+    monkeypatch.setattr(boundary, "reconcile_landed_cost_valuation", AsyncMock())

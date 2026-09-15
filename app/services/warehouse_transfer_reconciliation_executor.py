@@ -25,6 +25,8 @@ from app.services.warehouse_transfer_reconciliation_service import (
 )
 
 
+from app.services.landed_cost_inventory_lifecycle import landed_cost_inventory_operation, transfer_operation_date
+
 class WarehouseTransferExecutionError(ValueError):
     pass
 
@@ -262,6 +264,7 @@ def _validate_physical_line(
         )
 
 
+@landed_cost_inventory_operation(result_date=transfer_operation_date)
 async def execute_warehouse_transfer_reconciliation(
     db: AsyncSession,
     *,

@@ -78,6 +78,8 @@ from app.services.purchase_value_correction_moving_average_lifecycle_service imp
 ZERO = Decimal("0")
 
 
+from app.services.landed_cost_inventory_lifecycle import landed_cost_inventory_operation
+
 class SalesOrderFulfillmentError(Exception):
     """Base error for sales-order fulfillment."""
 
@@ -1438,6 +1440,7 @@ class PurchaseOrderFulfillmentExecutionStateError(
     """Atomic Purchase fulfillment produced invalid state."""
 
 
+@landed_cost_inventory_operation(date_argument="document_date")
 async def execute_purchase_order_fulfillment(
     db: AsyncSession,
     *,
@@ -1710,6 +1713,7 @@ class SalesOrderFulfillmentExecutionStateError(
     """Atomic execution produced an invalid internal state."""
 
 
+@landed_cost_inventory_operation(date_argument="document_date")
 async def execute_sales_order_fulfillment(
     db: AsyncSession,
     *,
@@ -2235,6 +2239,7 @@ def validate_sales_order_reversal_balances(
             )
 
 
+@landed_cost_inventory_operation(date_argument="reversal_date")
 async def execute_sales_order_fulfillment_reversal(
     db: AsyncSession,
     *,
@@ -2866,6 +2871,7 @@ def validate_purchase_order_reversal_balances(
         )
 
 
+@landed_cost_inventory_operation(date_argument="reversal_date")
 async def execute_purchase_order_fulfillment_reversal(
     db: AsyncSession,
     *,

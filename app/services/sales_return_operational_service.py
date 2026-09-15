@@ -51,6 +51,8 @@ from app.services.purchase_value_correction_moving_average_sales_return_reconcil
 from app.services.purchase_value_correction_moving_average_lifecycle_service import PurchaseValueCorrectionMovingAverageLifecycleError
 
 
+from app.services.landed_cost_inventory_lifecycle import landed_cost_inventory_operation
+
 class SalesReturnOperationalError(
     Exception
 ):
@@ -644,6 +646,7 @@ async def _apply_loaded_sales_return_operational_event(
     )
 
 
+@landed_cost_inventory_operation(result_date=lambda result: result.trade_return_event.return_date)
 async def apply_sales_return_operational_event(
     db: AsyncSession,
     *,

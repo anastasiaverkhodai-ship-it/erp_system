@@ -25,6 +25,8 @@ from app.services.purchase_return_recognition_reconciliation_service import (
 )
 
 
+from app.services.landed_cost_inventory_lifecycle import landed_cost_inventory_operation
+
 class PurchaseReturnRecognitionLifecycleError(
     Exception
 ):
@@ -284,6 +286,7 @@ async def _reconcile_supplier_advances_after_purchase_return(
             ) from exc
 
 
+@landed_cost_inventory_operation(date_argument="adjustment_date")
 async def reconcile_purchase_return_recognition_lifecycle_for_fulfillment_line(
     db: AsyncSession,
     *,

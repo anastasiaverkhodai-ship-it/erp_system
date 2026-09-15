@@ -11,6 +11,7 @@ from app.models.invoice_fulfillment_allocation import (
     InvoiceFulfillmentAllocation,
 )
 from app.models.inventory_cost_entry import InventoryCostEntry
+from app.models.purchase_landed_cost_valuation_event import PurchaseLandedCostValuationEvent
 from app.models.sales_recognition_event import SalesRecognitionEvent
 from app.models.sales_return_cost_restoration_event import (
     SalesReturnCostRestorationEvent,
@@ -272,6 +273,16 @@ async def load_sales_profitability_projection(
     inventory_cost = _decimal(
         cost_entry.cost_amount
     )
+
+    landed_events = (await session.execute(select(PurchaseLandedCostValuationEvent).where(
+        PurchaseLandedCostValuationEvent.company_id == company_id,
+        PurchaseLandedCostValuationEvent.inventory_cost_entry_id == cost_entry.id,
+        PurchaseLandedCostValuationEvent.destination_kind == "issued",
+    ))).scalars().all()
+    # Destinations already exclude returned stock. Do not subtract that landed
+    # amount a second time through the base-cost restoration field.
+    inventory_cost += sum((event.amount * (-1 if event.reversal_of_id else 1)
+                           for event in landed_events), ZERO)
 
     projection = calculate_sales_gross_profitability(
         recognized_gross_amount=recognized_gross,

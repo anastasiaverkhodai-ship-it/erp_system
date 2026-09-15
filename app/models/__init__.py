@@ -109,3 +109,11 @@ from app.models.cash_document import CashDocument
 
 from app.models.price_type import PriceType
 from app.models.product_price import ProductPrice
+
+from app.models.purchase_landed_cost_event import PurchaseLandedCostEvent
+from app.models.purchase_landed_cost_allocation_event import (
+    PurchaseLandedCostAllocationEvent,
+)
+
+from app.models.purchase_landed_cost_capitalization import PurchaseLandedCostCapitalization
+from app.models.purchase_landed_cost_valuation_event import PurchaseLandedCostValuationEvent

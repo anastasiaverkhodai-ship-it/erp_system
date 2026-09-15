@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.document import (
     Document,
     DocumentStatus,
+    DocumentType,
 )
 from app.models.journal_entry import JournalEntry
 from app.models.trade_fulfillment import (
@@ -27,7 +28,12 @@ from app.services.reversal_engine import (
 from app.services.reversal_factory import (
     create_default_reversal_engine,
 )
+from app.services.purchase_landed_cost_persistence_service import (
+    has_active_purchase_landed_costs,
+)
 
+
+from app.services.landed_cost_inventory_lifecycle import landed_cost_inventory_operation
 
 class DocumentReversalError(Exception):
     """Business error raised when a document cannot be reversed."""
@@ -45,6 +51,7 @@ class DocumentReversalFulfillmentLinkedError(
     """Raised for warehouse documents linked to fulfillment."""
 
 
+@landed_cost_inventory_operation(date_argument="reversal_date")
 async def _reverse_document_internal(
     db: AsyncSession,
     company_id: int,
@@ -137,9 +144,20 @@ async def _reverse_document_internal(
             )
 
     # ---------------------------------------------------------
-    # CHECK REVERSAL ACCOUNTING PERIOD
+    # PROTECT ACTIVE LANDED COSTS WHILE THE RECEIPT IS LOCKED
     # ---------------------------------------------------------
 
+    if (
+        document.document_type == DocumentType.RECEIPT
+        and await has_active_purchase_landed_costs(
+            db, company_id=company_id, warehouse_document_id=document.id,
+        )
+    ):
+        raise DocumentReversalError(
+            "Receipt has active landed costs; reverse landed costs before receipt reversal"
+        )
+
+    # CHECK REVERSAL ACCOUNTING PERIOD
     await ensure_period_open(
         company_id=document.company_id,
         operation_date=reversal_date,

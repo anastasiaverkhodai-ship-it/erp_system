@@ -745,3 +745,12 @@ async def test_supplier_lifecycle_error_is_wrapped(
                 created_by=4,
             )
         )
+
+
+@pytest.fixture(autouse=True)
+def isolate_landed_cost_boundary(monkeypatch):
+    """Existing orchestration tests isolate the separately tested value boundary."""
+    from unittest.mock import AsyncMock
+    import app.services.landed_cost_inventory_lifecycle as boundary
+    monkeypatch.setattr(boundary, "lock_landed_cost_company", AsyncMock())
+    monkeypatch.setattr(boundary, "reconcile_landed_cost_valuation", AsyncMock())

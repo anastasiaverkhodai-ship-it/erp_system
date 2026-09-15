@@ -91,6 +91,7 @@ def _session_with_results(
     source_rows,
     return_events=(),
     cost_events=(),
+    landed_events=(),
 ):
     session = SimpleNamespace()
     session.execute = AsyncMock(
@@ -98,6 +99,7 @@ def _session_with_results(
             _RowsResult(source_rows),
             _ScalarsResult(return_events),
             _ScalarsResult(cost_events),
+            _ScalarsResult(landed_events),
         ]
     )
     return session
@@ -129,7 +131,7 @@ async def test_projection_base_sale_uses_net_revenue_and_cogs():
         == Decimal("40.0000")
     )
 
-    assert session.execute.await_count == 3
+    assert session.execute.await_count == 4
 
 
 @pytest.mark.asyncio
@@ -375,3 +377,17 @@ async def test_projection_rejects_invalid_identity_inputs(
         )
 
     session.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_projection_includes_net_landed_cost_after_returns():
+    session = _session_with_results(
+        source_rows=[_source_row(cost="60")],
+        cost_events=[_cost_restoration(amount="20")],
+        landed_events=[SimpleNamespace(amount=Decimal("30"), reversal_of_id=None),
+                       SimpleNamespace(amount=Decimal("30"), reversal_of_id=1),
+                       SimpleNamespace(amount=Decimal("20"), reversal_of_id=None)],
+    )
+    result = await load_sales_profitability_projection(session, company_id=1, sales_recognition_event_id=101)
+    assert result.profitability.cogs == Decimal("60")  # 60 base - 20 return + 20 net landed.
+    assert result.profitability.gross_profit == Decimal("40")

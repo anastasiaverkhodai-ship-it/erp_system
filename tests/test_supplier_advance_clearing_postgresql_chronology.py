@@ -3454,6 +3454,7 @@ async def test_purchase_value_correction_supplier_clearing_forward_only_postgres
                 journal_entry_id=(
                     reversal_journal_id
                 ),
+                expected_reversal_of_id=original_clearing_journal,
                 expected={
                     "371": (
                         Decimal(

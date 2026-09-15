@@ -812,3 +812,12 @@ async def test_ma_exact_ice_amount_need_not_equal_rounded_unit_cost_product(
         layers[0]["valuation_amount"]
         == Decimal("10.00000000")
     )
+
+
+@pytest.fixture(autouse=True)
+def isolate_landed_cost_boundary(monkeypatch):
+    """This module tests the original service body; boundary has separate tests."""
+    from unittest.mock import AsyncMock
+    import app.services.landed_cost_inventory_lifecycle as boundary
+    monkeypatch.setattr(boundary, "lock_landed_cost_company", AsyncMock())
+    monkeypatch.setattr(boundary, "reconcile_landed_cost_valuation", AsyncMock())
