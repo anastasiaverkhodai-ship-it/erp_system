@@ -68,3 +68,11 @@ screens to Phase 19. These have not been reclassified as delivered here.
 - Base checkpoint: `c9343fe`; this closure change follows it on `main`.
 
 **Result: Phase 9 backend V1 COMPLETE. Next planned phase: Phase 10, Ukrainian VAT.**
+
+## Subsequent Phase 10 audit
+
+The [10.1 audit](phase10_1_audit.md) identified P10-01 in the shared first-event
+VAT calculation: overlapping partial payment and supply can overstate recognition.
+The Phase 9 checkpoint and its passing regression results remain historical facts;
+they do not certify VAT correctness. P10-01 is open for Phase 10.3 and must be
+resolved before accepting the affected VAT results.
