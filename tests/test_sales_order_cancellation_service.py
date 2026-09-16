@@ -248,6 +248,9 @@ def test_draft_cancel_creates_no_release(
         )
 
     class FakeDB:
+        async def scalar(self, statement):
+            return None  # No order VAT advance in these cancellation fixtures.
+
         async def flush(self):
             return None
 
@@ -336,6 +339,9 @@ def test_confirmed_cancel_releases_outstanding(
         )
 
     class FakeDB:
+        async def scalar(self, statement):
+            return None  # No order VAT advance in these cancellation fixtures.
+
         async def flush(self):
             return None
 
@@ -414,6 +420,9 @@ def test_negative_reservation_balance_rejected(
         return Decimal("-1.0000")
 
     class FakeDB:
+        async def scalar(self, statement):
+            return None  # No order VAT advance in these cancellation fixtures.
+
         async def flush(self):
             return None
 

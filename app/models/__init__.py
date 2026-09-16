@@ -121,3 +121,4 @@ from app.models.purchase_quote import PurchaseQuote
 
 from app.models.company_vat_policy import CompanyVatPolicy
 from app.models.counterparty_vat_registration import CounterpartyVatRegistration
+from app.models.order_vat_advance import OrderVatAdvance, OrderVatAdvanceLine, OrderVatAdvanceTransfer

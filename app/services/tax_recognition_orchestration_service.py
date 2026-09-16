@@ -63,6 +63,10 @@ class TaxRecognitionCandidate:
     tax_amount_capacity: Decimal
 
     def __post_init__(self) -> None:
+        if not isinstance(self.kind, TaxRecognitionCandidateKind):
+            raise TaxRecognitionCandidateError('Invalid economic candidate kind')
+        if any(not value.is_finite() for value in (self.taxable_base_capacity, self.tax_amount_capacity)):
+            raise TaxRecognitionCandidateError('Recognition capacity must be finite')
         if self.source_id <= 0:
             raise TaxRecognitionCandidateError(
                 "Recognition source ID must be "
@@ -468,8 +472,8 @@ def build_output_tax_recognition_targets(
     Allocate OUTPUT VAT recognition to economic events.
 
     FIRST_EVENT:
-        fulfillment and settlement candidates compete
-        chronologically for the remaining TaxCalculation.
+        each stream accumulates within one invoice line; recognition follows
+        increases in their maximum, without counting an overlapping second event.
 
     CASH_METHOD:
         only settlement candidates are eligible.
@@ -533,98 +537,43 @@ def build_output_tax_recognition_targets(
             "be negative"
         )
 
-    remaining_base = (
-        calculated_base
+    timeline = build_economic_recognition_timeline(
+        candidates=eligible, calculated_base=calculated_base, calculated_tax=calculated_tax,
     )
+    validate_recognition_rate_dates(calculation=calculation, timeline=timeline)
+    return timeline
 
-    remaining_tax = (
-        calculated_tax
-    )
 
+def build_economic_recognition_timeline(
+    *, candidates: Iterable[TaxRecognitionCandidate],
+    calculated_base: Decimal, calculated_tax: Decimal,
+) -> tuple[TaxRecognitionSourceTarget, ...]:
+    """First-event increments within ONE immutable invoice-line allocation pool.
+
+    Fulfillments are disjoint portions of this line. Settlements are disjoint
+    payments allocated proportionally to the same line. The two streams overlap:
+    only an increase in max(cumulative supply, cumulative payment) creates a new
+    first event. Never combine different calculations, rates or invoice pools.
+    CASH_METHOD callers supply only settlement candidates.
+    """
+    if any(not value.is_finite() or value < ZERO for value in (calculated_base, calculated_tax)):
+        raise TaxRecognitionDataIntegrityError('Calculation capacity must be finite and nonnegative')
+    totals = {kind: [ZERO, ZERO] for kind in TaxRecognitionCandidateKind}
+    recognized_base = recognized_tax = ZERO
     targets = []
-
-    for candidate in sorted(
-        eligible,
-        key=_candidate_sort_key,
-    ):
-        if (
-            remaining_base == ZERO
-            and remaining_tax == ZERO
-        ):
-            break
-
-        target_base = min(
-            candidate
-            .taxable_base_capacity,
-            remaining_base,
-        )
-
-        target_tax = min(
-            candidate
-            .tax_amount_capacity,
-            remaining_tax,
-        )
-
-        if (
-            target_base == ZERO
-            and target_tax == ZERO
-        ):
-            continue
-
-        targets.append(
-            TaxRecognitionSourceTarget(
-                kind=candidate.kind,
-                source_id=(
-                    candidate.source_id
-                ),
-                event_date=(
-                    candidate.event_date
-                ),
-                taxable_base=(
-                    target_base
-                ),
-                tax_amount=(
-                    target_tax
-                ),
-            )
-        )
-
-        remaining_base -= (
-            target_base
-        )
-
-        remaining_tax -= (
-            target_tax
-        )
-
-    total_base = sum(
-        (
-            target.taxable_base
-            for target in targets
-        ),
-        ZERO,
-    )
-
-    total_tax = sum(
-        (
-            target.tax_amount
-            for target in targets
-        ),
-        ZERO,
-    )
-
-    if (
-        total_base > calculated_base
-        or total_tax > calculated_tax
-    ):
-        raise TaxRecognitionDataIntegrityError(
-            "Recognition target allocation "
-            "exceeds TaxCalculation"
-        )
-
-    return tuple(
-        targets
-    )
+    for candidate in sorted(_deduplicate_candidates(candidates), key=_candidate_sort_key):
+        totals[candidate.kind][0] += candidate.taxable_base_capacity
+        totals[candidate.kind][1] += candidate.tax_amount_capacity
+        desired_base = min(calculated_base, max(value[0] for value in totals.values()))
+        desired_tax = min(calculated_tax, max(value[1] for value in totals.values()))
+        delta_base, delta_tax = desired_base - recognized_base, desired_tax - recognized_tax
+        if delta_base != ZERO or delta_tax != ZERO:
+            targets.append(TaxRecognitionSourceTarget(
+                kind=candidate.kind, source_id=candidate.source_id, event_date=candidate.event_date,
+                taxable_base=delta_base, tax_amount=delta_tax,
+            ))
+        recognized_base, recognized_tax = desired_base, desired_tax
+    return tuple(targets)
 
 
 def _target_map(
@@ -806,3 +755,23 @@ def order_output_tax_reconciliations(
         decreases
         + increases
     )
+
+
+def validate_recognition_rate_dates(*, calculation, timeline):
+    """Never reuse an invoice-rate snapshot across an incompatible first-event date.
+
+    Full multi-rate splitting needs separate calculation pools; fail closed instead
+    of retroactively applying the invoice-date rate to an earlier advance.
+    """
+    code = getattr(calculation, 'tax_rate_code', None)
+    if code is None:
+        return  # Pure capacity objects have no persisted rate snapshot.
+    from app.services.ukrainian_vat_rate_catalog import UKRAINIAN_VAT_RATE_CATALOG
+    from app.services.tax_rate_catalog import TaxRateNotFoundError
+    for item in timeline:
+        try:
+            rate = UKRAINIAN_VAT_RATE_CATALOG.get_effective(code, item.event_date)
+        except TaxRateNotFoundError as exc:
+            raise TaxRecognitionDataIntegrityError('VAT rate is not effective on first-event date') from exc
+        if rate.rate != calculation.tax_rate or rate.treatment != calculation.treatment:
+            raise TaxRecognitionDataIntegrityError('First-event rate differs from snapshot; split the tax calculation')

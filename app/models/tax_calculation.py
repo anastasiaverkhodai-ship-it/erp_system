@@ -34,7 +34,10 @@ class TaxCalculation(Base):
     Persistent immutable tax-calculation snapshot for one
     TradeDocumentLine.
 
-    The taxable source is a commercial Trade Invoice line.
+    The taxable source is a commercial invoice line or an explicitly bound
+    pre-invoice order advance line. Order snapshots are transferred through
+    audited reversals; they must not be summed with invoice calculations as
+    separate obligations in reporting.
 
     This model stores the calculated tax basis and tax amount only.
     Recognition state is deliberately NOT persisted here.

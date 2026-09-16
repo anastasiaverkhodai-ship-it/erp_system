@@ -55,7 +55,10 @@ class TaxRecognitionEvent(Base):
 
     __tablename__ = "tax_recognition_events"
 
+    order_vat_advance_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     __table_args__ = (
+        ForeignKeyConstraint(['company_id', 'order_vat_advance_id'], ['order_vat_advances.company_id','order_vat_advances.id'], name='fk_tre_order_advance', ondelete='RESTRICT'),
         UniqueConstraint(
             "company_id",
             "id",
@@ -175,20 +178,7 @@ class TaxRecognitionEvent(Base):
             ondelete="RESTRICT",
         ),
         CheckConstraint(
-            """
-            (
-                invoice_fulfillment_allocation_id IS NULL
-                OR payment_settlement_allocation_id IS NULL
-            )
-            AND (
-                invoice_fulfillment_allocation_id IS NULL
-                OR tax_credit_evidence_id IS NULL
-            )
-            AND (
-                payment_settlement_allocation_id IS NULL
-                OR tax_credit_evidence_id IS NULL
-            )
-            """,
+            "num_nonnulls(invoice_fulfillment_allocation_id, payment_settlement_allocation_id, tax_credit_evidence_id, order_vat_advance_id) <= 1",
             name=(
                 "ck_tax_recognition_events_"
                 "at_most_one_recognition_source"

@@ -705,6 +705,10 @@ async def load_active_input_tax_recognition_candidates(
             )
         )
 
-    return tuple(
-        candidates
-    )
+    from app.services.vat_first_event_context_service import validate_first_event_context
+    from app.services.tax_recognition_persistence_service import TaxRecognitionDataIntegrityError
+    try:
+        await validate_first_event_context(db, calculation=calculation, candidates=candidates, invoice=invoice)
+    except TaxRecognitionDataIntegrityError as exc:
+        raise InputTaxRecognitionCandidateLoaderIntegrityError(str(exc)) from exc
+    return tuple(candidates)

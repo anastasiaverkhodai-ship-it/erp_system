@@ -83,6 +83,11 @@ def validate_output_vat_recognition_accounting_currency(
 def resolve_output_vat_recognition_source_kind(
     event: TaxRecognitionEvent,
 ) -> OutputVatRecognitionSourceKind:
+    advance_id = getattr(event, 'order_vat_advance_id', None)
+    if advance_id is not None:
+        if advance_id <= 0 or event.invoice_fulfillment_allocation_id is not None or event.payment_settlement_allocation_id is not None or getattr(event, 'tax_credit_evidence_id', None) is not None:
+            raise TaxRecognitionJournalSourceStateError('Invalid order advance VAT source')
+        return OutputVatRecognitionSourceKind.SETTLEMENT
     fulfillment_selected = (
         event.invoice_fulfillment_allocation_id
         is not None
@@ -152,7 +157,8 @@ def validate_input_vat_recognition_source(
     never be used directly as the legal INPUT VAT GL source.
     """
     if (
-        event.invoice_fulfillment_allocation_id
+        getattr(event, 'order_vat_advance_id', None) is not None
+        or event.invoice_fulfillment_allocation_id
         is not None
         or event.payment_settlement_allocation_id
         is not None

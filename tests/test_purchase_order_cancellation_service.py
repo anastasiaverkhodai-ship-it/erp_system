@@ -126,6 +126,7 @@ async def test_cancel_purchase_order_sets_cancelled_without_reservations(
     )
 
     db = SimpleNamespace(
+        scalar=AsyncMock(return_value=None),
         flush=AsyncMock()
     )
 
@@ -184,6 +185,7 @@ async def test_cancel_purchase_order_rejects_repeat_cancel(
     )
 
     db = SimpleNamespace(
+        scalar=AsyncMock(return_value=None),
         flush=AsyncMock()
     )
 

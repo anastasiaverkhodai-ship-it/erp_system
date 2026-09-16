@@ -10,6 +10,8 @@ from app.services.tax_credit_evidence_persistence_service import (
 from app.services.tax_recognition_orchestration_service import (
     TaxRecognitionCandidate,
     TaxRecognitionCandidateKind,
+    build_economic_recognition_timeline,
+    validate_recognition_rate_dates,
 )
 from app.services.tax_recognition_types import (
     TaxRecognitionMethod,
@@ -267,6 +269,7 @@ def _candidate_kind_order(
 
 def _economic_capacity(
     *,
+    calculation,
     method: TaxRecognitionMethod,
     candidates: Iterable[
         TaxRecognitionCandidate
@@ -319,73 +322,16 @@ def _economic_capacity(
         )
     )
 
-    remaining_base = calculated_base
-    remaining_tax = calculated_tax
-
-    economic_base = ZERO
-    economic_tax = ZERO
-
-    for candidate in sorted(
-        eligible,
-        key=lambda item: (
-            item.event_date,
-            _candidate_kind_order(
-                item.kind
-            ),
-            item.source_id,
-        ),
-    ):
-        if (
-            remaining_base == ZERO
-            and remaining_tax == ZERO
-        ):
-            break
-
-        candidate_base = _decimal(
-            candidate.taxable_base_capacity,
-            field=(
-                "Economic candidate "
-                "taxable_base_capacity"
-            ),
-        )
-
-        candidate_tax = _decimal(
-            candidate.tax_amount_capacity,
-            field=(
-                "Economic candidate "
-                "tax_amount_capacity"
-            ),
-        )
-
-        if (
-            candidate_base < ZERO
-            or candidate_tax < ZERO
-        ):
-            raise InputTaxRecognitionCandidateError(
-                "Economic candidate capacity "
-                "cannot be negative"
-            )
-
-        allocated_base = min(
-            candidate_base,
-            remaining_base,
-        )
-
-        allocated_tax = min(
-            candidate_tax,
-            remaining_tax,
-        )
-
-        economic_base += allocated_base
-        economic_tax += allocated_tax
-
-        remaining_base -= allocated_base
-        remaining_tax -= allocated_tax
-
-    return (
-        economic_base,
-        economic_tax,
+    timeline = build_economic_recognition_timeline(
+        candidates=eligible, calculated_base=calculated_base, calculated_tax=calculated_tax,
     )
+    from app.services.tax_recognition_persistence_service import TaxRecognitionDataIntegrityError
+    try:
+        validate_recognition_rate_dates(calculation=calculation, timeline=timeline)
+    except TaxRecognitionDataIntegrityError as exc:
+        raise InputTaxRecognitionDataIntegrityError(str(exc)) from exc
+    return (sum((item.taxable_base for item in timeline), ZERO),
+            sum((item.tax_amount for item in timeline), ZERO))
 
 
 def _evidence_capacity(
@@ -545,6 +491,7 @@ def calculate_input_tax_recognition_limit(
         economic_base,
         economic_tax,
     ) = _economic_capacity(
+        calculation=calculation,
         method=method,
         candidates=economic_candidates,
         as_of_date=as_of_date,

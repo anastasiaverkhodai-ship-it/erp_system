@@ -829,6 +829,12 @@ async def cancel_purchase_order(
         document_id=document_id,
     )
 
+    from app.services.order_vat_advance_service import assert_order_unbound, OrderVatAdvanceError
+    try:
+        await assert_order_unbound(db, company_id=company_id, order_id=document.id)
+    except OrderVatAdvanceError as exc:
+        raise TradeDocumentLifecycleError(str(exc)) from exc
+
     validate_purchase_order_cancellation(
         document
     )
@@ -978,6 +984,12 @@ async def cancel_sales_order(
         company_id=company_id,
         document_id=document_id,
     )
+
+    from app.services.order_vat_advance_service import assert_order_unbound, OrderVatAdvanceError
+    try:
+        await assert_order_unbound(db, company_id=company_id, order_id=document.id)
+    except OrderVatAdvanceError as exc:
+        raise TradeDocumentLifecycleError(str(exc)) from exc
 
     lines = cancellation_release_order(
         document

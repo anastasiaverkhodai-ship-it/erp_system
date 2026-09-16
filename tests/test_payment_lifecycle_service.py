@@ -61,6 +61,7 @@ class FakeDB:
 
         self.added = []
         self.flush = AsyncMock()
+        self.scalar = AsyncMock(return_value=None)
 
     async def execute(
         self,

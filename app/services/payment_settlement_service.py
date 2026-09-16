@@ -651,6 +651,12 @@ async def create_payment_settlement_allocation(
         )
     )
 
+    from app.services.order_vat_advance_service import assert_payment_unbound, OrderVatAdvanceError
+    try:
+        await assert_payment_unbound(db, company_id=company_id, payment_id=payment.id)
+    except OrderVatAdvanceError as exc:
+        raise PaymentSettlementDataIntegrityError(str(exc)) from exc
+
     open_item = (
         await get_locked_settlement_open_item(
             db,
@@ -892,6 +898,12 @@ async def reverse_payment_settlement_allocation(
         )
     )
 
+    from app.services.order_vat_advance_service import assert_payment_unbound, OrderVatAdvanceError
+    try:
+        await assert_payment_unbound(db, company_id=company_id, payment_id=payment.id)
+    except OrderVatAdvanceError as exc:
+        raise PaymentSettlementDataIntegrityError(str(exc)) from exc
+
     open_item = (
         await get_locked_settlement_open_item(
             db,
@@ -1015,9 +1027,8 @@ async def reverse_payment_settlement_allocation(
 
     await db.flush()
 
-    adjustment_date = (
-        allocation.reversed_at.date()
-    )
+    from app.services.order_vat_advance_service import _transfer_correction_date
+    adjustment_date = _transfer_correction_date.get() or allocation.reversed_at.date()
 
     try:
         await reconcile_tax_for_invoice(

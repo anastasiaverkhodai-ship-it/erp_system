@@ -348,6 +348,7 @@ def test_create_allocation_partial(
     monkeypatch,
 ):
     db = SimpleNamespace(
+        scalar=AsyncMock(return_value=None),
         add=Mock(),
         flush=AsyncMock(),
     )
@@ -441,6 +442,7 @@ def test_duplicate_active_pair_rejected(
     monkeypatch,
 ):
     db = SimpleNamespace(
+        scalar=AsyncMock(return_value=None),
         add=Mock(),
         flush=AsyncMock(),
     )
@@ -491,6 +493,7 @@ def test_reverse_allocation_restores_open_status(
     monkeypatch,
 ):
     db = SimpleNamespace(
+        scalar=AsyncMock(return_value=None),
         flush=AsyncMock(),
         execute=AsyncMock(),
     )

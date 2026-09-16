@@ -59,7 +59,7 @@ def test_tax_credit_evidence_source_composite_fk():
     ]
 
 
-def test_tax_recognition_has_three_source_exclusivity():
+def test_tax_recognition_has_four_source_exclusivity():
     table = TaxRecognitionEvent.__table__
 
     constraints = [
@@ -84,29 +84,9 @@ def test_tax_recognition_has_three_source_exclusivity():
         ).split()
     )
 
-    assert (
-        "invoice_fulfillment_allocation_id IS NULL"
-        in sql
-    )
-    assert (
-        "payment_settlement_allocation_id IS NULL"
-        in sql
-    )
-    assert (
-        "tax_credit_evidence_id IS NULL"
-        in sql
-    )
-
-    assert (
-        "invoice_fulfillment_allocation_id IS NULL "
-        "OR tax_credit_evidence_id IS NULL"
-        in sql
-    )
-
-    assert (
-        "payment_settlement_allocation_id IS NULL "
-        "OR tax_credit_evidence_id IS NULL"
-        in sql
+    assert sql == (
+        'num_nonnulls(invoice_fulfillment_allocation_id, payment_settlement_allocation_id, '
+        'tax_credit_evidence_id, order_vat_advance_id) <= 1'
     )
 
 

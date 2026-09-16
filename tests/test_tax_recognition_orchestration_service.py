@@ -194,13 +194,13 @@ def test_payment_first_then_fulfillment_uses_only_remainder():
             TaxRecognitionCandidateKind
             .FULFILLMENT,
             10,
-            Decimal("40.00"),
-            Decimal("8.00"),
+            Decimal("10.00"),
+            Decimal("2.00"),
         ),
     ]
 
 
-def test_fulfillment_first_then_payment_uses_remainder():
+def test_fulfillment_first_then_covered_payment_adds_nothing():
     calculation = _calculation()
 
     fulfillment = _candidate(
@@ -259,13 +259,6 @@ def test_fulfillment_first_then_payment_uses_remainder():
             10,
             Decimal("70.00"),
             Decimal("14.00"),
-        ),
-        (
-            TaxRecognitionCandidateKind
-            .SETTLEMENT,
-            20,
-            Decimal("30.00"),
-            Decimal("6.00"),
         ),
     ]
 

@@ -650,6 +650,12 @@ async def cancel_payment(
             "cancellation"
         )
 
+    from app.services.order_vat_advance_service import assert_payment_unbound, OrderVatAdvanceError
+    try:
+        await assert_payment_unbound(db, company_id=company_id, payment_id=payment.id)
+    except OrderVatAdvanceError as exc:
+        raise PaymentStatusError(str(exc)) from exc
+
     cancellation_time = datetime.now(
         timezone.utc
     )

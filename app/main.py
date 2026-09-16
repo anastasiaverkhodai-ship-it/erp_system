@@ -1,3 +1,4 @@
+from app.api.v1.order_vat_advances import router as order_vat_advances_router
 from fastapi import FastAPI
 
 from app.api.v1.accounts import router as accounts_router
@@ -134,3 +135,5 @@ app.include_router(
 
 from app.api.v1.company_vat_policies import router as company_vat_policies_router
 app.include_router(company_vat_policies_router, prefix='/api/v1')
+
+app.include_router(order_vat_advances_router, prefix='/api/v1')

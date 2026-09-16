@@ -190,18 +190,15 @@ def _eligible_economic_candidates(
             candidate
         )
 
-    return tuple(
-        sorted(
-            result,
-            key=lambda item: (
-                item.event_date,
-                _candidate_kind_order(
-                    item.kind
-                ),
-                item.source_id,
-            ),
-        )
+    from app.services.tax_recognition_orchestration_service import build_economic_recognition_timeline
+    timeline = build_economic_recognition_timeline(
+        candidates=result, calculated_base=Decimal(calculation.taxable_base),
+        calculated_tax=Decimal(calculation.tax_amount),
     )
+    return tuple(TaxRecognitionCandidate(
+        kind=item.kind, source_id=item.source_id, event_date=item.event_date,
+        taxable_base_capacity=item.taxable_base, tax_amount_capacity=item.tax_amount,
+    ) for item in timeline)
 
 
 def _economic_threshold_date(

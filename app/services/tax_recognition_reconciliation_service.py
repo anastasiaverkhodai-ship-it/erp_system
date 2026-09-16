@@ -768,9 +768,9 @@ async def load_active_output_tax_recognition_candidates(
         )
     )
 
-    return tuple(
-        candidates
-    )
+    from app.services.vat_first_event_context_service import validate_first_event_context
+    await validate_first_event_context(db, calculation=calculation, candidates=candidates)
+    return tuple(candidates)
 
 
 async def _load_tax_recognition_events(
