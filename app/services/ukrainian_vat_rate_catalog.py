@@ -64,12 +64,20 @@ VAT0 = TaxRateDefinition(
 )
 
 
+VAT_EXEMPT = TaxRateDefinition(code='VAT_EXEMPT', tax_type=TaxType.VAT, rate=Decimal('0'),
+    effective_from=date(2011, 1, 1), treatment=TaxTreatment.EXEMPT)
+VAT_OUT_OF_SCOPE = TaxRateDefinition(code='VAT_OUT_OF_SCOPE', tax_type=TaxType.VAT, rate=Decimal('0'),
+    effective_from=date(2011, 1, 1), treatment=TaxTreatment.OUT_OF_SCOPE)
+
+
 UKRAINIAN_VAT_RATE_CATALOG = TaxRateCatalog(
     (
         VAT20,
         VAT7,
         VAT14,
         VAT0,
+        VAT_EXEMPT,
+        VAT_OUT_OF_SCOPE,
     )
 )
 
@@ -89,6 +97,8 @@ def validate_ukrainian_vat_rate_catalog() -> None:
         "VAT7",
         "VAT14",
         "VAT0",
+        "VAT_EXEMPT",
+        "VAT_OUT_OF_SCOPE",
     }:
         raise ValueError(
             "Unexpected Ukrainian VAT rate catalog"

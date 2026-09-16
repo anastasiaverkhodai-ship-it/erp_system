@@ -32,13 +32,18 @@ class TaxRateDefinition:
     effective_from: date
     treatment: TaxTreatment = TaxTreatment.TAXABLE
 
+    effective_until: date | None = None
+
     def __post_init__(self) -> None:
         if not self.code.strip():
             raise ValueError(
                 "Tax rate code cannot be empty"
             )
 
-        if self.rate < 0 or self.rate > 1:
+        if self.effective_until is not None and self.effective_until < self.effective_from:
+            raise ValueError('Rate end date precedes its start')
+
+        if not self.rate.is_finite() or self.rate < 0 or self.rate > 1:
             raise ValueError(
                 "Tax rate must be between 0 and 1"
             )

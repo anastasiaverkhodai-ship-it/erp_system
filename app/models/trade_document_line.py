@@ -34,7 +34,12 @@ if TYPE_CHECKING:
 class TradeDocumentLine(Base):
     __tablename__ = "trade_document_lines"
 
+    tax_legal_basis: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    no_vat_reason: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
     __table_args__ = (
+        CheckConstraint("tax_legal_basis IS NULL OR length(trim(tax_legal_basis)) > 0", name='ck_tdl_vat_basis'),
+        CheckConstraint("no_vat_reason IS NULL OR (no_vat_reason = 'non_vat_payer' AND tax_rate_code IS NULL AND tax_legal_basis IS NOT NULL)", name='ck_tdl_no_vat_reason'),
         UniqueConstraint(
             "company_id",
             "trade_document_id",

@@ -529,6 +529,7 @@ async def _load_trade_document(
     document = (
         await db.execute(
             select(TradeDocument)
+            .execution_options(populate_existing=True)
             .options(
                 selectinload(
                     TradeDocument.lines
@@ -823,6 +824,8 @@ async def create_trade_document(
                             "price_effective_from"
                         ]
                     ),
+                    tax_legal_basis=line_data.tax_legal_basis,
+                    no_vat_reason=line_data.no_vat_reason,
                     tax_rate_code=(
                         line_data.tax_rate_code
                     ),
@@ -1173,6 +1176,8 @@ async def update_trade_document(
                                 "price_effective_from"
                             ]
                         ),
+                        tax_legal_basis=line_data.tax_legal_basis,
+                        no_vat_reason=line_data.no_vat_reason,
                         tax_rate_code=(
                             line_data.tax_rate_code
                         ),

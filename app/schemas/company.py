@@ -55,6 +55,7 @@ class CompanyUpdate(BaseModel):
 
 
 class CompanyResponse(BaseModel):
+    vat_policy_enabled: bool = False
     id: int
     name: str
     edrpou: str | None

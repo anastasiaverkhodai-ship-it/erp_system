@@ -44,6 +44,8 @@ class Company(Base):
         index=True,
     )
 
+    vat_policy_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
+
     name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,

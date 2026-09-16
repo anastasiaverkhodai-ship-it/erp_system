@@ -263,7 +263,7 @@ async def _revalidate_trade_document_references(
                 Company.id
                 == document.company_id,
                 Company.is_active.is_(True),
-            )
+            ).with_for_update().execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
 
@@ -271,6 +271,12 @@ async def _revalidate_trade_document_references(
         raise company_error(
             "Company is inactive or does not exist"
         )
+
+    from app.services.company_vat_policy_service import validate_document_vat_policy, VatPolicyError
+    try:
+        await validate_document_vat_policy(db, company=company, document=document)
+    except VatPolicyError as exc:
+        raise company_error(str(exc)) from exc
 
     counterparty = (
         await db.execute(
@@ -1267,6 +1273,7 @@ async def get_locked_trade_invoice(
                 TradeDocument.company_id == company_id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
 

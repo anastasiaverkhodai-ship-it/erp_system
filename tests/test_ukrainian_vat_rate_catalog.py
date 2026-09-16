@@ -32,6 +32,8 @@ def test_ukrainian_vat_catalog_codes():
         "VAT7",
         "VAT14",
         "VAT0",
+        "VAT_EXEMPT",
+        "VAT_OUT_OF_SCOPE",
     }
 
 

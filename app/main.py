@@ -131,3 +131,6 @@ app.include_router(
     cash_documents_router,
     prefix="/api/v1",
 )
+
+from app.api.v1.company_vat_policies import router as company_vat_policies_router
+app.include_router(company_vat_policies_router, prefix='/api/v1')

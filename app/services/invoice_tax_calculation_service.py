@@ -107,6 +107,14 @@ def calculate_invoice_line_tax(
         None,
     )
 
+    basis = getattr(line, 'tax_legal_basis', None)
+    reason = getattr(line, 'no_vat_reason', None)
+    if reason is not None and (reason != 'non_vat_payer' or tax_rate_code is not None or not basis or not basis.strip()):
+        raise InvoiceTaxConfigurationError('Invalid non-VAT classification')
+    if tax_rate_code in {'VAT_EXEMPT', 'VAT_OUT_OF_SCOPE'}:
+        if not basis or not basis.strip() or tax_recognition_method != TaxRecognitionMethod.MANUAL:
+            raise InvoiceTaxConfigurationError('Non-taxable category requires legal basis and manual method')
+
     config = (
         tax_rate_code,
         tax_recognition_method,
@@ -305,7 +313,7 @@ def build_invoice_tax_calculation(
         line=line,
     )
 
-    if calculation is None:
+    if calculation is None or calculation.tax_rate.code in {'VAT_EXEMPT', 'VAT_OUT_OF_SCOPE'}:
         return None
 
     if document.id is None:

@@ -119,7 +119,7 @@ class TaxRateCatalog:
             default=None,
         )
 
-        if selected is None:
+        if selected is None or (selected.effective_until is not None and effective_date > selected.effective_until):
             raise TaxRateNotFoundError(
                 "No tax rate effective on or before "
                 f"{effective_date}: code='{code}'"

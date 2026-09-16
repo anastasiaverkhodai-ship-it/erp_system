@@ -108,6 +108,14 @@ class TradeDocumentLineCreate(BaseModel):
             )
         return code
 
+    tax_legal_basis: str | None = Field(default=None, min_length=1, max_length=500)
+    no_vat_reason: str | None = Field(default=None, pattern=r'^non_vat_payer$')
+
+    @field_validator('tax_legal_basis', mode='before')
+    @classmethod
+    def strip_tax_basis(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
     tax_rate_code: str | None = Field(
         default=None,
         min_length=1,
@@ -177,6 +185,11 @@ class TradeDocumentLineCreate(BaseModel):
     def validate_tax_configuration(
         self,
     ):
+        if self.no_vat_reason is not None and (self.tax_rate_code is not None or not self.tax_legal_basis):
+            raise ValueError('no_vat_reason requires a legal basis and no tax rate')
+        if self.tax_rate_code in {'VAT_EXEMPT', 'VAT_OUT_OF_SCOPE'}:
+            if not self.tax_legal_basis or self.tax_recognition_method != TaxRecognitionMethod.MANUAL:
+                raise ValueError('Non-taxable category requires legal basis and manual method')
         has_rate = (
             self.tax_rate_code is not None
         )
@@ -382,6 +395,8 @@ class TradeDocumentLineResponse(BaseModel):
     price_uom_code: str | None
     price_effective_from: date | None
 
+    tax_legal_basis: str | None = None
+    no_vat_reason: str | None = None
     tax_rate_code: str | None
     tax_recognition_method: (
         TaxRecognitionMethod | None
@@ -390,6 +405,8 @@ class TradeDocumentLineResponse(BaseModel):
 
 
 class TradeDocumentResponse(BaseModel):
+    vat_policy_id: int | None = None
+    counterparty_vat_registration_id: int | None = None
     model_config = ConfigDict(
         from_attributes=True,
     )

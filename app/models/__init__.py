@@ -118,3 +118,6 @@ from app.models.purchase_landed_cost_allocation_event import (
 from app.models.purchase_landed_cost_capitalization import PurchaseLandedCostCapitalization
 from app.models.purchase_landed_cost_valuation_event import PurchaseLandedCostValuationEvent
 from app.models.purchase_quote import PurchaseQuote
+
+from app.models.company_vat_policy import CompanyVatPolicy
+from app.models.counterparty_vat_registration import CounterpartyVatRegistration

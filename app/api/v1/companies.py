@@ -132,6 +132,7 @@ async def create_company(
 
     # Створюємо компанію
     company = Company(
+        vat_policy_enabled=True,
         name=data.name,
         edrpou=data.edrpou,
         vat_number=data.vat_number,

@@ -29,7 +29,12 @@ from app.services.trade_document_types import (
 class TradeDocument(Base):
     __tablename__ = "trade_documents"
 
+    counterparty_vat_registration_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    vat_policy_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     __table_args__ = (
+        ForeignKeyConstraint(['company_id', 'counterparty_id', 'counterparty_vat_registration_id'], ['counterparty_vat_registrations.company_id', 'counterparty_vat_registrations.counterparty_id', 'counterparty_vat_registrations.id'], name='fk_td_vat_registration', ondelete='RESTRICT'),
+        ForeignKeyConstraint(['company_id', 'vat_policy_id'], ['company_vat_policies.company_id', 'company_vat_policies.id'], name='fk_trade_document_vat_policy', ondelete='RESTRICT'),
         UniqueConstraint(
             "company_id",
             "id",
