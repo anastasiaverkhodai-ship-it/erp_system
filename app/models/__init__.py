@@ -117,3 +117,4 @@ from app.models.purchase_landed_cost_allocation_event import (
 
 from app.models.purchase_landed_cost_capitalization import PurchaseLandedCostCapitalization
 from app.models.purchase_landed_cost_valuation_event import PurchaseLandedCostValuationEvent
+from app.models.purchase_quote import PurchaseQuote

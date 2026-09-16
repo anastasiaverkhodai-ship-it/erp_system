@@ -46,6 +46,8 @@ from app.services.trade_document_validation import (
 )
 
 
+from app.services.purchase_policy_service import PurchasePolicyError, validate_purchase_supplier
+
 class TradeDocumentLifecycleError(Exception):
     """Base trade-document lifecycle error."""
 
@@ -288,6 +290,12 @@ async def _revalidate_trade_document_references(
         raise counterparty_error(
             "Counterparty is inactive or does not exist"
         )
+
+    if document.direction == TradeDirection.PURCHASE:
+        try:
+            validate_purchase_supplier(counterparty)
+        except PurchasePolicyError as exc:
+            raise counterparty_error(str(exc)) from exc
 
     if document.contract_id is not None:
         contract = (

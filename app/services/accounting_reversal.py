@@ -477,6 +477,27 @@ async def reverse_journal_entry(
     if await has_capitalized_expenses_for_journal(db, company_id=company_id, journal_entry_id=original_entry.id):
         raise AccountingReversalError("Expense has active capitalized landed costs; reverse them first")
 
+    if original_entry.document_id is not None:
+        from app.services.landed_cost_inventory_lifecycle import inventory_operation_active
+        if not inventory_operation_active(db, company_id):
+            from app.services.purchase_landed_cost_persistence_service import has_active_purchase_landed_costs
+            from app.models.inventory_cost_entry import InventoryCostEntry
+            from sqlalchemy.orm import aliased
+            reversed_valuation = aliased(PurchaseLandedCostValuationEvent)
+            active_issue_cost = await db.scalar(select(PurchaseLandedCostValuationEvent.id)
+                .join(InventoryCostEntry, InventoryCostEntry.id == PurchaseLandedCostValuationEvent.inventory_cost_entry_id)
+                .where(PurchaseLandedCostValuationEvent.company_id == company_id,
+                       InventoryCostEntry.company_id == company_id,
+                       InventoryCostEntry.document_id == original_entry.document_id,
+                       PurchaseLandedCostValuationEvent.reversal_of_id.is_(None),
+                       ~select(reversed_valuation.id).where(
+                           reversed_valuation.reversal_of_id == PurchaseLandedCostValuationEvent.id).exists())
+                .limit(1))
+            if active_issue_cost is not None or await has_active_purchase_landed_costs(
+                db, company_id=company_id, warehouse_document_id=original_entry.document_id,
+            ):
+                raise AccountingReversalError("Reverse the warehouse document through its inventory lifecycle to reconcile landed costs")
+
     await ensure_period_open(
         company_id=company_id,
         operation_date=reversal_date,

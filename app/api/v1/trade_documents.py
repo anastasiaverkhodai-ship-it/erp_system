@@ -139,6 +139,17 @@ from app.services.trade_document_lifecycle_service import (
 )
 
 
+from app.services.purchase_policy_service import PurchasePolicyError, validate_purchase_supplier, purchase_payment_terms
+
+
+def _purchase_terms(counterparty, contract, explicit_days):
+    try:
+        validate_purchase_supplier(counterparty)
+        return purchase_payment_terms(counterparty=counterparty, contract=contract, explicit_days=explicit_days)
+    except PurchasePolicyError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 router = APIRouter(
     prefix="/companies/{company_id}/trade-documents",
     tags=["Trade Documents"],
@@ -267,32 +278,37 @@ async def _resolve_trade_line_price_snapshot(
     remain independent.
     """
 
-    try:
-        policy = await resolve_sales_commercial_policy(
-            db,
-            company_id=company_id,
-            counterparty_id=counterparty_id,
-            contract_id=contract_id,
-            explicit_price_type_code=(
-                line_data.price_type_code
-            ),
-            explicit_unit_price=(
-                "unit_price"
-                in line_data.model_fields_set
-            ),
+    if direction == TradeDirection.PURCHASE:
+        if line_data.price_type_code is not None:
+            raise HTTPException(status_code=422, detail="Sales price types cannot be used for purchase documents")
+        effective_price_type_code = None
+    else:
+        try:
+            policy = await resolve_sales_commercial_policy(
+                db,
+                company_id=company_id,
+                counterparty_id=counterparty_id,
+                contract_id=contract_id,
+                explicit_price_type_code=(
+                    line_data.price_type_code
+                ),
+                explicit_unit_price=(
+                    "unit_price"
+                    in line_data.model_fields_set
+                ),
+            )
+
+        except SalesCommercialPolicyConfigurationError as exc:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT
+                ),
+                detail=str(exc),
+            ) from exc
+
+        effective_price_type_code = (
+            policy.price_type_code
         )
-
-    except SalesCommercialPolicyConfigurationError as exc:
-        raise HTTPException(
-            status_code=(
-                status.HTTP_422_UNPROCESSABLE_CONTENT
-            ),
-            detail=str(exc),
-        ) from exc
-
-    effective_price_type_code = (
-        policy.price_type_code
-    )
 
     if effective_price_type_code is None:
         base_price = line_data.unit_price
@@ -676,7 +692,7 @@ async def create_trade_document(
             company_id=company_id,
         )
 
-        await _get_active_counterparty(
+        counterparty = await _get_active_counterparty(
             db,
             company_id=company_id,
             counterparty_id=(
@@ -684,7 +700,7 @@ async def create_trade_document(
             ),
         )
 
-        await _validate_contract(
+        contract = await _validate_contract(
             db,
             company_id=company_id,
             counterparty_id=(
@@ -729,6 +745,10 @@ async def create_trade_document(
                 "lines",
             }
         )
+
+        if data.direction == TradeDirection.PURCHASE:
+            header_data["payment_term_days"] = _purchase_terms(counterparty, contract,
+                data.payment_term_days if "payment_term_days" in data.model_fields_set else None)
 
         document = TradeDocument(
             company_id=company_id,
@@ -977,7 +997,7 @@ async def update_trade_document(
             document.currency_code,
         )
 
-        await _get_active_counterparty(
+        counterparty = await _get_active_counterparty(
             db,
             company_id=company_id,
             counterparty_id=(
@@ -985,7 +1005,7 @@ async def update_trade_document(
             ),
         )
 
-        await _validate_contract(
+        contract = await _validate_contract(
             db,
             company_id=company_id,
             counterparty_id=(
@@ -996,6 +1016,15 @@ async def update_trade_document(
             document_date=new_document_date,
             currency_code=new_currency_code,
         )
+
+        if new_direction == TradeDirection.PURCHASE:
+            changed_supplier = (new_counterparty_id != document.counterparty_id
+                or new_contract_id != document.contract_id or new_direction != document.direction)
+            explicit_days = update_data.get("payment_term_days",
+                None if changed_supplier else document.payment_term_days)
+            update_data["payment_term_days"] = _purchase_terms(counterparty, contract, explicit_days)
+            if new_direction != document.direction and "lines" not in update_data:
+                raise HTTPException(422, "Changing to purchase requires explicit purchase lines/prices")
 
         await _validate_unique_number(
             db,

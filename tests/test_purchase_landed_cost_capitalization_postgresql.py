@@ -382,3 +382,21 @@ async def test_concurrent_requests_cannot_double_capitalize_expense(same_key):
         async with engine.begin() as conn:
             await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["fifo", "weighted_average_moving"])
+async def test_issue_journal_cannot_bypass_inventory_reversal(method):
+    from app.services.accounting_reversal import reverse_journal_entry, AccountingReversalError
+    from app.services.document_reversal import reverse_document
+    async with landed_case(method) as (db, args, landed_id, cost_id):
+        cost = await db.get(InventoryCostEntry, cost_id)
+        journal_id = await db.scalar(select(JournalEntry.id).where(JournalEntry.document_id == cost.document_id,
+                                                                 JournalEntry.reversal_of_id.is_(None)))
+        with pytest.raises(AccountingReversalError, match="inventory lifecycle"):
+            await reverse_journal_entry(db, company_id=1, journal_entry_id=journal_id, reversal_date=DAY, reversed_by=1)
+        await reverse_document(db, company_id=1, document_id=cost.document_id, reversal_date=DAY, reversed_by=1)
+        assert (await landed_cost_issue_amounts(db, company_id=1))[cost_id] == 0
+        assert await account_net(db, 1) == D("100")
+        assert await account_net(db, 4) == 0
+        assert await account_net(db, 3) == D("-200")

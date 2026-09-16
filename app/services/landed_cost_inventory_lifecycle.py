@@ -48,3 +48,8 @@ def transfer_operation_date(plan):
     if plan.action.value == "noop":
         return None
     return plan.reversal_date or plan.target.transfer_date
+
+
+def inventory_operation_active(db, company_id):
+    """Whether the caller owns the complete inventory/valuation transaction."""
+    return (id(db), company_id) in _operations.get()
