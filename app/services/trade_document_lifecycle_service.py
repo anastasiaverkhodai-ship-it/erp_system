@@ -1453,6 +1453,17 @@ async def _cancel_trade_invoice(
         document.status
         == TradeDocumentStatus.CONFIRMED
     ):
+        if document.direction == TradeDirection.PURCHASE:
+            from app.models.input_vat_credit_claim import InputVatCreditClaim
+            from app.models.tax_calculation import TaxCalculation
+            active_claim = await db.scalar(select(InputVatCreditClaim.id).join(TaxCalculation,
+                TaxCalculation.id == InputVatCreditClaim.tax_calculation_id).where(
+                InputVatCreditClaim.company_id == company_id,
+                TaxCalculation.trade_document_id == document.id,
+                InputVatCreditClaim.reversal_evidence_id.is_(None)).limit(1))
+            if active_claim is not None:
+                raise TradeInvoiceStatusError('Reverse active INPUT VAT credit claims before cancelling invoice')
+
         if await has_active_invoice_allocations(
             db,
             company_id=company_id,

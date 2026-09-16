@@ -15,6 +15,7 @@ from app.services.trade_document_types import (
 class FakeDB:
     def __init__(self):
         self.flush = AsyncMock()
+        self.scalar = AsyncMock(return_value=None)
 
 
 def make_line(
