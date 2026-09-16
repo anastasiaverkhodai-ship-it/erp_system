@@ -88,6 +88,8 @@ def resolve_output_vat_recognition_source_kind(
         if advance_id <= 0 or event.invoice_fulfillment_allocation_id is not None or event.payment_settlement_allocation_id is not None or getattr(event, 'tax_credit_evidence_id', None) is not None:
             raise TaxRecognitionJournalSourceStateError('Invalid order advance VAT source')
         return OutputVatRecognitionSourceKind.SETTLEMENT
+    if event.tax_credit_evidence_id is not None:
+        raise TaxRecognitionJournalSourceStateError('OUTPUT VAT cannot use INPUT credit evidence')
     fulfillment_selected = (
         event.invoice_fulfillment_allocation_id
         is not None
@@ -322,10 +324,10 @@ async def generate_and_post_output_vat_recognition_journal_entry(
         )
     )
 
-    if amount < ZERO:
+    if not amount.is_finite() or amount < ZERO:
         raise TaxRecognitionJournalSourceStateError(
             "Recognized OUTPUT VAT amount "
-            "cannot be negative"
+            "cannot be negative or nonfinite"
         )
 
     if amount == ZERO:
@@ -503,10 +505,10 @@ async def reverse_output_vat_recognition_journal_entry(
         )
     )
 
-    if amount < ZERO:
+    if not amount.is_finite() or amount < ZERO:
         raise TaxRecognitionJournalSourceStateError(
             "Recognized OUTPUT VAT amount "
-            "cannot be negative"
+            "cannot be negative or nonfinite"
         )
 
     if amount == ZERO:

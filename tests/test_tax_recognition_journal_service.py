@@ -37,6 +37,8 @@ def event(
     return SimpleNamespace(
         id=event_id,
         company_id=company_id,
+        tax_credit_evidence_id=None,
+        order_vat_advance_id=None,
         invoice_fulfillment_allocation_id=(
             fulfillment_id
         ),

@@ -79,6 +79,9 @@ async def invoice(db, order):
 
 
 async def net(db):
+    from app.services.output_vat_gl_reconciliation_service import reconcile_output_vat_gl
+    control = await reconcile_output_vat_gl(db, company_id=1, date_from=DAY, date_to=date(2026,9,30))
+    assert control.matched, control.issues
     events = list((await db.scalars(select(TaxRecognitionEvent))).all())
     return sum((e.recognized_tax_amount * (-1 if e.reversal_of_id else 1) for e in events), D(0))
 

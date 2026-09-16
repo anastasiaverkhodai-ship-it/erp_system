@@ -70,6 +70,8 @@ def money(
 def _positive_money(
     amount: Decimal,
 ) -> Decimal:
+    if not Decimal(str(amount)).is_finite():
+        raise TaxRecognitionAccountingAmountError('OUTPUT VAT journal amount must be finite')
     normalized = money(
         amount
     )
