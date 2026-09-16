@@ -1,4 +1,5 @@
 from app.api.v1.input_vat_credit_claims import router as input_vat_credit_claims_router
+from app.api.v1.tax_invoices import router as tax_invoices_router
 from app.api.v1.output_vat_controls import router as output_vat_controls_router
 from app.api.v1.order_vat_advances import router as order_vat_advances_router
 from fastapi import FastAPI
@@ -143,3 +144,4 @@ app.include_router(order_vat_advances_router, prefix='/api/v1')
 app.include_router(output_vat_controls_router, prefix="/api/v1")
 
 app.include_router(input_vat_credit_claims_router, prefix="/api/v1")
+app.include_router(tax_invoices_router, prefix="/api/v1")

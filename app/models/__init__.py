@@ -123,3 +123,8 @@ from app.models.company_vat_policy import CompanyVatPolicy
 from app.models.counterparty_vat_registration import CounterpartyVatRegistration
 from app.models.order_vat_advance import OrderVatAdvance, OrderVatAdvanceLine, OrderVatAdvanceTransfer
 from app.models.input_vat_credit_claim import InputVatCreditClaim
+from app.models.product_tax_classification import ProductTaxClassification
+from app.models.tax_invoice import TaxInvoice
+from app.models.tax_invoice_credit_evidence_link import TaxInvoiceCreditEvidenceLink
+from app.models.tax_invoice_line import TaxInvoiceLine
+from app.models.tax_invoice_registration_event import TaxInvoiceRegistrationEvent

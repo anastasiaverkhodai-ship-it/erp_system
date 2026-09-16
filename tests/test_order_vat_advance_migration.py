@@ -29,6 +29,30 @@ async def test_actual_advance_migration_round_trip():
                 await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
                 await conn.execute(text(f'SET LOCAL search_path TO "{schema}"'))
                 await conn.run_sync(Base.metadata.create_all)
+
+                # This test exercises the historical f3bac6e8a157
+                # order-advance migration directly. Base.metadata is the
+                # current application metadata and therefore also creates
+                # later 10.6 tables. Those tables did not exist at the
+                # historical migration boundary and tax_invoices now has
+                # a FK to order_vat_advances, which would make the old
+                # downgrade impossible for reasons unrelated to that
+                # migration itself.
+                #
+                # Remove only the later 10.6 objects from this isolated
+                # test schema before cycling the historical migration.
+                await conn.execute(
+                    text(
+                        """
+                        DROP TABLE
+                            tax_invoice_registration_events,
+                            tax_invoice_credit_evidence_links,
+                            tax_invoice_lines,
+                            tax_invoices,
+                            product_tax_classifications
+                        """
+                    )
+                )
                 def cycle(sync_conn):
                     with Operations.context(MigrationContext.configure(sync_conn)):
                         migration.downgrade(); migration.upgrade()
