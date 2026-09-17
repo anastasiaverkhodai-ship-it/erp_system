@@ -128,3 +128,6 @@ from app.models.tax_invoice import TaxInvoice
 from app.models.tax_invoice_credit_evidence_link import TaxInvoiceCreditEvidenceLink
 from app.models.tax_invoice_line import TaxInvoiceLine
 from app.models.tax_invoice_registration_event import TaxInvoiceRegistrationEvent
+from app.models.tax_invoice_correction import TaxInvoiceCorrection
+from app.models.tax_invoice_correction_line import TaxInvoiceCorrectionLine
+from app.models.tax_invoice_correction_registration_event import TaxInvoiceCorrectionRegistrationEvent

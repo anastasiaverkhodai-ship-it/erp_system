@@ -33,18 +33,23 @@ async def test_actual_advance_migration_round_trip():
                 # This test exercises the historical f3bac6e8a157
                 # order-advance migration directly. Base.metadata is the
                 # current application metadata and therefore also creates
-                # later 10.6 tables. Those tables did not exist at the
-                # historical migration boundary and tax_invoices now has
-                # a FK to order_vat_advances, which would make the old
-                # downgrade impossible for reasons unrelated to that
-                # migration itself.
+                # later 10.6 and 10.7 tables. Those tables did not exist at
+                # the historical migration boundary. The later tax-invoice
+                # and RK tables carry FKs across that boundary and would make
+                # the old downgrade impossible for reasons unrelated to the
+                # historical migration itself.
                 #
-                # Remove only the later 10.6 objects from this isolated
-                # test schema before cycling the historical migration.
+                # Remove only those later objects from this isolated test
+                # schema before cycling the historical migration. Keep this
+                # explicit and do not use CASCADE so unexpected dependencies
+                # still fail closed.
                 await conn.execute(
                     text(
                         """
                         DROP TABLE
+                            tax_invoice_correction_registration_events,
+                            tax_invoice_correction_lines,
+                            tax_invoice_corrections,
                             tax_invoice_registration_events,
                             tax_invoice_credit_evidence_links,
                             tax_invoice_lines,
