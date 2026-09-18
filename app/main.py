@@ -138,6 +138,7 @@ app.include_router(
 )
 
 from app.api.v1.company_vat_policies import router as company_vat_policies_router
+from app.api.v1.vat_declarations import router as vat_declarations_router
 app.include_router(company_vat_policies_router, prefix='/api/v1')
 
 app.include_router(order_vat_advances_router, prefix='/api/v1')
@@ -147,6 +148,7 @@ app.include_router(output_vat_controls_router, prefix="/api/v1")
 app.include_router(input_vat_credit_claims_router, prefix="/api/v1")
 app.include_router(tax_invoices_router, prefix="/api/v1")
 app.include_router(tax_invoice_corrections_router, prefix="/api/v1")
+app.include_router(vat_declarations_router, prefix="/api/v1")
 
 from app.api.v1.vat_registers import router as vat_registers_router
 app.include_router(vat_registers_router, prefix="/api/v1")

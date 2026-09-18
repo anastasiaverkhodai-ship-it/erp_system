@@ -131,3 +131,8 @@ from app.models.tax_invoice_registration_event import TaxInvoiceRegistrationEven
 from app.models.tax_invoice_correction import TaxInvoiceCorrection
 from app.models.tax_invoice_correction_line import TaxInvoiceCorrectionLine
 from app.models.tax_invoice_correction_registration_event import TaxInvoiceCorrectionRegistrationEvent
+
+from app.models.vat_declaration import VatDeclaration
+from app.models.vat_declaration_source_line import VatDeclarationSourceLine
+from app.models.vat_declaration_carry_forward_line import VatDeclarationCarryForwardLine
+from app.models.vat_declaration_status_event import VatDeclarationStatusEvent
