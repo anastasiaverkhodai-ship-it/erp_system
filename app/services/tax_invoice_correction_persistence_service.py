@@ -215,6 +215,9 @@ async def _load_existing_source_lines(
     result = []
 
     for item in resolved:
+        if item.source_kind == 'metadata_correction':
+            result.append(None)
+            continue
         existing = await db.scalar(
             select(
                 TaxInvoiceCorrectionLine
@@ -533,6 +536,7 @@ async def create_tax_invoice_correction(
             original_invoice.buyer_vat_number
         ),
         created_by=created_by,
+        registration_party=('buyer' if original_invoice.buyer_vat_number and sum((r.total_with_vat_delta for r in resolved),Decimal('0')) < 0 else 'seller'),
     )
 
     db.add(

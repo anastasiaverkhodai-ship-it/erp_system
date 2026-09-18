@@ -33,7 +33,10 @@ class TaxInvoiceCorrection(Base):
 
     __tablename__ = "tax_invoice_corrections"
 
+    registration_party: Mapped[str] = mapped_column(String(6), nullable=False, default='seller', server_default='seller')
+
     __table_args__ = (
+        CheckConstraint("registration_party IN ('seller','buyer')",name='ck_tic_registration_party'),
         UniqueConstraint(
             "company_id",
             "id",

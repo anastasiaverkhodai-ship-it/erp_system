@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
@@ -40,6 +40,7 @@ TaxInvoiceCorrectionSourceKind = Literal[
     "purchase_return",
     "purchase_value_correction",
     "recognition_reversal",
+    "metadata_correction",
 ]
 
 
@@ -48,6 +49,7 @@ OUTPUT_SOURCE_KINDS = frozenset(
         "sales_return",
         "sales_value_correction",
         "recognition_reversal",
+        "metadata_correction",
     }
 )
 
@@ -55,6 +57,7 @@ INPUT_SOURCE_KINDS = frozenset(
     {
         "purchase_return",
         "purchase_value_correction",
+        "metadata_correction",
     }
 )
 
@@ -82,6 +85,7 @@ class TaxInvoiceCorrectionLineSource:
     source_id: int
     reason_code: str
     tax_credit_evidence_id: int | None = None
+    replacement: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -248,6 +252,7 @@ def normalize_correction_line_sources(
                 source_id=source_id,
                 reason_code=reason_code,
                 tax_credit_evidence_id=evidence_id,
+                replacement=normalize_metadata_replacement(source.source_kind, source.replacement),
             )
         )
 
@@ -1173,11 +1178,8 @@ def _resolved_line(
         ),
     }
 
-    ids[
-        mapping[
-            source.source_kind
-        ]
-    ] = source.source_id
+    if source.source_kind != 'metadata_correction':
+        ids[mapping[source.source_kind]] = source.source_id
 
     return ResolvedTaxInvoiceCorrectionLine(
         line_number=source.line_number,
@@ -1296,6 +1298,20 @@ async def resolve_tax_invoice_correction_lines(
             direction=original_invoice.direction,
             source_kind=source.source_kind,
         )
+
+        if source.source_kind == 'metadata_correction':
+            original_line = await db.scalar(select(TaxInvoiceLine).where(
+                TaxInvoiceLine.company_id == company_id,
+                TaxInvoiceLine.tax_invoice_id == original_invoice.id,
+                TaxInvoiceLine.id == source.source_id).with_for_update())
+            if original_line is None or source.tax_credit_evidence_id is not None:
+                raise TaxInvoiceCorrectionSourceError('Metadata correction requires an original PN line and no credit evidence')
+            if not any(getattr(original_line,k) != v for k,v in source.replacement.items()):
+                raise TaxInvoiceCorrectionSourceError('Metadata correction must change a non-monetary requisite')
+            item = _resolved_line(source=source, original_line=original_line,
+                amounts=TaxInvoiceCorrectionLineAmounts(*(Decimal('0') for _ in range(5))), evidence_id=None)
+            resolved.append(replace(item, **source.replacement))
+            continue
 
         purchase_value_source = None
 
@@ -1421,3 +1437,17 @@ async def resolve_tax_invoice_correction_lines(
     return tuple(
         resolved
     )
+
+
+def normalize_metadata_replacement(source_kind, replacement):
+    allowed = {'description':500,'uom_code':20,'classification_kind':10,'statutory_code':32}
+    if source_kind != 'metadata_correction':
+        if replacement:
+            raise TaxInvoiceCorrectionSourceError('Economic corrections cannot change metadata')
+        return None
+    if not replacement or set(replacement)-set(allowed):
+        raise TaxInvoiceCorrectionSourceError('Metadata correction requires supported replacement fields')
+    result = {k:_required_text(v,field=k,max_length=allowed[k]) for k,v in replacement.items()}
+    if result.get('classification_kind','uktzed') not in ('uktzed','dkpp'):
+        raise TaxInvoiceCorrectionSourceError('Invalid classification kind')
+    return result

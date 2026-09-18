@@ -678,6 +678,10 @@ async def load_active_input_tax_recognition_candidates(
         calculation=calculation,
     )
 
+    if invoice.kind == 'order':
+        from app.services.order_input_vat_credit_service import load_order_credit_candidates
+        return await load_order_credit_candidates(db, calculation=calculation, order=invoice)
+
     method = validate_input_purchase_calculation(
         calculation=calculation,
         invoice=invoice,

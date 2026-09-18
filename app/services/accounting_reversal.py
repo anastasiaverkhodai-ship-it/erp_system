@@ -442,6 +442,8 @@ async def reverse_journal_entry(
     )
 
     original_entry = result.scalar_one_or_none()
+    if original_entry is not None and getattr(original_entry,'tax_invoice_correction_line_id',None):
+        raise AccountingReversalError('RK VAT posting cannot be reversed directly; use a documented tax correction')
 
     if original_entry is None:
         raise JournalEntryReversalNotFoundError(

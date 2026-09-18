@@ -6,10 +6,30 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    model_validator,
 )
 
 
-class OutputTaxInvoiceCorrectionLineCreate(BaseModel):
+class CorrectionMetadata(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    description: str | None = Field(default=None,min_length=1,max_length=500)
+    uom_code: str | None = Field(default=None,min_length=1,max_length=20)
+    classification_kind: Literal['uktzed','dkpp'] | None = None
+    statutory_code: str | None = Field(default=None,min_length=1,max_length=32)
+
+
+class CorrectionLineMetadataContract(BaseModel):
+    replacement: CorrectionMetadata | None = None
+
+    @model_validator(mode='after')
+    def validate_metadata(self):
+        present = self.replacement is not None and bool(self.replacement.model_dump(exclude_none=True))
+        if (self.source_kind == 'metadata_correction') != present:
+            raise ValueError('replacement is required only for metadata_correction')
+        return self
+
+
+class OutputTaxInvoiceCorrectionLineCreate(CorrectionLineMetadataContract):
     model_config = ConfigDict(
         extra="forbid",
         str_strip_whitespace=True,
@@ -23,6 +43,7 @@ class OutputTaxInvoiceCorrectionLineCreate(BaseModel):
         "sales_return",
         "sales_value_correction",
         "recognition_reversal",
+        "metadata_correction",
     ]
 
     source_id: int = Field(
@@ -35,7 +56,7 @@ class OutputTaxInvoiceCorrectionLineCreate(BaseModel):
     )
 
 
-class InputTaxInvoiceCorrectionLineCreate(BaseModel):
+class InputTaxInvoiceCorrectionLineCreate(CorrectionLineMetadataContract):
     model_config = ConfigDict(
         extra="forbid",
         str_strip_whitespace=True,
@@ -48,6 +69,7 @@ class InputTaxInvoiceCorrectionLineCreate(BaseModel):
     source_kind: Literal[
         "purchase_return",
         "purchase_value_correction",
+        "metadata_correction",
     ]
 
     source_id: int = Field(
@@ -118,6 +140,7 @@ class InputTaxInvoiceCorrectionCreate(BaseModel):
     document_date: date
 
     registered_on: date
+    received_on: date | None = None
 
     receipt_reference: str = Field(
         min_length=1,
@@ -143,6 +166,9 @@ class TaxInvoiceCorrectionRegistrationCreate(BaseModel):
         max_length=255,
     )
 
+    registration_party: Literal['seller','buyer'] | None = None
+    received_on: date | None = None
+
     status: Literal[
         "submitted",
         "registered",
@@ -159,6 +185,7 @@ class TaxInvoiceCorrectionRegistrationCreate(BaseModel):
 
 
 class TaxInvoiceCorrectionResponse(BaseModel):
+    registration_party: str
     model_config = ConfigDict(
         from_attributes=True
     )
@@ -212,6 +239,8 @@ class TaxInvoiceCorrectionLineResponse(BaseModel):
 
 
 class TaxInvoiceCorrectionRegistrationResponse(BaseModel):
+    registration_party: str
+    received_on: date | None
     model_config = ConfigDict(
         from_attributes=True
     )

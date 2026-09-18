@@ -26,7 +26,12 @@ class TaxInvoiceCorrectionRegistrationEvent(Base):
 
     __tablename__ = "tax_invoice_correction_registration_events"
 
+    registration_party: Mapped[str] = mapped_column(String(6),nullable=False,default='seller',server_default='seller')
+    received_on: Mapped[date | None] = mapped_column(Date,nullable=True)
+
     __table_args__ = (
+        CheckConstraint("registration_party IN ('seller','buyer')",name='ck_ticre_registration_party'),
+        CheckConstraint('received_on IS NULL OR received_on <= event_date',name='ck_ticre_receipt_date'),
         UniqueConstraint(
             "company_id",
             "id",

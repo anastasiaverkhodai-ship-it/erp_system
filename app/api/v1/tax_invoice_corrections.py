@@ -114,6 +114,10 @@ async def _commit_id_or_409(
             ),
         ) from exc
 
+    except Exception:
+        await db.rollback()
+        raise
+
 
 def _source_line(
     item,
@@ -123,6 +127,7 @@ def _source_line(
         source_kind=item.source_kind,
         source_id=item.source_id,
         reason_code=item.reason_code,
+        replacement=item.replacement.model_dump(exclude_none=True) if item.replacement else None,
         tax_credit_evidence_id=getattr(
             item,
             "tax_credit_evidence_id",
@@ -358,6 +363,8 @@ async def append_registration_event(
             tax_invoice_correction_id=(
                 tax_invoice_correction_id
             ),
+            registration_party=payload.registration_party,
+            received_on=payload.received_on,
             status=payload.status,
             event_date=payload.event_date,
             reference=payload.reference,

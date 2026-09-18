@@ -487,6 +487,7 @@ async def test_output_rk_idempotency_and_registration_real_postgresql():
                                 correction.id
                             ),
                             status="registered",
+                            received_on=D3,
                             event_date=D3,
                             reference="rk-receipt",
                             created_by=1,
@@ -502,6 +503,7 @@ async def test_output_rk_idempotency_and_registration_real_postgresql():
                                 correction.id
                             ),
                             status="registered",
+                            received_on=D3,
                             event_date=D3,
                             reference="rk-receipt",
                             created_by=1,

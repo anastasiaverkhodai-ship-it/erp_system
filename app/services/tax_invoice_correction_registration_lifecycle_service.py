@@ -220,6 +220,8 @@ async def append_tax_invoice_correction_registration_event(
     event_date: date,
     reference: str | None,
     created_by: int,
+    registration_party: str | None = None,
+    received_on: date | None = None,
 ) -> TaxInvoiceCorrectionRegistrationEvent:
     """
     Append one immutable RK registration event.
@@ -308,6 +310,16 @@ async def append_tax_invoice_correction_registration_event(
             "RK registration event cannot predate RK document"
         )
 
+    if normalized_status == 'registered' and event_date > date.today():
+        raise TaxInvoiceCorrectionRegistrationError('Future RK registration is not supported')
+    expected_party = correction.registration_party
+    if registration_party is not None and registration_party != expected_party:
+        raise TaxInvoiceCorrectionRegistrationError('Wrong RK registration party')
+    if received_on is not None and not correction.document_date <= received_on <= event_date:
+        raise TaxInvoiceCorrectionRegistrationError('Invalid RK receipt date')
+    if normalized_status == 'registered' and expected_party == 'buyer' and received_on is None:
+        raise TaxInvoiceCorrectionRegistrationError('Decreasing RK requires buyer received_on date')
+
     latest = await db.scalar(
         select(
             TaxInvoiceCorrectionRegistrationEvent
@@ -340,18 +352,24 @@ async def append_tax_invoice_correction_registration_event(
             == event_date
             and latest.reference
             == normalized_reference
+            and latest.received_on == received_on
+            and latest.registration_party == expected_party
         ):
             return latest
 
-    validate_tax_invoice_correction_registration_transition(
-        previous_status=(
-            latest.status
-            if latest is not None
-            else None
-        ),
-        new_status=normalized_status,
-        direction=correction.direction,
-    )
+    timing_attestation = (latest is not None and latest.status == normalized_status == 'registered'
+        and latest.event_date == event_date and latest.reference == normalized_reference
+        and latest.received_on is None and received_on is not None)
+    if not timing_attestation:
+        validate_tax_invoice_correction_registration_transition(
+            previous_status=(
+                latest.status
+                if latest is not None
+                else None
+            ),
+            new_status=normalized_status,
+            direction=correction.direction,
+        )
 
     if normalized_status == "registered":
         validate_tax_invoice_correction_registration_age(
@@ -367,6 +385,8 @@ async def append_tax_invoice_correction_registration_event(
             tax_invoice_correction_id
         ),
         status=normalized_status,
+        registration_party=expected_party,
+        received_on=received_on,
         event_date=event_date,
         reference=normalized_reference,
         created_by=created_by,
@@ -378,4 +398,7 @@ async def append_tax_invoice_correction_registration_event(
 
     await db.flush()
 
+    if normalized_status == 'registered' and correction.direction == 'output':
+        from app.services.tax_invoice_correction_accounting_service import post_output_correction
+        await post_output_correction(db, company_id=company_id, correction_id=correction.id, created_by=created_by)
     return event

@@ -84,6 +84,9 @@ async def test_output_orchestration_is_one_atomic_logical_write(
     monkeypatch,
 ):
     db = object()
+    from app.services import tax_invoice_correction_accounting_service as accounting
+    post = AsyncMock()
+    monkeypatch.setattr(accounting,'post_output_correction',post)
 
     reserve = AsyncMock(
         return_value=SimpleNamespace(
@@ -149,6 +152,7 @@ async def test_output_orchestration_is_one_atomic_logical_write(
         created_by=3,
     )
 
+    post.assert_awaited_once_with(db,company_id=1,correction_id=41,created_by=3)
     assert result is correction
 
     reserve.assert_awaited_once()
@@ -437,3 +441,15 @@ def test_output_and_input_request_key_contract():
 
     assert output.request_key == "rk-out"
     assert input_request.request_key == "rk-in"
+
+
+@pytest.mark.asyncio
+async def test_accounting_http_error_rolls_back_without_losing_status():
+    db = FakeDb()
+    async def closed_period():
+        raise HTTPException(status_code=409, detail="Accounting period is closed")
+    with pytest.raises(HTTPException) as error:
+        await api._commit_id_or_409(db, closed_period())
+    assert error.value.status_code == 409
+    assert db.rollback_calls == 1
+    assert db.commit_calls == 0

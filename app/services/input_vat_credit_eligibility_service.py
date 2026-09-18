@@ -1,4 +1,4 @@
-"""Versioned ordinary domestic PN credit policy, verified 2026-09-16.
+"""Versioned ordinary domestic PN credit policy, verified 2026-09-17.
 
 Historical PN before 2023-08-01, cash-method and special documents need a
 separate policy. Suspension intervals are attested, disjoint, half-open dates.
@@ -8,9 +8,12 @@ from calendar import monthrange
 from datetime import date, timedelta
 from app.schemas.input_vat_credit_claim import InputVatCreditClaimCreate, InputVatCreditEligibility
 
-POLICY_VERSION = 'ua-domestic-pn-first-event-2026-09-16'
+POLICY_VERSION = 'ua-domestic-pn-first-event-2026-09-17'
 POLICY_FROM = date(2023, 8, 1)
-POLICY_VERIFIED_THROUGH = date(2026, 9, 16)
+# Verification metadata is not a statutory expiry date. Supersede this
+# version when the effective registration regime changes.
+POLICY_VERIFIED_THROUGH = date(2026, 9, 17)
+POLICY_UNTIL: date | None = None
 
 
 def month_start(day):
@@ -25,7 +28,7 @@ def assess_input_vat_credit(data: InputVatCreditClaimCreate, *, as_of_date: date
     values = dict(policy_version=POLICY_VERSION)
     def deny(reason):
         return InputVatCreditEligibility(eligible=False, reason=reason, **values)
-    if not POLICY_FROM <= data.invoice_date <= POLICY_VERIFIED_THROUGH:
+    if data.invoice_date < POLICY_FROM or (POLICY_UNTIL is not None and data.invoice_date > POLICY_UNTIL):
         return deny('invoice_date_requires_another_policy_version')
     if data.invoice_date > as_of_date or data.claim_period > month_start(as_of_date):
         return deny('future_invoice_or_claim_period')
@@ -35,7 +38,7 @@ def assess_input_vat_credit(data: InputVatCreditClaimCreate, *, as_of_date: date
     if registered < data.invoice_date or registered > as_of_date:
         return deny('invalid_registration_date')
     # Subsection 2 paragraph 89: next month day 5 / day 18. Applicability
-    # is deliberately bounded by the verified invoice-date policy window.
+    # belongs to this effective policy version; future transactions still fail closed.
     next_month = month_end(data.invoice_date) + timedelta(days=1)
     deadline = next_month.replace(day=5 if data.invoice_date.day <= 15 else 18)
     timely = registered <= deadline

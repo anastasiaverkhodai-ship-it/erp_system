@@ -195,6 +195,9 @@ async def reverse_order_vat_advance(db, *, company_id, advance_id, reversed_by):
         return advance
     if advance.status != 'active' or reversed_by <= 0:
         raise OrderVatAdvanceError('Undo invoice transfer before correcting the advance')
+    from app.models.input_vat_credit_claim import InputVatCreditClaim
+    if await db.scalar(select(InputVatCreditClaim.id).join(TaxCalculation,TaxCalculation.id==InputVatCreditClaim.tax_calculation_id).where(InputVatCreditClaim.company_id==company_id,TaxCalculation.trade_document_id==advance.order_id,InputVatCreditClaim.reversal_evidence_id.is_(None)).limit(1)):
+        raise OrderVatAdvanceError('Reverse active order INPUT credit claims before cancelling an advance')
     await ensure_period_open(db=db, company_id=company_id, operation_date=advance.event_date)
     await _reverse_advance_events(db, advance, reversed_by)
     advance.status = 'reversed'; advance.closed_at = datetime.now(timezone.utc); advance.closed_by = reversed_by
@@ -245,6 +248,8 @@ async def transfer_order_advances(db, *, company_id, order_id, invoice_id, creat
         return (c.product_id, c.tax_rate_code, c.tax_rate, c.treatment, c.recognition_method, c.taxable_base, c.tax_amount)
     if sorted(map(signature, calculations)) != sorted(map(signature, order_calcs)):
         raise OrderVatAdvanceError('Invoice tax snapshot differs from advance order')
+    from app.services.order_input_vat_credit_service import prepare_order_credit_transfer, finish_order_credit_transfer
+    pending_credit = await prepare_order_credit_transfer(db,company_id=company_id,order=order,invoice=invoice,created_by=created_by) if order.direction == 'purchase' else []
     for advance in advances:
         await ensure_period_open(db=db, company_id=company_id, operation_date=advance.event_date)
         await _reverse_advance_events(db, advance, created_by)
@@ -260,6 +265,7 @@ async def transfer_order_advances(db, *, company_id, order_id, invoice_id, creat
             _transfer_correction_date.reset(token)
         db.add(OrderVatAdvanceTransfer(company_id=company_id, advance_id=advance.id, allocation_id=allocation.id, created_by=created_by))
     await db.flush()
+    await finish_order_credit_transfer(db,company_id=company_id,pending=pending_credit,created_by=created_by)
     return advances
 
 

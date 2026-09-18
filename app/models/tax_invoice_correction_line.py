@@ -142,7 +142,8 @@ class TaxInvoiceCorrectionLine(Base):
                 'sales_value_correction',
                 'purchase_return',
                 'purchase_value_correction',
-                'recognition_reversal'
+                'recognition_reversal',
+                'metadata_correction'
             )
             """,
             name="ck_ticl_source_kind",
@@ -193,6 +194,15 @@ class TaxInvoiceCorrectionLine(Base):
                 AND purchase_value_correction_vat_adjustment_event_id IS NULL
                 AND tax_recognition_reversal_event_id IS NOT NULL
             )
+            OR (
+                source_kind = 'metadata_correction'
+                AND sales_return_recognition_event_id IS NULL
+                AND trade_value_correction_event_id IS NULL
+                AND purchase_return_vat_adjustment_event_id IS NULL
+                AND purchase_value_correction_vat_adjustment_event_id IS NULL
+                AND tax_recognition_reversal_event_id IS NULL
+                AND tax_credit_evidence_id IS NULL
+            )
             """,
             name="ck_ticl_source_shape",
         ),
@@ -230,11 +240,13 @@ class TaxInvoiceCorrectionLine(Base):
         ),
         CheckConstraint(
             """
+            (source_kind = 'metadata_correction' AND quantity_delta = 0 AND unit_price_without_vat_delta = 0 AND taxable_base_delta = 0 AND tax_amount_delta = 0 AND total_with_vat_delta = 0)
+            OR (source_kind <> 'metadata_correction' AND (
             quantity_delta <> 0
             OR unit_price_without_vat_delta <> 0
             OR taxable_base_delta <> 0
             OR tax_amount_delta <> 0
-            OR total_with_vat_delta <> 0
+            OR total_with_vat_delta <> 0))
             """,
             name="ck_ticl_nonzero_delta",
         ),

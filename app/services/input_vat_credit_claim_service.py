@@ -30,8 +30,8 @@ async def _locked_calculation(db, company_id, calculation_id):
         TradeDocument.id == document_id).with_for_update().execution_options(populate_existing=True))
     calculation = await db.scalar(select(TaxCalculation).where(TaxCalculation.company_id == company_id,
         TaxCalculation.id == calculation_id).with_for_update().execution_options(populate_existing=True))
-    if invoice.kind != 'invoice' or invoice.direction != 'purchase' or invoice.status != 'confirmed':
-        raise InputVatCreditClaimError('Confirmed purchase invoice required; pre-invoice legal-credit handoff requires a separate workflow')
+    if invoice.kind not in ('invoice','order') or invoice.direction != 'purchase' or invoice.status not in (('confirmed','partially_fulfilled','fulfilled') if invoice.kind=='order' else ('confirmed',)):
+        raise InputVatCreditClaimError('Confirmed purchase invoice or order required')
     if calculation.direction != 'input' or calculation.currency_code != 'UAH' or calculation.recognition_method != 'first_event':
         raise InputVatCreditClaimError('This policy supports INPUT UAH FIRST_EVENT only')
     return calculation, invoice
@@ -60,6 +60,25 @@ async def _validate_registration_parties(db, company_id, invoice, data, credit_d
 async def create_input_vat_credit_claim(db, *, company_id, data, created_by):
     if created_by <= 0:
         raise InputVatCreditClaimError('Invalid actor')
+    from app.services.order_vat_advance_service import lock_party
+    party_id=await db.scalar(select(TradeDocument.counterparty_id).join(TaxCalculation,
+        (TaxCalculation.company_id==TradeDocument.company_id)&(TaxCalculation.trade_document_id==TradeDocument.id))
+        .where(TaxCalculation.company_id==company_id,TaxCalculation.id==data.tax_calculation_id))
+    if party_id is None:
+        raise InputVatCreditClaimError('INPUT calculation not found in company')
+    await lock_party(db,company_id,party_id)
+    # Advance cancellation locks payments before order/calculation rows. Use the
+    # same order so a claim cannot race a cancellation or deadlock a handoff.
+    from app.models.order_vat_advance import OrderVatAdvance
+    from app.models.payment import Payment
+    document_id=await db.scalar(select(TaxCalculation.trade_document_id).where(
+        TaxCalculation.company_id==company_id,TaxCalculation.id==data.tax_calculation_id))
+    payment_ids=list((await db.scalars(select(OrderVatAdvance.payment_id).where(
+        OrderVatAdvance.company_id==company_id,OrderVatAdvance.order_id==document_id,
+        OrderVatAdvance.status=='active').order_by(OrderVatAdvance.payment_id))).all())
+    if payment_ids:
+        await db.execute(select(Payment.id).where(Payment.company_id==company_id,Payment.id.in_(payment_ids)).order_by(Payment.id).with_for_update())
+
     calculation, invoice = await _locked_calculation(db, company_id, data.tax_calculation_id)
     payload = data.model_dump(mode='json')
     existing = await db.scalar(select(InputVatCreditClaim).where(InputVatCreditClaim.company_id == company_id,

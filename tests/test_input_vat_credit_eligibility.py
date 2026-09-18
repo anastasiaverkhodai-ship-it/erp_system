@@ -87,3 +87,19 @@ def test_invalid_suspension_intervals_do_not_extend_right(intervals):
 ])
 def test_unsupported_history_and_future_dates_fail_closed(values):
     assert not assess(**values).eligible
+
+
+def test_verification_date_is_not_a_daily_expiration_date():
+    data=payload(invoice_date='2026-09-17',registered_on='2026-09-17',claim_period='2026-09-01')
+    result=assess_input_vat_credit(data,as_of_date=date(2026,9,17))
+    assert result.eligible
+    assert result.policy_version.endswith('2026-09-17')
+    assert result.registration_deadline==date(2026,10,18)
+    assert not assess_input_vat_credit(data,as_of_date=date(2026,9,16)).eligible
+
+
+def test_superseded_policy_end_is_enforced(monkeypatch):
+    from app.services import input_vat_credit_eligibility_service as policy
+    monkeypatch.setattr(policy,'POLICY_UNTIL',date(2026,9,16))
+    result=policy.assess_input_vat_credit(payload(invoice_date='2026-09-17',registered_on='2026-09-17',claim_period='2026-09-01'),as_of_date=date(2026,9,17))
+    assert result.reason=='invoice_date_requires_another_policy_version'

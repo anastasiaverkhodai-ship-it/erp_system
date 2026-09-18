@@ -119,7 +119,10 @@ def build_vat_register(data, *, company_id, date_from, date_to, as_of,
     try:
         profile = get_ukrainian_chart_working_profile(ChartOfAccountsTemplateType(company['chart_of_accounts_template']))
         account_ids = {}
-        for role in (Role.TAX_SETTLEMENT, Role.VAT_INPUT, Role.VAT_OUTPUT, Role.GOODS_REVENUE):
+        required_roles=[Role.TAX_SETTLEMENT,Role.VAT_INPUT,Role.VAT_OUTPUT,Role.GOODS_REVENUE]
+        if rows.get('sales_return_recognition_events'):
+            required_roles.append(Role.SALES_DEDUCTIONS)
+        for role in required_roles:
             code = profile.get_code_or_none(role)
             matches = [r for r in rows.get('accounts', []) if r['code'] == code]
             if len(matches) != 1:
@@ -230,7 +233,7 @@ def build_vat_register(data, *, company_id, date_from, date_to, as_of,
                 if doc_type == 'RK' and line.get('tax_credit_evidence_id'):
                     evidence_docs[line['tax_credit_evidence_id']].append(('RK',doc['id']))
                 lines.append(dict(line_id=line['id'],line_number=line['line_number'],taxable_base=base,tax_amount=tax,
-                    tax_rate_code=line['tax_rate_code'],source_kind=key[0] if key else 'input_evidence',source_id=key[1] if key else None,evidence_ids=evidence_ids))
+                    tax_rate_code=line['tax_rate_code'],source_kind=key[0] if key else ('metadata_correction' if line.get('source_kind')=='metadata_correction' else 'input_evidence'),source_id=key[1] if key else line.get('original_tax_invoice_line_id'),evidence_ids=evidence_ids))
             if in_period(doc['document_date']):
                 if not lines:
                     issue('document_without_lines',document_type=doc_type,document_id=doc['id'])
@@ -239,7 +242,7 @@ def build_vat_register(data, *, company_id, date_from, date_to, as_of,
                 register.append(dict(document_type=doc_type,document_id=doc['id'],direction=doc['direction'],
                     document_number=doc['document_number'],document_date=day(doc['document_date']),
                     seller_vat_number=doc['seller_vat_number'],buyer_vat_number=doc.get('buyer_vat_number'),
-                    original_tax_invoice_id=doc.get('original_tax_invoice_id'),registration_status=status,
+                    original_tax_invoice_id=doc.get('original_tax_invoice_id'),registration_status=status,registration_party=doc.get('registration_party'),
                     registration_date=day(history[-1]['event_date']) if history else None,
                     taxable_base=sum((r['taxable_base'] for r in lines),ZERO),tax_amount=sum((r['tax_amount'] for r in lines),ZERO),lines=lines))
     for key,s in legal.items():
@@ -249,13 +252,44 @@ def build_vat_register(data, *, company_id, date_from, date_to, as_of,
         if len(refs)>1:
             issue('duplicate_source_coverage',source_kind=key[0],source_id=key[1],documents=refs)
 
+    # OUTPUT deductions become recognized only through the legal RK gate.
+    # Positive corrections are due on the RK's economic date even before registration.
+    from app.services.tax_invoice_correction_accounting_service import correction_posting_date, CorrectionAccountingError
+    for key,s in sources.items():
+        if key[0] not in ('sales_return','sales_value_correction'):
+            continue
+        s['journal_field']='tax_invoice_correction_line_id'
+        s['journal_source_id']=-s['source_id']
+        s['contra']=Role.SALES_DEDUCTIONS if key[0]=='sales_return' else Role.GOODS_REVENUE
+        s['recognized']=s['tax_amount']>=0
+        refs=covered.get(key,[])
+        if len(refs)==1:
+            line=indexes['tax_invoice_correction_lines'][refs[0]['line_id']]
+            header=indexes['tax_invoice_corrections'][line['tax_invoice_correction_id']]
+            s['journal_source_id']=line['id']
+            total=sum((money(r['total_with_vat_delta']) for r in rows.get('tax_invoice_correction_lines',[]) if r['tax_invoice_correction_id']==header['id']),ZERO)
+            history=[r for r in rows.get('tax_invoice_correction_registration_events',[]) if r['tax_invoice_correction_id']==header['id'] and r['status']=='registered' and day(r['event_date'])<=as_of.astimezone(ZoneInfo('Europe/Kyiv')).date()]
+            reg=max(history,key=lambda r:r['id']) if history else None
+            try:
+                effective=correction_posting_date(document_date=day(header['document_date']),compensation_delta=total,
+                    party=header.get('registration_party','seller'),registered_on=day(reg['event_date']) if reg else None,
+                    received_on=day(reg['received_on']) if reg and reg.get('received_on') else None)
+            except CorrectionAccountingError:
+                effective=None
+                issue('missing_registration_timing_evidence',source_kind=key[0],source_id=key[1])
+            s['recognized']=effective is not None
+            if effective is not None:
+                s['effective_date']=effective
+        if not s['recognized'] and in_period(s['effective_date']):
+            issue('pending_output_vat_decrease',source_kind=key[0],source_id=key[1])
+
     journal_lines = defaultdict(list)
     for line in rows.get('journal_entry_lines', []):
         journal_lines[line['journal_entry_id']].append(line)
     journals = rows.get('journal_entries', [])
     journals_by_source = defaultdict(list)
     for j in journals:
-        for field in ('tax_recognition_event_id','purchase_return_input_vat_credit_correction_event_id','purchase_value_correction_input_vat_credit_correction_event_id'):
+        for field in ('tax_recognition_event_id','purchase_return_input_vat_credit_correction_event_id','purchase_value_correction_input_vat_credit_correction_event_id','tax_invoice_correction_line_id'):
             if j.get(field):
                 journals_by_source[(field,j[field])].append(j)
     def is_posted(j):
@@ -268,7 +302,7 @@ def build_vat_register(data, *, company_id, date_from, date_to, as_of,
     checked_journals = set()
     event_rows = []
     for key,s in sources.items():
-        attached = journals_by_source.get((s['journal_field'],s['source_id']),[]) if s['journal_field'] else []
+        attached = journals_by_source.get((s['journal_field'],s.get('journal_source_id',s['source_id'])),[]) if s['journal_field'] else []
         relevant = in_period(s['effective_date']) or any(in_period(j['entry_date']) for j in attached)
         if not relevant:
             continue
@@ -300,7 +334,9 @@ def build_vat_register(data, *, company_id, date_from, date_to, as_of,
             # mislabel it as the tax posting or fabricate a zero difference.
             issue('missing_vat_posting_contract',**refs)
         if s['journal_field']:
-            if s['tax_amount'] and len(attached)!=1:
+            if not s.get('recognized',True) and attached:
+                issue('premature_output_vat_decrease',**refs)
+            if s.get('recognized',True) and s['tax_amount'] and len(attached)!=1:
                 issue('missing_journal' if not attached else 'duplicate_journal',**refs)
             if not s['tax_amount'] and attached:
                 issue('unexpected_zero_tax_journal',**refs)
@@ -332,9 +368,9 @@ def build_vat_register(data, *, company_id, date_from, date_to, as_of,
                     issue('unexpected_journal_reversal',**jrefs)
                 if posted and in_period(j['entry_date']):
                     actual += -balances[tax_account] * (1 if s['direction']=='output' else -1)
-        expected=s['tax_amount'] if in_period(s['effective_date']) else ZERO
+        expected=s['tax_amount'] if in_period(s['effective_date']) and s.get('recognized',True) else ZERO
         event_rows.append(dict(**refs,direction=s['direction'],effective_date=s['effective_date'],
-            taxable_base=s['taxable_base'] if in_period(s['effective_date']) else ZERO,
+            taxable_base=s['taxable_base'] if in_period(s['effective_date']) and s.get('recognized',True) else ZERO,
             expected_vat=expected,posted_vat=actual,difference=actual-expected,
             documents=documents,journal_ids=[j['id'] for j in attached]))
     unclassified=ZERO
@@ -379,10 +415,10 @@ def build_vat_register(data, *, company_id, date_from, date_to, as_of,
             if key in seen:
                 issue('duplicate_declaration_source',declaration_id=declaration_id,line_id=line['id'])
             seen.add(key)
-            if not s or not in_period(s['effective_date']) or (money(line['taxable_base_delta']),money(line['tax_amount_delta']),line['direction'],day(line['economic_effective_date']))!=(s['taxable_base'],s['tax_amount'],s['direction'],s['effective_date']):
+            if not s or not s.get('recognized',True) or not in_period(s['effective_date']) or (money(line['taxable_base_delta']),money(line['tax_amount_delta']),line['direction'],day(line['economic_effective_date']))!=(s['taxable_base'],s['tax_amount'],s['direction'],s['effective_date']):
                 issue('declaration_source_mismatch',declaration_id=declaration_id,line_id=line['id'],source_kind=key[0],source_id=key[1])
         for key,s in sources.items():
-            if in_period(s['effective_date']) and key not in seen:
+            if s.get('recognized',True) and in_period(s['effective_date']) and key not in seen:
                 issue('missing_declaration_source',declaration_id=declaration_id,source_kind=key[0],source_id=key[1])
         for dr,base_field,tax_field in (('output','output_taxable_base','output_vat'),('input','input_taxable_base','input_vat_credit')):
             if (money(declaration[base_field]),money(declaration[tax_field]))!=(totals[dr]['taxable_base'],totals[dr]['expected_vat']):

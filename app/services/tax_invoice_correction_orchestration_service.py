@@ -172,6 +172,7 @@ def _canonical_create_payload(
         ),
         "lines": [
             {
+                **({"replacement":source.replacement} if source.replacement else {}),
                 "line_number": (
                     source.line_number
                 ),
@@ -334,6 +335,7 @@ async def create_tax_invoice_correction_idempotent(
     created_by: int,
     registration_date: date | None = None,
     registration_reference: str | None = None,
+    received_on: date | None = None,
 ) -> TaxInvoiceCorrection:
     """
     Reserve request-key, persist/reuse canonical RK, append its initial
@@ -425,6 +427,9 @@ async def create_tax_invoice_correction_idempotent(
         )
     )
 
+    if received_on is not None:
+        request_payload['received_on'] = received_on.isoformat()
+
     request_fingerprint = (
         generate_request_fingerprint(
             request_payload
@@ -510,10 +515,15 @@ async def create_tax_invoice_correction_idempotent(
                 correction.id
             ),
             status="registered",
+            received_on=received_on,
             event_date=registration_date,
             reference=registration_reference,
             created_by=created_by,
         )
+
+    if direction == 'output':
+        from app.services.tax_invoice_correction_accounting_service import post_output_correction
+        await post_output_correction(db, company_id=company_id, correction_id=correction.id, created_by=created_by)
 
     await complete_idempotent_operation(
         session=db,
@@ -543,6 +553,8 @@ async def append_tax_invoice_correction_registration_idempotent(
     event_date: date,
     reference: str,
     created_by: int,
+    registration_party: str | None = None,
+    received_on: date | None = None,
 ) -> TaxInvoiceCorrectionRegistrationEvent:
     """
     Generic request-key idempotency around an append-only RK
@@ -585,6 +597,11 @@ async def append_tax_invoice_correction_registration_idempotent(
             reference=normalized_reference,
         )
     )
+
+    if registration_party is not None:
+        request_payload['registration_party'] = registration_party
+    if received_on is not None:
+        request_payload['received_on'] = received_on.isoformat()
 
     request_fingerprint = (
         generate_request_fingerprint(
@@ -646,6 +663,8 @@ async def append_tax_invoice_correction_registration_idempotent(
         event_date=event_date,
         reference=normalized_reference,
         created_by=created_by,
+        registration_party=registration_party,
+        received_on=received_on,
     )
 
     await complete_idempotent_operation(

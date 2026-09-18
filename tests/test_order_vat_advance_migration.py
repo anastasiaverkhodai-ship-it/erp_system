@@ -43,6 +43,7 @@ async def test_actual_advance_migration_round_trip():
                 # schema before cycling the historical migration. Keep this
                 # explicit and do not use CASCADE so unexpected dependencies
                 # still fail closed.
+                await conn.execute(text("ALTER TABLE journal_entries DROP CONSTRAINT fk_je_rk_line"))
                 await conn.execute(
                     text(
                         """

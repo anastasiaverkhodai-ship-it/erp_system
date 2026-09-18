@@ -18,7 +18,7 @@ def fixture(direction='output'):
     line=dict(id=1,company_id=1,tax_invoice_id=1,line_number=1,taxable_base='100',tax_amount='20',tax_rate_code='VAT20',tax_recognition_event_id=1,tax_calculation_id=1)
     j=dict(id=1,company_id=1,tax_recognition_event_id=1,entry_date='2026-09-01',created_at=STAMP,posted_at=STAMP,status='posted',reversal_of_id=None)
     debit,credit=(3,1) if direction=='output' else (1,2)
-    return dict(companies=[dict(id=1,chart_of_accounts_template='general_291')],accounts=[dict(id=i,company_id=1,code=code) for i,code in enumerate(['641','644','643','702'],1)],
+    return dict(companies=[dict(id=1,chart_of_accounts_template='general_291')],accounts=[dict(id=i,company_id=1,code=code) for i,code in enumerate(['641','644','643','702','704'],1)],
         tax_calculations=[dict(id=1,company_id=1,direction=direction,tax_type='vat')],tax_recognition_events=[event],tax_invoices=[header],tax_invoice_lines=[line],
         tax_invoice_registration_events=[dict(id=1,company_id=1,tax_invoice_id=1,event_date='2026-09-01',status='registered',created_at=STAMP)],
         tax_invoice_credit_evidence_links=[dict(id=1,company_id=1,tax_invoice_id=1,tax_calculation_id=1,tax_credit_evidence_id=1)] if direction=='input' else [],
@@ -134,9 +134,9 @@ def test_input_correction_chain(kind,table,base_field,tax_field,fk,legal_kind,ad
 def test_sales_adjustments_without_tax_posting_cannot_be_green(kind,table,values):
     data=fixture();data[table]=[dict(id=2,company_id=1,created_at=STAMP,currency_code='UAH',**values)]
     result=report(data)
-    assert result['totals']['output']['expected_vat']==D(10)
+    assert result['totals']['output']['expected_vat']==D(20)
     assert result['totals']['output']['posted_vat']==D(20)
-    assert {'code':'missing_vat_posting_contract','source_kind':kind,'source_id':2} in result['issues']
+    assert {'code':'pending_output_vat_decrease','source_kind':kind,'source_id':2} in result['issues']
 
 
 def test_opposite_document_errors_do_not_cancel():
