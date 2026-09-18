@@ -42,13 +42,39 @@ async def test_declaration_real_credit_carry_lifecycle_and_migrations():
                 await conn.run_sync(Base.metadata.create_all)
                 def cycle(c):
                     modules=[]
-                    for prefix in ('f7c8d9e0a142','c3f0a1b2d475'):
-                        path=next((Path(__file__).parents[1]/'alembic/versions').glob(prefix+'*.py'))
-                        spec=importlib.util.spec_from_file_location(prefix,path)
-                        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);modules.append(module)
-                    with Operations.context(MigrationContext.configure(c)):
-                        modules[1].downgrade();modules[0].downgrade()
-                        modules[0].upgrade();modules[1].upgrade()
+                    for prefix in (
+                        'f7c8d9e0a142',
+                        'c3f0a1b2d475',
+                        'd4a1b2c3e586',
+                    ):
+                        path=next(
+                            (
+                                Path(__file__).parents[1]
+                                / 'alembic/versions'
+                            ).glob(prefix+'*.py')
+                        )
+                        spec=importlib.util.spec_from_file_location(
+                            prefix,
+                            path,
+                        )
+                        module=importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(module)
+                        modules.append(module)
+
+                    with Operations.context(
+                        MigrationContext.configure(c)
+                    ):
+                        # Reverse dependency order:
+                        # export artifact -> declaration controls
+                        # -> declaration foundation.
+                        modules[2].downgrade()
+                        modules[1].downgrade()
+                        modules[0].downgrade()
+
+                        # Restore dependency order.
+                        modules[0].upgrade()
+                        modules[1].upgrade()
+                        modules[2].upgrade()
                 await conn.run_sync(cycle)
                 async with AsyncSession(conn,expire_on_commit=False) as db:
                     seed=load_vat_seed_module()

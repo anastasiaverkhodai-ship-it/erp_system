@@ -285,3 +285,164 @@ async def list_status_events(
     )
 
     return list(result.all())
+
+
+# S11 export endpoints.
+# Export generation is deliberately separate from submission/acceptance.
+
+from fastapi import Response
+
+from app.schemas.vat_declaration import (
+    VatDeclarationExportArtifactRead,
+)
+from app.services.vat_declaration_export_persistence_service import (
+    create_or_get_vat_declaration_export,
+    get_vat_declaration_export,
+    list_vat_declaration_exports,
+)
+
+
+@router.post(
+    "/{declaration_id}/exports",
+    response_model=VatDeclarationExportArtifactRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_declaration_export(
+    company_id: int,
+    declaration_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+    _permission=Depends(
+        require_company_permission(
+            "journal_entries.approve"
+        )
+    ),
+):
+    try:
+        artifact = await create_or_get_vat_declaration_export(
+            db,
+            company_id=company_id,
+            vat_declaration_id=declaration_id,
+            created_by=current_user.id,
+        )
+
+        await db.commit()
+        await db.refresh(artifact)
+
+        return artifact
+
+    except HTTPException:
+        await db.rollback()
+        raise
+
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="VAT declaration export conflict",
+        ) from exc
+
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.get(
+    "/{declaration_id}/exports",
+    response_model=list[VatDeclarationExportArtifactRead],
+)
+async def list_declaration_exports(
+    company_id: int,
+    declaration_id: int,
+    db: AsyncSession = Depends(get_db),
+    _permission=Depends(
+        require_company_permission(
+            "journal_entries.read"
+        )
+    ),
+):
+    return await list_vat_declaration_exports(
+        db,
+        company_id=company_id,
+        vat_declaration_id=declaration_id,
+    )
+
+
+@router.get(
+    "/{declaration_id}/exports/{export_id}",
+    response_model=VatDeclarationExportArtifactRead,
+)
+async def get_declaration_export_metadata(
+    company_id: int,
+    declaration_id: int,
+    export_id: int,
+    db: AsyncSession = Depends(get_db),
+    _permission=Depends(
+        require_company_permission(
+            "journal_entries.read"
+        )
+    ),
+):
+    return await get_vat_declaration_export(
+        db,
+        company_id=company_id,
+        vat_declaration_id=declaration_id,
+        export_id=export_id,
+    )
+
+
+@router.get(
+    "/{declaration_id}/exports/{export_id}/content",
+    response_class=Response,
+    responses={
+        200: {
+            "content": {
+                "application/xml": {},
+            },
+            "description": (
+                "Stored deterministic VAT declaration XML export"
+            ),
+        }
+    },
+)
+async def get_declaration_export_content(
+    company_id: int,
+    declaration_id: int,
+    export_id: int,
+    db: AsyncSession = Depends(get_db),
+    _permission=Depends(
+        require_company_permission(
+            "journal_entries.read"
+        )
+    ),
+):
+    artifact = await get_vat_declaration_export(
+        db,
+        company_id=company_id,
+        vat_declaration_id=declaration_id,
+        export_id=export_id,
+    )
+
+    return Response(
+        content=artifact.payload,
+        media_type=artifact.mime_type,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{artifact.file_name}"'
+            ),
+            "ETag": f'"{artifact.payload_sha256}"',
+            "X-Content-SHA256": artifact.payload_sha256,
+            "X-Official-XSD-Verified": (
+                "true"
+                if artifact.official_xsd_verified
+                else "false"
+            ),
+        },
+    )

@@ -92,3 +92,26 @@ class VatDeclarationDetailRead(VatDeclarationRead):
     source_lines: list[VatDeclarationSourceLineRead]
     carry_forward_lines: list[VatDeclarationCarryForwardLineRead]
     status_events: list[VatDeclarationStatusEventRead]
+
+
+class VatDeclarationExportArtifactRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    company_id: int
+    vat_declaration_id: int
+    declaration_snapshot_version: int
+
+    form_code: str
+    form_version: int
+    export_format: str
+
+    mime_type: str
+    file_name: str
+
+    payload_sha256: str
+    payload_size_bytes: int
+    official_xsd_verified: bool
+
+    created_by: int
+    created_at: datetime

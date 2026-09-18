@@ -136,3 +136,4 @@ from app.models.vat_declaration import VatDeclaration
 from app.models.vat_declaration_source_line import VatDeclarationSourceLine
 from app.models.vat_declaration_carry_forward_line import VatDeclarationCarryForwardLine
 from app.models.vat_declaration_status_event import VatDeclarationStatusEvent
+from app.models.vat_declaration_export_artifact import VatDeclarationExportArtifact
