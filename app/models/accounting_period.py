@@ -28,6 +28,11 @@ class AccountingPeriod(Base):
         "month >= 1 AND month <= 12",
         name="ck_accounting_period_month",
     ),
+    CheckConstraint(
+        "(status = 'open' AND is_locked = false) OR "
+        "(status = 'closed' AND is_locked = true)",
+        name="ck_accounting_period_state",
+    ),
 )
 
     id: Mapped[int] = mapped_column(

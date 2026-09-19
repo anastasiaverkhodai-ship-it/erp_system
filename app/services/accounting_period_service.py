@@ -13,11 +13,13 @@ async def ensure_period_open(
     db: AsyncSession,
 ) -> AccountingPeriod:
     result = await db.execute(
-        select(AccountingPeriod).where(
+        select(AccountingPeriod)
+        .where(
             AccountingPeriod.company_id == company_id,
             AccountingPeriod.start_date <= operation_date,
             AccountingPeriod.end_date >= operation_date,
         )
+        .with_for_update()
     )
 
     period = result.scalar_one_or_none()

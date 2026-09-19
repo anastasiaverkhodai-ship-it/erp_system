@@ -144,7 +144,7 @@ async def test_partial_first_event_persistence_gl_reversal_and_replay(purchase,p
                     # Closed-period failure rolls back recognition AND GL, including source reversal.
                     with pytest.raises(HTTPException, match='closed'):
                         async with db.begin_nested():
-                            await db.execute(text("UPDATE accounting_periods SET is_locked=true"))
+                            await db.execute(text("UPDATE accounting_periods SET status='closed', is_locked=true"))
                             fulfillment.status='reversed'; fulfillment.reversed_by=1
                             fulfillment.reversed_at=datetime(2026,9,4,tzinfo=timezone.utc)
                             await db.flush()

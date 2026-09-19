@@ -82,7 +82,7 @@ async def test_rk_posting_metadata_migration_and_control(delta):
                     if delta<0:
                         with pytest.raises(HTTPException,match='closed'):
                             async with db.begin_nested():
-                                await db.execute(text('UPDATE accounting_periods SET is_locked=true'))
+                                await db.execute(text("UPDATE accounting_periods SET status='closed', is_locked=true"))
                                 await append_tax_invoice_correction_registration_idempotent(db,company_id=1,request_key='locked-reg',tax_invoice_correction_id=rk.id,status='registered',event_date=DAY,reference='receipt-rk',received_on=DAY,created_by=1)
                         await db.refresh(rk)
                     await append_tax_invoice_correction_registration_idempotent(db,company_id=1,request_key='rk-reg',tax_invoice_correction_id=rk.id,status='registered',event_date=DAY,reference='receipt-rk',received_on=DAY,created_by=1)

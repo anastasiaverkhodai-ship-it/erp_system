@@ -187,6 +187,7 @@ async def test_capitalization_issue_and_reversal_gl_conserve_source(method):
                     with pytest.raises(HTTPException, match="closed"):
                         async with db.begin_nested():
                             period = await db.scalar(select(AccountingPeriod).where(AccountingPeriod.company_id == 1))
+                            period.status = "closed"
                             period.is_locked = True
                             await db.flush()
                             await capitalize_purchase_landed_cost(db, **(args | {"request_key": "closed", "amount": D("50")}))

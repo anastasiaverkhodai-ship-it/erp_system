@@ -471,7 +471,8 @@ async def test_output_tax_invoice_real_postgresql():
                                 text(
                                     """
                                     UPDATE accounting_periods
-                                    SET is_locked = true
+                                    SET status = 'closed',
+                                    is_locked = true
                                     WHERE company_id = 1
                                     """
                                 )

@@ -117,10 +117,12 @@ async def close_accounting_period(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(AccountingPeriod).where(
+        select(AccountingPeriod)
+        .where(
             AccountingPeriod.id == period_id,
             AccountingPeriod.company_id == company_id,
         )
+        .with_for_update()
     )
 
     period = result.scalar_one_or_none()
@@ -131,10 +133,10 @@ async def close_accounting_period(
             detail="Accounting period not found",
         )
 
-    if period.is_locked:
+    if period.status != "open" or period.is_locked:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Accounting period is already closed",
+            detail="Accounting period is not in a consistent open state",
         )
 
     period.status = "closed"
@@ -159,10 +161,12 @@ async def reopen_accounting_period(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(AccountingPeriod).where(
+        select(AccountingPeriod)
+        .where(
             AccountingPeriod.id == period_id,
             AccountingPeriod.company_id == company_id,
         )
+        .with_for_update()
     )
 
     period = result.scalar_one_or_none()
@@ -173,10 +177,10 @@ async def reopen_accounting_period(
             detail="Accounting period not found",
         )
 
-    if not period.is_locked:
+    if period.status != "closed" or not period.is_locked:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Accounting period is already open",
+            detail="Accounting period is not in a consistent closed state",
         )
 
     period.status = "open"

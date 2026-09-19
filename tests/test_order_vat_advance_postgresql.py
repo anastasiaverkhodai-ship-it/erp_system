@@ -172,7 +172,7 @@ async def test_advance_rejections_are_atomic_and_multiple_payments_keep_dates():
                         await create_order_vat_advance(db, company_id=999, order_id=1, payment_id=1, created_by=1)
                     with pytest.raises(HTTPException, match='closed'):
                         async with db.begin_nested():
-                            await db.execute(text('UPDATE accounting_periods SET is_locked=true'))
+                            await db.execute(text("UPDATE accounting_periods SET status='closed', is_locked=true"))
                             await create_order_vat_advance(db, company_id=1, order_id=1, payment_id=1, created_by=1)
                     await db.execute(text("UPDATE payments SET payment_date='2026-09-02'"))
                     a = await create_order_vat_advance(db, company_id=1, order_id=1, payment_id=1, created_by=1)
@@ -196,7 +196,7 @@ async def test_advance_rejections_are_atomic_and_multiple_payments_keep_dates():
                             open_item_id=item.id, amount=D(72), created_by=1)
                     for sql, error in [
                         ("UPDATE trade_document_lines SET unit_price=11 WHERE trade_document_id=2", OrderVatAdvanceError),
-                        ("UPDATE accounting_periods SET is_locked=true", HTTPException),
+                        ("UPDATE accounting_periods SET status='closed', is_locked=true", HTTPException),
                     ]:
                         with pytest.raises(error):
                             async with db.begin_nested():
@@ -212,7 +212,7 @@ async def test_advance_rejections_are_atomic_and_multiple_payments_keep_dates():
                     assert await dated_net() == {DAY: D(8), date(2026,9,2): D(12)}
                     with pytest.raises(HTTPException, match='closed'):
                         async with db.begin_nested():
-                            await db.execute(text('UPDATE accounting_periods SET is_locked=true'))
+                            await db.execute(text("UPDATE accounting_periods SET status='closed', is_locked=true"))
                             await undo_order_advance_transfer(db, company_id=1, order_id=1, reversed_by=1)
                     await undo_order_advance_transfer(db, company_id=1, order_id=1, reversed_by=1)
                     assert await dated_net() == {DAY: D(8), date(2026,9,2): D(12)}

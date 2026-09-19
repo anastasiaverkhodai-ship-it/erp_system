@@ -88,7 +88,7 @@ async def test_credit_claim_persistence_period_reversal_and_atomic_rejection(lat
                         await create(company=2)
                     with pytest.raises(HTTPException,match='closed'):
                         async with db.begin_nested():
-                            await db.execute(text('UPDATE accounting_periods SET is_locked=true'))
+                            await db.execute(text("UPDATE accounting_periods SET status='closed', is_locked=true"))
                             await create()
                     assert await count(InputVatCreditClaim)==0 and await count(TaxCreditEvidence)==0
                     claim=await create()
@@ -107,7 +107,7 @@ async def test_credit_claim_persistence_period_reversal_and_atomic_rejection(lat
                     reversal_day=date(2026,9,10)
                     with pytest.raises(HTTPException,match='closed'):
                         async with db.begin_nested():
-                            await db.execute(text('UPDATE accounting_periods SET is_locked=true'))
+                            await db.execute(text("UPDATE accounting_periods SET status='closed', is_locked=true"))
                             await reverse_input_vat_credit_claim(db,company_id=1,claim_id=claim.id,reversal_date=reversal_day,reversed_by=1)
                     assert await net()==D(12)
                     await db.refresh(claim)

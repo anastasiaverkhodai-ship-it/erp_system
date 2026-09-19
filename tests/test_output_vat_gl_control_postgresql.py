@@ -72,7 +72,7 @@ async def test_real_gl_anomalies_period_boundary_company_scope_and_read_only():
                     await seed_company_chart_of_accounts(session=db,company_id=2)
                     other=await control(company=2)
                     assert other.matched and other.event_count==0 and other.posted_output_vat==0
-                    await db.execute(text('UPDATE accounting_periods SET is_locked=true'))
+                    await db.execute(text("UPDATE accounting_periods SET status='closed', is_locked=true"))
                     assert (await control()).matched  # Closed period remains readable, never repaired by GET.
                     assert await conn.scalar(text('SELECT count(*) FROM tax_recognition_events'))==1
                     assert await conn.scalar(text('SELECT count(*) FROM journal_entries'))==1
