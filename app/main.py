@@ -23,6 +23,7 @@ from app.api.v1.trade_documents import router as trade_documents_router
 from app.api.v1.products import router as products_router
 from app.api.v1.warehouses import router as warehouses_router
 from app.api.v1.journal_entries import router as journal_entries_router
+from app.api.v1.general_ledger import router as general_ledger_router
 from app.api.v1.accounting_rules import router as accounting_rules_router
 from app.api.v1.purchase_landed_costs import router as purchase_landed_costs_router
 from app.api.v1.purchase_quotes import router as purchase_quotes_router
@@ -99,6 +100,11 @@ app.include_router(
 
 app.include_router(
     journal_entries_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    general_ledger_router,
     prefix="/api/v1",
 )
 
