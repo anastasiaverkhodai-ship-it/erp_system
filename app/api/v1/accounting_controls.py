@@ -1,0 +1,54 @@
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.permissions import require_company_permission
+from app.core.database import get_db
+from app.schemas.accounting_controls import (
+    ConsolidatedAccountingControlReport,
+)
+from app.services.accounting_control_service import (
+    get_consolidated_accounting_controls,
+)
+from app.services.output_vat_gl_reconciliation_service import (
+    OutputVatGlReconciliationError,
+)
+
+
+router = APIRouter(
+    prefix="/companies/{company_id}",
+    tags=["Accounting controls"],
+)
+
+
+@router.get(
+    "/accounting-controls",
+    response_model=ConsolidatedAccountingControlReport,
+)
+async def read_accounting_controls(
+    company_id: int,
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    _=Depends(
+        require_company_permission(
+            "journal_entries.read"
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await get_consolidated_accounting_controls(
+            db,
+            company_id=company_id,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    except (
+        ValueError,
+        OutputVatGlReconciliationError,
+    ) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc

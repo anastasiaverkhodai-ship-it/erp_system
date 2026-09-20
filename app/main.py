@@ -1,3 +1,4 @@
+from app.api.v1.accounting_controls import router as accounting_controls_router
 from app.api.v1.input_vat_credit_claims import router as input_vat_credit_claims_router
 from app.api.v1.tax_invoices import router as tax_invoices_router
 from app.api.v1.tax_invoice_corrections import router as tax_invoice_corrections_router
@@ -33,6 +34,8 @@ app = FastAPI(
     title="ERP System API",
     version="1.0.0",
 )
+
+app.include_router(accounting_controls_router, prefix="/api/v1")
 
 
 app.include_router(
