@@ -32,9 +32,37 @@ class JournalEntry(Base):
     tax_invoice_correction_line_id: Mapped[int | None] = mapped_column(Integer,nullable=True)
 
     __table_args__ = (
+        UniqueConstraint("company_id", "id", name="uq_je_company_id"),
         ForeignKeyConstraint(['company_id','tax_invoice_correction_line_id'],['tax_invoice_correction_lines.company_id','tax_invoice_correction_lines.id'],name='fk_je_rk_line',ondelete='RESTRICT'),
-        CheckConstraint('tax_invoice_correction_line_id IS NULL OR num_nonnulls(document_id,payment_id,payment_settlement_allocation_id,tax_recognition_event_id,sales_recognition_event_id,vat_advance_bridge_event_id,input_vat_fulfillment_bridge_event_id,supplier_advance_clearing_event_id,customer_advance_clearing_event_id,sales_return_recognition_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_ma_replay_event_id,sales_return_cost_restoration_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_return_input_vat_credit_correction_event_id,purchase_value_correction_vat_adjustment_event_id,purchase_value_correction_input_vat_credit_correction_event_id) = 0',name='ck_je_rk_exclusive'),
+        CheckConstraint('tax_invoice_correction_line_id IS NULL OR num_nonnulls(document_id,payment_id,payment_settlement_allocation_id,tax_recognition_event_id,sales_recognition_event_id,vat_advance_bridge_event_id,input_vat_fulfillment_bridge_event_id,supplier_advance_clearing_event_id,customer_advance_clearing_event_id,sales_return_recognition_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_ma_replay_event_id,sales_return_cost_restoration_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_return_input_vat_credit_correction_event_id,purchase_value_correction_vat_adjustment_event_id,purchase_value_correction_input_vat_credit_correction_event_id,opening_balance_id) = 0',name='ck_je_rk_exclusive'),
         Index('uq_je_rk_line','tax_invoice_correction_line_id',unique=True,postgresql_where=text('tax_invoice_correction_line_id IS NOT NULL')),
+        ForeignKeyConstraint(
+            [
+                "company_id",
+                "opening_balance_id",
+            ],
+            [
+                "opening_balances.company_id",
+                "opening_balances.id",
+            ],
+            name="fk_je_company_opening_balance",
+            ondelete="RESTRICT",
+            use_alter=True,
+        ),
+        Index(
+            "ix_je_opening_balance_id",
+            "opening_balance_id",
+            unique=False,
+        ),
+        Index(
+            "uq_je_original_opening_balance",
+            "opening_balance_id",
+            unique=True,
+            postgresql_where=text(
+                "reversal_of_id IS NULL "
+                "AND opening_balance_id IS NOT NULL"
+            ),
+        ),
         UniqueConstraint(
             "reversal_of_id",
             name="uq_journal_entry_reversal_of",
@@ -1137,6 +1165,96 @@ class JournalEntry(Base):
                 purchase_value_correction_vat_adjustment_event_id IS NULL
                 OR purchase_value_correction_input_vat_credit_correction_event_id IS NULL
             )
+            AND
+            (
+                document_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                payment_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                payment_settlement_allocation_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                tax_recognition_event_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                sales_recognition_event_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                vat_advance_bridge_event_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                input_vat_fulfillment_bridge_event_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                supplier_advance_clearing_event_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                customer_advance_clearing_event_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                sales_return_recognition_event_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                purchase_value_correction_fifo_impact_event_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                purchase_value_correction_ma_replay_event_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                sales_return_cost_restoration_event_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                purchase_return_recognition_event_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                purchase_return_vat_adjustment_event_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                purchase_return_input_vat_credit_correction_event_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                purchase_value_correction_vat_adjustment_event_id IS NULL
+                OR opening_balance_id IS NULL
+            )
+            AND
+            (
+                purchase_value_correction_input_vat_credit_correction_event_id IS NULL
+                OR opening_balance_id IS NULL
+            )
             """,
             name=(
                 "ck_journal_entries_"
@@ -1526,6 +1644,17 @@ class JournalEntry(Base):
         int | None
     ] = mapped_column(
         Integer,
+        nullable=True,
+    )
+
+    opening_balance_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey(
+            "opening_balances.id",
+            name="fk_journal_entries_opening_balance_id_opening_balances",
+            ondelete="RESTRICT",
+            use_alter=True,
+        ),
         nullable=True,
     )
 

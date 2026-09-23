@@ -36,6 +36,7 @@ CHECK_NAME = (
 )
 
 BUSINESS_SOURCES = (
+    "opening_balance_id",
     "document_id",
     "payment_id",
     "payment_settlement_allocation_id",
@@ -170,7 +171,7 @@ def test_purchase_return_source_original_partial_unique_index():
 def test_business_source_contract_is_18_sources_153_pairs():
     assert len(
         BUSINESS_SOURCES
-    ) == 18
+    ) == 19
 
     pairs = tuple(
         combinations(
@@ -181,7 +182,7 @@ def test_business_source_contract_is_18_sources_153_pairs():
 
     assert len(
         pairs
-    ) == 153
+    ) == 171
 
 
 def test_exclusivity_check_contains_exact_153_pairs():
@@ -269,4 +270,4 @@ def test_purchase_return_source_has_17_exclusion_pairs():
 
     assert len(
         source_pairs
-    ) == 17
+    ) == 18

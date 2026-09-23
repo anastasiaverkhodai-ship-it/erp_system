@@ -286,6 +286,9 @@ async def update_journal_entry(
                 detail="Journal entry not found",
             )
 
+        if getattr(journal_entry, "opening_balance_id", None) is not None:
+            raise HTTPException(status_code=409, detail="Opening balance journals are immutable; use their lifecycle")
+
         if (
             journal_entry.status
             != JournalEntryStatus.DRAFT
@@ -436,6 +439,9 @@ async def delete_journal_entry(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Journal entry not found",
             )
+
+        if getattr(journal_entry, "opening_balance_id", None) is not None:
+            raise HTTPException(status_code=409, detail="Opening balance journals are immutable; use their lifecycle")
 
         if (
             journal_entry.status

@@ -175,11 +175,11 @@ def test_business_source_contract_is_18_153_17():
 
     assert len(
         counts
-    ) == 18
+    ) == 19
 
     assert len(
         tokens
-    ) == 306
+    ) == 342
 
     assert len(
         re.findall(
@@ -187,17 +187,17 @@ def test_business_source_contract_is_18_153_17():
             sql,
             flags=re.IGNORECASE,
         )
-    ) == 153
+    ) == 171
 
     assert set(
         counts.values()
     ) == {
-        17
+        18
     }
 
     assert (
         counts[
             SOURCE
         ]
-        == 17
+        == 18
     )

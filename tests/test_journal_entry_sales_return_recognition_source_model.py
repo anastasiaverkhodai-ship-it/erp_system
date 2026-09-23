@@ -30,6 +30,7 @@ CHECK_NAME = (
 )
 
 BUSINESS_SOURCES = (
+    "opening_balance_id",
     "document_id",
     "payment_id",
     "payment_settlement_allocation_id",
@@ -156,7 +157,7 @@ def test_sales_return_source_original_partial_unique_index():
 def test_business_source_contract_is_18_sources_153_pairs():
     assert len(
         BUSINESS_SOURCES
-    ) == 18
+    ) == 19
 
     pairs = tuple(
         combinations(
@@ -167,7 +168,7 @@ def test_business_source_contract_is_18_sources_153_pairs():
 
     assert len(
         pairs
-    ) == 153
+    ) == 171
 
     table = JournalEntry.__table__
 
@@ -232,5 +233,5 @@ def test_sales_return_source_has_seventeen_exclusion_pairs():
         sql.count(
             SOURCE
         )
-        == 17
+        == 18
     )

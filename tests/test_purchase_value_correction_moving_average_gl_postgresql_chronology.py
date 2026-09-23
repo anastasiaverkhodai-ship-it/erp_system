@@ -472,6 +472,19 @@ async def test_purchase_value_correction_moving_average_gl_postgresql_chronology
                 "business_date"
             ]
 
+            from calendar import monthrange
+            from app.models.accounting_period import AccountingPeriod
+            from sqlalchemy import select
+            last_day=d1+timedelta(days=9)
+            for day in (d1,last_day):
+                period=await db.scalar(select(AccountingPeriod).where(AccountingPeriod.company_id==COMPANY_ID,
+                    AccountingPeriod.year==day.year,AccountingPeriod.month==day.month))
+                if period is None:
+                    db.add(AccountingPeriod(company_id=COMPANY_ID,year=day.year,month=day.month,
+                        start_date=day.replace(day=1),end_date=day.replace(day=monthrange(day.year,day.month)[1]),
+                        status="open",is_locked=False))
+            await db.flush()
+
             d4 = (
                 d1
                 + timedelta(

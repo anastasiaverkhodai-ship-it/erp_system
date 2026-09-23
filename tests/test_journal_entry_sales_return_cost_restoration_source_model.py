@@ -15,6 +15,7 @@ SOURCE = (
 )
 
 BUSINESS_SOURCES = (
+    "opening_balance_id",
     "document_id",
     "payment_id",
     "payment_settlement_allocation_id",
@@ -163,7 +164,7 @@ def test_original_source_has_partial_unique_index():
 def test_current_business_source_contract_is_18_sources():
     assert len(
         BUSINESS_SOURCES
-    ) == 18
+    ) == 19
 
 
 def test_current_business_source_contract_has_153_pairs():
@@ -176,7 +177,7 @@ def test_current_business_source_contract_has_153_pairs():
 
     assert len(
         pairs
-    ) == 153
+    ) == 171
 
 
 def test_exclusivity_check_contains_all_153_pairs():

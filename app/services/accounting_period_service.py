@@ -20,6 +20,7 @@ async def ensure_period_open(
             AccountingPeriod.end_date >= operation_date,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
 
     period = result.scalar_one_or_none()

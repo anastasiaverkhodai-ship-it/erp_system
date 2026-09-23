@@ -463,6 +463,10 @@ async def reverse_journal_entry(
             "A reversal journal entry cannot be reversed"
         )
 
+    if getattr(original_entry, "opening_balance_id", None):
+        if reversed_by <= 0 or not original_entry.entry_date <= reversal_date <= date.today():
+            raise AccountingReversalError("Invalid opening reversal actor/date")
+
     if not original_entry.lines:
         raise AccountingReversalError(
             "Journal entry has no lines to reverse"
@@ -551,6 +555,7 @@ async def reverse_journal_entry(
         )
 
     reversal_entry = JournalEntry(
+        opening_balance_id=getattr(original_entry, "opening_balance_id", None),
         company_id=company_id,
         document_id=original_entry.document_id,
         payment_id=original_entry.payment_id,
