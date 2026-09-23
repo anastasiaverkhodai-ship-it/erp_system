@@ -124,6 +124,10 @@ async def post_journal_entry(
             "Journal entry not found"
         )
 
+    closing_id = getattr(journal_entry, "year_end_closing_id", None)
+    if closing_id is not None and db.info.get("year_end_closing_active") != closing_id:
+        raise AccountingPostingError("Post year-end journals through their closing lifecycle")
+
     if (
         journal_entry.status
         != JournalEntryStatus.DRAFT

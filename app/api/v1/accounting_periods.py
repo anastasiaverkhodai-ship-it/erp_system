@@ -9,6 +9,8 @@ from app.api.permissions import require_company_permission
 from app.core.database import get_db
 from app.models.accounting_period import AccountingPeriod
 from app.models.user import User
+from app.models.company import Company
+from app.services.year_end_closing_service import ensure_year_not_closed
 from app.schemas.accounting_period import (
     AccountingPeriodCreate,
     AccountingPeriodResponse,
@@ -60,6 +62,9 @@ async def create_accounting_period(
     ),
     db: AsyncSession = Depends(get_db),
 ):
+    # Serialize new historical periods with annual closing.
+    await db.execute(select(Company.id).where(Company.id == company_id).with_for_update())
+    await ensure_year_not_closed(db, company_id, data.year)
     existing_result = await db.execute(
         select(AccountingPeriod).where(
             AccountingPeriod.company_id == company_id,
@@ -182,6 +187,8 @@ async def reopen_accounting_period(
             status_code=status.HTTP_409_CONFLICT,
             detail="Accounting period is not in a consistent closed state",
         )
+
+    await ensure_year_not_closed(db, company_id, period.year)
 
     period.status = "open"
     period.is_locked = False

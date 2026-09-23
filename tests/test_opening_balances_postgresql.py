@@ -212,9 +212,11 @@ async def test_migration_roundtrip_and_legacy_backfill(opening_engine):
     from alembic.operations import Operations
     foundation = import_module("alembic.versions.af229fa18ec8_add_opening_balance_provenance")
     hardening = import_module("alembic.versions.bf330ab29fd9_harden_opening_balance_identity")
+    year_end = import_module("alembic.versions.c0441bc30ae0_add_year_end_closing")
     async with opening_engine.begin() as conn:
         def migrate(sync):
             with Operations.context(MigrationContext.configure(sync)):
+                year_end.downgrade()
                 hardening.downgrade()
                 foundation.downgrade()
                 foundation.upgrade()
@@ -223,6 +225,7 @@ async def test_migration_roundtrip_and_legacy_backfill(opening_engine):
                 sync.execute(text("INSERT INTO opening_balances (id,company_id,opening_date,journal_entry_id,created_by,created_at) VALUES (99,1,'2026-08-01',99,1,now())"))
                 sync.execute(text("UPDATE journal_entries SET opening_balance_id=99 WHERE id=99"))
                 hardening.upgrade()
+                year_end.upgrade()
         await conn.run_sync(migrate)
         row = (await conn.execute(text("SELECT request_key, request_fingerprint, journal_entry_id FROM opening_balances WHERE id=99"))).one()
         assert row == ("legacy:99", "0"*64, 99)

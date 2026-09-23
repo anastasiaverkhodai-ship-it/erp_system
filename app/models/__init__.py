@@ -138,3 +138,5 @@ from app.models.vat_declaration_carry_forward_line import VatDeclarationCarryFor
 from app.models.vat_declaration_status_event import VatDeclarationStatusEvent
 from app.models.vat_declaration_export_artifact import VatDeclarationExportArtifact
 from app.models.opening_balance import OpeningBalance
+
+from app.models.year_end_closing import YearEndClosing

@@ -450,6 +450,10 @@ async def reverse_journal_entry(
             "Journal entry not found"
         )
 
+    closing_id = getattr(original_entry, "year_end_closing_id", None)
+    if closing_id is not None and db.info.get("year_end_closing_active") != closing_id:
+        raise AccountingReversalError("Reverse year-end journals through their closing lifecycle")
+
     if (
         original_entry.status
         != JournalEntryStatus.POSTED
@@ -555,6 +559,7 @@ async def reverse_journal_entry(
         )
 
     reversal_entry = JournalEntry(
+        year_end_closing_id=getattr(original_entry, "year_end_closing_id", None),
         opening_balance_id=getattr(original_entry, "opening_balance_id", None),
         company_id=company_id,
         document_id=original_entry.document_id,

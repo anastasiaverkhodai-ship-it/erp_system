@@ -169,3 +169,6 @@ app.include_router(vat_declarations_router, prefix="/api/v1")
 
 from app.api.v1.vat_registers import router as vat_registers_router
 app.include_router(vat_registers_router, prefix="/api/v1")
+
+from app.api.v1.year_end_closings import router as year_end_closings_router
+app.include_router(year_end_closings_router, prefix="/api/v1")
