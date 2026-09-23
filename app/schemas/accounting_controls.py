@@ -30,7 +30,11 @@ class ConsolidatedAccountingControlReport(BaseModel):
     company_id: int
     date_from: date
     date_to: date
+    # Overall success requires complete coverage, not just passing available checks.
     matched: bool
+    status: Literal["matched", "mismatch", "incomplete"]
+    coverage_complete: bool
+    checked_families_matched: bool
     implemented_family_count: int
     not_implemented_family_count: int
     families: list[AccountingControlFamilyResult]

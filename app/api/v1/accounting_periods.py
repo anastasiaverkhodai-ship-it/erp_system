@@ -128,6 +128,7 @@ async def close_accounting_period(
             AccountingPeriod.company_id == company_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
 
     period = result.scalar_one_or_none()
@@ -172,6 +173,7 @@ async def reopen_accounting_period(
             AccountingPeriod.company_id == company_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
 
     period = result.scalar_one_or_none()

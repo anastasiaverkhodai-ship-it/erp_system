@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.schemas.accounting_controls import (
     ConsolidatedAccountingControlReport,
 )
+from app.services.accounting_account_role_resolver import AccountingAccountRoleResolutionError
 from app.services.accounting_control_service import (
     get_consolidated_accounting_controls,
 )
@@ -52,3 +53,6 @@ async def read_accounting_controls(
             status_code=422,
             detail=str(exc),
         ) from exc
+
+    except AccountingAccountRoleResolutionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

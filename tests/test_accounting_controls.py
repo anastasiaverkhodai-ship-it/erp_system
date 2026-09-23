@@ -40,7 +40,10 @@ async def test_consolidated_control_uses_only_verified_output_vat(
     )
 
     assert result.company_id == 7
-    assert result.matched is True
+    assert result.matched is False
+    assert result.status == "incomplete"
+    assert result.coverage_complete is False
+    assert result.checked_families_matched is True
     assert result.implemented_family_count == 1
     assert result.not_implemented_family_count == 5
 
@@ -103,6 +106,9 @@ async def test_consolidated_control_propagates_output_vat_mismatch(
     )
 
     assert result.matched is False
+    assert result.status == "mismatch"
+    assert result.coverage_complete is False
+    assert result.checked_families_matched is False
 
     output_family = next(
         item
@@ -139,3 +145,16 @@ async def test_consolidated_control_rejects_invalid_date_range(
         )
 
     reconcile.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_missing_account_configuration_is_domain_conflict(monkeypatch):
+    from fastapi import HTTPException
+    import app.api.v1.accounting_controls as api
+    from app.services.accounting_account_role_resolver import AccountingRoleAccountInvalidError
+    monkeypatch.setattr(api,"get_consolidated_accounting_controls",AsyncMock(
+        side_effect=AccountingRoleAccountInvalidError("Missing VAT system account")))
+    with pytest.raises(HTTPException) as caught:
+        await api.read_accounting_controls(company_id=1,date_from=date(2026,1,1),date_to=date(2026,1,31),db=AsyncMock())
+    assert caught.value.status_code==409
+    assert "Missing VAT" in caught.value.detail

@@ -276,6 +276,7 @@ async def update_journal_entry(
                 JournalEntry.company_id == company_id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
 
         journal_entry = result.scalar_one_or_none()
@@ -433,6 +434,7 @@ async def delete_journal_entry(
                 JournalEntry.company_id == company_id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
 
         journal_entry = result.scalar_one_or_none()

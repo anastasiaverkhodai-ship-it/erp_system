@@ -150,7 +150,7 @@ async def get_general_ledger(
         )
     )
 
-    rows = (await session.execute(stmt)).all()
+    rows = (await session.execute(stmt.execution_options(populate_existing=True))).all()
 
     running = opening
     period_debit = ZERO
@@ -220,7 +220,7 @@ async def get_account_card(
             select(Account).where(
                 Account.id == account_id,
                 Account.company_id == company_id,
-            )
+            ).execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
 

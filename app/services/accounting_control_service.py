@@ -103,14 +103,20 @@ async def get_consolidated_accounting_controls(
         if family.status != "not_implemented"
     ]
 
+    coverage_complete = len(implemented) == len(families)
+    checked_families_matched = bool(implemented) and all(
+        family.status == "matched" for family in implemented
+    )
+    has_mismatch = any(family.status == "mismatch" for family in implemented)
+
     return ConsolidatedAccountingControlReport(
         company_id=company_id,
         date_from=date_from,
         date_to=date_to,
-        matched=all(
-            family.status == "matched"
-            for family in implemented
-        ),
+        matched=coverage_complete and checked_families_matched,
+        status="mismatch" if has_mismatch else ("matched" if coverage_complete else "incomplete"),
+        coverage_complete=coverage_complete,
+        checked_families_matched=checked_families_matched,
         implemented_family_count=len(implemented),
         not_implemented_family_count=(
             len(families) - len(implemented)

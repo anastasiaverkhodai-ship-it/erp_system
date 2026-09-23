@@ -439,6 +439,7 @@ async def reverse_journal_entry(
             JournalEntry.company_id == company_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
 
     original_entry = result.scalar_one_or_none()
