@@ -740,6 +740,12 @@ async def create_payment_settlement_allocation(
             timezone.utc
         ).date()
     )
+    if getattr(open_item, 'opening_balance_id', None) is not None:
+        from app.services.opening_debt_settlement_service import post_opening_settlement
+        await post_opening_settlement(db,company_id=company_id,open_item=open_item,payment=payment,
+            allocation=allocation,adjustment_date=adjustment_date,created_by=created_by)
+        return allocation
+
     # PaymentSettlementAllocation is commercial-only.
     #
     # RECEIVABLE:
@@ -1029,6 +1035,12 @@ async def reverse_payment_settlement_allocation(
 
     from app.services.order_vat_advance_service import _transfer_correction_date
     adjustment_date = _transfer_correction_date.get() or allocation.reversed_at.date()
+
+    if getattr(open_item, 'opening_balance_id', None) is not None:
+        from app.services.opening_debt_settlement_service import reverse_opening_settlement
+        await reverse_opening_settlement(db,company_id=company_id,allocation=allocation,
+            adjustment_date=adjustment_date,reversed_by=reversed_by)
+        return allocation
 
     try:
         await reconcile_tax_for_invoice(

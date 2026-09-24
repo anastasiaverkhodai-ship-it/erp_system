@@ -9,7 +9,7 @@ from app.services import accounting_control_service as service
 
 
 @pytest.mark.asyncio
-async def test_consolidated_control_uses_only_verified_output_vat(
+async def test_consolidated_control_uses_verified_vat_families(
     monkeypatch,
 ):
     output = SimpleNamespace(
@@ -40,12 +40,12 @@ async def test_consolidated_control_uses_only_verified_output_vat(
     )
 
     assert result.company_id == 7
-    assert result.matched is False
-    assert result.status == "incomplete"
-    assert result.coverage_complete is False
+    assert result.matched is True
+    assert result.status == "matched"
+    assert result.coverage_complete is True
     assert result.checked_families_matched is True
-    assert result.implemented_family_count == 1
-    assert result.not_implemented_family_count == 5
+    assert result.implemented_family_count == 6
+    assert result.not_implemented_family_count == 0
 
     by_family = {
         item.family: item
@@ -57,18 +57,6 @@ async def test_consolidated_control_uses_only_verified_output_vat(
         by_family["output_vat"].difference
         == Decimal("0.00")
     )
-
-    for family in (
-        "ar",
-        "ap",
-        "cash_bank",
-        "inventory",
-        "input_vat",
-    ):
-        assert (
-            by_family[family].status
-            == "not_implemented"
-        )
 
     reconcile.assert_awaited_once_with(
         session,
@@ -107,7 +95,7 @@ async def test_consolidated_control_propagates_output_vat_mismatch(
 
     assert result.matched is False
     assert result.status == "mismatch"
-    assert result.coverage_complete is False
+    assert result.coverage_complete is True
     assert result.checked_families_matched is False
 
     output_family = next(
@@ -158,3 +146,38 @@ async def test_missing_account_configuration_is_domain_conflict(monkeypatch):
         await api.read_accounting_controls(company_id=1,date_from=date(2026,1,1),date_to=date(2026,1,31),db=AsyncMock())
     assert caught.value.status_code==409
     assert "Missing VAT" in caught.value.detail
+
+
+@pytest.fixture(autouse=True)
+def input_control(monkeypatch):
+    monkeypatch.setattr(service, "reconcile_input_vat_gl", AsyncMock(return_value=SimpleNamespace(
+        matched=True, expected_input_vat=Decimal("0"), posted_input_vat=Decimal("0"),
+        difference=Decimal("0"), issues=[], model_dump=lambda **kwargs: {})))
+
+
+@pytest.fixture(autouse=True)
+def ar_control(monkeypatch):
+    from app.services.ar_gl_control_service import ArCommercialBridge, ArGlControl
+    fields = {name: Decimal(0) for name in ArCommercialBridge.model_fields if name != "explanation"}
+    bridge = ArCommercialBridge(**fields, explanation="fixture")
+    result = ArGlControl(company_id=7, date_from=date(2026,9,1), date_to=date(2026,9,30),
+                         matched=True, sources=[], bridge=bridge)
+    monkeypatch.setattr(service, "reconcile_ar_gl", AsyncMock(return_value=result))
+
+
+@pytest.fixture(autouse=True)
+def cash_control(monkeypatch):
+    from app.services.cash_bank_gl_control_service import CashBankGlControl
+    result = CashBankGlControl(company_id=7,date_from=date(2026,9,1),date_to=date(2026,9,30),
+        expected_amount=0,posted_amount=0,difference=0,matched=True,sources=[],unattributed_journal_ids=[])
+    monkeypatch.setattr(service,"reconcile_cash_bank_gl",AsyncMock(return_value=result))
+
+
+@pytest.fixture(autouse=True)
+def purchase_controls(monkeypatch):
+    from app.services.ap_inventory_gl_control_service import EconomicGlControl
+    async def result(db, *, company_id, date_from, date_to, family):
+        return EconomicGlControl(family=family,company_id=company_id,date_from=date_from,date_to=date_to,
+            expected_amount=0,posted_amount=0,difference=0,opening_gl=0,document_balance=0,event_balance=0,
+            matched=True,sources=[],commercial={})
+    monkeypatch.setattr(service,"reconcile_ap_inventory_gl",result)

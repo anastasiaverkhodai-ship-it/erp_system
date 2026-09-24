@@ -19,6 +19,7 @@ from app.services.accounting_account_roles import AccountingAccountRole as Role
 from app.services.accounting_account_role_resolver import resolve_company_account_roles
 from app.services.tax_recognition_journal_service import (
     resolve_output_vat_recognition_source_kind, TaxRecognitionJournalError,
+    validate_input_vat_recognition_source,
 )
 from app.services.tax_recognition_accounting_service import OutputVatRecognitionSourceKind
 
@@ -50,8 +51,10 @@ class OutputVatGlReconciliation(BaseModel):
     issues: list[OutputVatGlIssue]
 
 
-def reconcile_output_vat_rows(*, company_id, date_from, date_to, rows, account_ids):
+def reconcile_output_vat_rows(*, company_id, date_from, date_to, rows, account_ids, direction="output"):
     """Compare each source before totals, so offsetting errors cannot disappear."""
+    if direction not in ("input", "output"):
+        raise ValueError("Invalid VAT direction")
     grouped = {}
     for event, calculation, entry, line, original_entry in rows:
         group = grouped.setdefault(event.id, dict(event=event, calculation=calculation, entries={}))
@@ -78,7 +81,11 @@ def reconcile_output_vat_rows(*, company_id, date_from, date_to, rows, account_i
         if event.currency_code != 'UAH' or calc.currency_code != 'UAH':
             issue('unsupported_currency')
         try:
-            kind = resolve_output_vat_recognition_source_kind(event)
+            if direction == "input":
+                validate_input_vat_recognition_source(event)
+                kind = "input"
+            else:
+                kind = resolve_output_vat_recognition_source_kind(event)
         except TaxRecognitionJournalError:
             kind = None
             issue('invalid_event_source')
@@ -111,11 +118,14 @@ def reconcile_output_vat_rows(*, company_id, date_from, date_to, rows, account_i
                 actual[line.account_id][0] += line.debit
                 actual[line.account_id][1] += line.credit
                 if is_posted and line.account_id == tax_account and date_from <= entry.entry_date <= date_to:
-                    posted += line.credit - line.debit
+                    posted += (line.debit - line.credit) if direction == "input" else (line.credit - line.debit)
             if valid_amount and kind is not None:
-                source_role = Role.GOODS_REVENUE if kind == OutputVatRecognitionSourceKind.FULFILLMENT else Role.VAT_OUTPUT
-                debit_account = account_ids[source_role]
-                wanted = {debit_account: [amount, ZERO], tax_account: [ZERO, amount]}
+                if direction == "input":
+                    wanted = {tax_account: [amount, ZERO], account_ids[Role.VAT_INPUT]: [ZERO, amount]}
+                else:
+                    source_role = Role.GOODS_REVENUE if kind == OutputVatRecognitionSourceKind.FULFILLMENT else Role.VAT_OUTPUT
+                    debit_account = account_ids[source_role]
+                    wanted = {debit_account: [amount, ZERO], tax_account: [ZERO, amount]}
                 if event.reversal_of_id:
                     wanted = {account: [credit, debit] for account, (debit, credit) in wanted.items()}
                 if not finite or dict(actual) != wanted:
@@ -127,10 +137,15 @@ def reconcile_output_vat_rows(*, company_id, date_from, date_to, rows, account_i
 
 
 async def reconcile_output_vat_gl(db, *, company_id: int, date_from: date, date_to: date):
+    return await _reconcile_vat_gl(db, company_id=company_id, date_from=date_from, date_to=date_to, direction="output")
+
+
+async def _reconcile_vat_gl(db, *, company_id: int, date_from: date, date_to: date, direction: str):
     if company_id <= 0 or date_to < date_from or (date_to - date_from).days > 366:
         raise OutputVatGlReconciliationError('Provide a valid company and a date range of at most 367 days')
     accounts = await resolve_company_account_roles(db, company_id=company_id,
-        roles=(Role.TAX_SETTLEMENT, Role.VAT_OUTPUT, Role.GOODS_REVENUE))
+        roles=((Role.TAX_SETTLEMENT, Role.VAT_INPUT) if direction == "input"
+               else (Role.TAX_SETTLEMENT, Role.VAT_OUTPUT, Role.GOODS_REVENUE)))
     ids = {role: account.id for role, account in accounts.items()}
     if len(set(ids.values())) != len(ids):
         raise OutputVatGlReconciliationError('VAT control requires distinct accounting role accounts')
@@ -141,7 +156,7 @@ async def reconcile_output_vat_gl(db, *, company_id: int, date_from: date, date_
     selected = select(TaxRecognitionEvent.id).join(TaxCalculation, and_(
         TaxCalculation.company_id == TaxRecognitionEvent.company_id,
         TaxCalculation.id == TaxRecognitionEvent.tax_calculation_id)).where(
-        TaxRecognitionEvent.company_id == company_id, TaxCalculation.direction == 'output',
+        TaxRecognitionEvent.company_id == company_id, TaxCalculation.direction == direction,
         or_(TaxRecognitionEvent.recognition_date.between(date_from, date_to),
             select(entry_in_range.id).where(entry_in_range.company_id == company_id,
                 entry_in_range.tax_recognition_event_id == TaxRecognitionEvent.id,
@@ -159,4 +174,4 @@ async def reconcile_output_vat_gl(db, *, company_id: int, date_from: date, date_
         .order_by(TaxRecognitionEvent.id, JournalEntry.id, JournalEntryLine.id)
         .execution_options(populate_existing=True))).all()
     return reconcile_output_vat_rows(company_id=company_id, date_from=date_from, date_to=date_to,
-        rows=rows, account_ids=ids)
+        rows=rows, account_ids=ids, direction=direction)

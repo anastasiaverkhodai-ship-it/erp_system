@@ -31,7 +31,7 @@ class SalesARAgingProjectionError(ValueError):
 class SalesARAgingOpenItemProjection:
     open_item_id: int
     counterparty_id: int
-    trade_document_id: int
+    trade_document_id: int | None
     currency_code: str
     document_date: date
     projection: SalesARAgingProjection
@@ -71,6 +71,7 @@ async def load_sales_ar_aging_projection(
     company_id: int,
     as_of_date: date,
     counterparty_id: int | None = None,
+    item_type: CounterpartyOpenItemType = CounterpartyOpenItemType.RECEIVABLE,
 ) -> tuple[SalesARAgingOpenItemProjection, ...]:
     """
     Read-only historical Sales AR aging projection.
@@ -89,6 +90,9 @@ async def load_sales_ar_aging_projection(
 
     No FX conversion is performed.
     """
+    if item_type not in (CounterpartyOpenItemType.RECEIVABLE, CounterpartyOpenItemType.PAYABLE):
+        raise SalesARAgingProjectionError("Unsupported open-item type")
+
     company_id = _positive_int(
         company_id,
         label="company_id",
@@ -108,7 +112,7 @@ async def load_sales_ar_aging_projection(
     predicates = [
         CounterpartyOpenItem.company_id == company_id,
         CounterpartyOpenItem.item_type
-        == CounterpartyOpenItemType.RECEIVABLE,
+        == item_type,
         CounterpartyOpenItem.document_date <= as_of_date,
         TradeDocument.company_id == company_id,
         TradeDocument.id
@@ -166,9 +170,9 @@ async def load_sales_ar_aging_projection(
                 "Trade Document provenance differs from Open Item"
             )
 
-        if open_item.item_type != CounterpartyOpenItemType.RECEIVABLE:
+        if open_item.item_type != item_type:
             raise SalesARAgingProjectionError(
-                "Projection contains non-receivable Open Item"
+                "Projection contains a different Open Item type"
             )
 
         # Cancellation is effective for the closing balance on its
@@ -183,6 +187,23 @@ async def load_sales_ar_aging_projection(
         eligible.append(
             (open_item, document)
         )
+
+    from app.models.opening_balance import OpeningBalance
+    from app.models.journal_entry import JournalEntry
+    from sqlalchemy.orm import aliased
+    reversal=aliased(JournalEntry)
+    opening_items=(await db.scalars(select(CounterpartyOpenItem)
+        .join(OpeningBalance, (OpeningBalance.company_id==CounterpartyOpenItem.company_id)
+            & (OpeningBalance.id==CounterpartyOpenItem.opening_balance_id))
+        .join(JournalEntry, (JournalEntry.company_id==company_id)
+            & (JournalEntry.id==OpeningBalance.journal_entry_id))
+        .where(CounterpartyOpenItem.company_id==company_id,CounterpartyOpenItem.item_type==item_type,
+            OpeningBalance.opening_date<=as_of_date, JournalEntry.status.in_(('posted','reversed')),
+            ~select(reversal.id).where(reversal.company_id==company_id,
+                reversal.reversal_of_id==JournalEntry.id,reversal.entry_date<=as_of_date).exists(),
+            *([CounterpartyOpenItem.counterparty_id==counterparty_id] if counterparty_id is not None else []))
+        .order_by(CounterpartyOpenItem.document_date,CounterpartyOpenItem.id))).all()
+    eligible.extend((item,None) for item in opening_items)
 
     if not eligible:
         return ()
@@ -274,10 +295,8 @@ async def load_sales_ar_aging_projection(
                     open_item.counterparty_id,
                     label="counterparty_id",
                 ),
-                trade_document_id=_positive_int(
-                    open_item.trade_document_id,
-                    label="trade_document_id",
-                ),
+                trade_document_id=(_positive_int(open_item.trade_document_id, label="trade_document_id")
+                    if open_item.trade_document_id is not None else None),
                 currency_code=_currency(
                     open_item.currency_code
                 ),

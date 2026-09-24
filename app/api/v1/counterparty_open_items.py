@@ -57,6 +57,8 @@ def _open_item_response(
     return CounterpartyOpenItemResponse(
         id=item.id,
         company_id=item.company_id,
+        opening_balance_id=getattr(item,"opening_balance_id",None),
+        opening_reference=getattr(item,"opening_reference",None),
         trade_document_id=(
             item.trade_document_id
         ),

@@ -120,6 +120,10 @@ async def test_partial_first_event_persistence_gl_reversal_and_replay(purchase,p
                             assert control.expected_output_vat == await net()
                         else:
                             assert control.event_count == 0  # INPUT is excluded from OUTPUT control.
+                            from app.services.input_vat_gl_reconciliation_service import reconcile_input_vat_gl
+                            input_control = await reconcile_input_vat_gl(db, company_id=1, date_from=D1, date_to=D4)
+                            assert input_control.matched, input_control.issues
+                            assert input_control.expected_input_vat == await net()
                         return result
                     async def net():
                         events=list((await db.scalars(select(TaxRecognitionEvent))).all())

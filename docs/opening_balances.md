@@ -6,10 +6,10 @@ Opening balances are company-scoped general-ledger journals. `opening_balances`
 stores identity, date, actor and request identity; amounts live exclusively in
 `journal_entry_lines`. There is no parallel opening-balance ledger.
 
-This API imports GL balances. It does not create stock quantities, customer or
+The original base create endpoint imports GL balances. It does not create stock quantities, customer or
 supplier settlement documents, VAT documents, or detailed subledger balances.
-Those require their respective domain workflows and reconciliation before an
-entire company migration can be considered complete.
+Use the detailed cutover extension below to materialize stock and customer/supplier
+debt together with GL, or attach it to a posted opening.
 
 ## API
 
@@ -104,3 +104,58 @@ PYTHONDONTWRITEBYTECODE=1 RUN_POSTGRES_E2E=1 .venv/bin/python -m pytest -q -p no
 - Real PostgreSQL migration roundtrip, legacy backfill and concurrent request
   tests passed. The new table-order warning was eliminated; existing project
   deprecation warnings remain outside this block.
+
+## Detailed cutover extension
+
+The original GL-only endpoints remain supported. Two additional endpoints use the
+same transaction as materialization into canonical warehouse and debt subledgers:
+
+- `POST /packages/create`: `{ "opening": <OpeningBalanceCreate>, "details": ... }`;
+  requires both journal create and post permissions; creates/posts exactly one journal.
+- `POST /{id}/details`: `{ "stock": [...], "debts": [...] }`; post permission;
+  attaches to an existing posted opening without a second GL journal.
+- Existing `GET /{id}` includes the package, physical document ID and open-item IDs.
+
+Detail shape (IDs are company-owned references, amounts are UAH):
+
+```json
+{
+  "stock": [{"product_id": 1, "warehouse_id": 1, "quantity": "10", "unit_cost": "12.5000"}],
+  "debts": [{"reference": "LEGACY-INVOICE-1", "counterparty_id": 1,
+    "contract_id": null, "item_type": "receivable", "document_date": "2026-08-01",
+    "due_date": "2026-08-15", "amount": "60.00"}]
+}
+```
+
+The complete detail must match the opening's inventory 281 debit, customer 361 debit
+and supplier 631 credit exactly, using configured company role accounts. Each stock
+line is rounded to cents. Original debt dates can precede cutover (including overdue
+balances); historical aging includes them only from cutover onward. Advances and
+other subledgers are not represented as customer/supplier debt in this format.
+
+Stock materialization uses the existing FIFO or moving-average receipt engine.
+Active or later warehouse history for the same product/warehouse rejects import:
+backdating cutover into operational history would invalidate valuation. A replacement
+is supported after reversal, with cutover no earlier than the reversed stock history.
+
+Debts have explicit opening provenance and no fabricated trade invoice. They can be
+settled by confirmed payments; clearing uses Dr681/Cr361 or Dr631/Cr371 and creates
+no VAT recognition. Original invoice evidence remains outside this cutover import.
+
+One immutable package per opening: identical retry is a no-op; changed data conflicts.
+Company serialization protects concurrent attachment. Closed periods, foreign or
+inactive master data, mismatching GL/detail and duplicate source lines reject the
+whole transaction. Legacy closed contracts may be referenced for their remaining debt.
+
+Use opening reversal for corrections. Direct physical-document/GL reversal is blocked
+for detailed openings. Active settlements must be reversed first; consumed FIFO stock must
+be restored by the operational reversal workflow. Moving-average reversal retains the
+existing strict chronology guard: any later inventory movements block reversal even
+if those later movements were subsequently reversed; this extension does not replay
+historical moving-average costs. Reversal cannot predate settlement
+history. Opening, stock and debt reversal commit together; earlier reports retain history.
+A new request key creates the corrected replacement.
+
+Migration `d1552cd41bf1` adds package provenance and permits either invoice or opening
+provenance on an open item. Existing invoice data is unchanged. Downgrade refuses to
+discard populated detail, including reversed historical packages.

@@ -72,6 +72,7 @@ class OpeningBalanceLineResponse(BaseModel):
 
 
 class OpeningBalanceResponse(BaseModel):
+    detail: dict | None = None
     id: int
     company_id: int
     opening_date: date

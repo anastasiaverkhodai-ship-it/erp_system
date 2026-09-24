@@ -1,6 +1,7 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.permissions import require_company_permission
@@ -17,9 +18,16 @@ from app.services.output_vat_gl_reconciliation_service import (
 )
 
 
+async def accounting_control_snapshot(db: AsyncSession = Depends(get_db)):
+    # Run before authorization queries: all family/bridge reads share one snapshot.
+    # GET cannot alter the business state, including through future helper changes.
+    await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+
+
 router = APIRouter(
     prefix="/companies/{company_id}",
     tags=["Accounting controls"],
+    dependencies=[Depends(accounting_control_snapshot)],
 )
 
 

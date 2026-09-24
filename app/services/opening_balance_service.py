@@ -205,6 +205,10 @@ async def post_opening_balance(
     )
 
 
+from app.services.landed_cost_inventory_lifecycle import landed_cost_inventory_operation
+
+
+@landed_cost_inventory_operation(date_argument="reversal_date")
 async def reverse_opening_balance(
     db: AsyncSession,
     company_id: int,
@@ -220,6 +224,12 @@ async def reverse_opening_balance(
 
     if reversed_by <= 0 or not opening.opening_date <= reversal_date <= date.today():
         raise OpeningBalanceError("Invalid opening reversal actor/date")
+    # Lock debt sources before the journal: settlement owns an item lock while
+    # posting its clearing. This prevents reversal racing an active allocation.
+    from app.models.counterparty_open_item import CounterpartyOpenItem
+    await db.execute(select(CounterpartyOpenItem.id).where(
+        CounterpartyOpenItem.company_id==company_id,
+        CounterpartyOpenItem.opening_balance_id==opening.id).order_by(CounterpartyOpenItem.id).with_for_update())
     # Lock the same journal as the generic reversal endpoint before replay lookup.
     await db.scalar(
         select(JournalEntry).where(
@@ -237,13 +247,19 @@ async def reverse_opening_balance(
         if existing.entry_date != reversal_date:
             raise OpeningBalanceError("Opening balance was already reversed on another date")
         return existing
-    return await reverse_journal_entry(
-        db=db,
-        company_id=company_id,
-        journal_entry_id=opening.journal_entry_id,
-        reversal_date=reversal_date,
-        reversed_by=reversed_by,
-    )
+    from app.services.opening_balance_detail_service import reverse_opening_detail
+    previous=db.info.get('opening_detail_lifecycle')
+    db.info['opening_detail_lifecycle']=opening.id
+    try:
+        await reverse_opening_detail(db, company_id=company_id, opening_balance_id=opening.id,
+            reversal_date=reversal_date, reversed_by=reversed_by)
+        return await reverse_journal_entry(db=db, company_id=company_id,
+            journal_entry_id=opening.journal_entry_id, reversal_date=reversal_date, reversed_by=reversed_by)
+    finally:
+        if previous is None:
+            db.info.pop('opening_detail_lifecycle', None)
+        else:
+            db.info['opening_detail_lifecycle']=previous
 
 
 async def load_opening_balance_response_data(

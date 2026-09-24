@@ -135,8 +135,17 @@ async def test_reports_and_incomplete_controls_work_in_read_only_transaction(yea
         db.add_all([
             Account(id=20,company_id=1,code="641",name="VAT",account_type="liability",normal_balance="debit_credit",is_system=True),
             Account(id=21,company_id=1,code="643",name="VAT bridge",account_type="liability",normal_balance="debit_credit",is_system=True),
+            Account(id=22,company_id=1,code="644",name="Input VAT",account_type="asset",normal_balance="debit_credit",is_system=True),
+            Account(id=23,company_id=1,code="361",name="AR",account_type="asset",normal_balance="debit_credit",is_system=True),
+            Account(id=24,company_id=1,code="681",name="Advances",account_type="liability",normal_balance="debit_credit",is_system=True),
+            Account(id=25,company_id=1,code="704",name="Returns",account_type="income",normal_balance="debit_credit",is_system=True),
+            Account(id=26,company_id=1,code="311",name="Bank",account_type="asset",normal_balance="debit_credit",is_system=True),
+            Account(id=27,company_id=1,code="371",name="Supplier advances",account_type="asset",normal_balance="debit_credit",is_system=True),
+            Account(id=28,company_id=1,code="631",name="AP",account_type="liability",normal_balance="debit_credit",is_system=True),
+            Account(id=29,company_id=1,code="281",name="Inventory",account_type="asset",normal_balance="debit_credit",is_system=True),
         ])
         (await db.get(Account,10)).is_system=True
+        (await db.get(Account,11)).is_system=True
         await post_operations(db);await db.commit()
     async with AsyncSession(year_engine) as db:
         await db.execute(text("SET TRANSACTION READ ONLY"))
@@ -146,9 +155,9 @@ async def test_reports_and_incomplete_controls_work_in_read_only_transaction(yea
         controls=await get_consolidated_accounting_controls(db,company_id=1,date_from=date(YEAR,1,1),date_to=END)
         assert ledger.period_debit==trial.total_period_debit==160
         assert card.closing_balance==40
-        assert not controls.matched and not controls.coverage_complete
-        assert controls.checked_families_matched and controls.status=="incomplete"
-        assert controls.not_implemented_family_count==5
+        assert controls.matched and controls.coverage_complete
+        assert controls.checked_families_matched and controls.status=="matched"
+        assert controls.not_implemented_family_count==0
         assert await db.scalar(text("SHOW transaction_read_only"))=="on"
 
 
@@ -190,8 +199,17 @@ async def test_reporting_http_permissions_and_read_only_contract(year_engine):
         db.add_all([
             Account(id=20,company_id=1,code="641",name="VAT",account_type="liability",normal_balance="debit_credit",is_system=True),
             Account(id=21,company_id=1,code="643",name="VAT bridge",account_type="liability",normal_balance="debit_credit",is_system=True),
+            Account(id=22,company_id=1,code="644",name="Input VAT",account_type="asset",normal_balance="debit_credit",is_system=True),
+            Account(id=23,company_id=1,code="361",name="AR",account_type="asset",normal_balance="debit_credit",is_system=True),
+            Account(id=24,company_id=1,code="681",name="Advances",account_type="liability",normal_balance="debit_credit",is_system=True),
+            Account(id=25,company_id=1,code="704",name="Returns",account_type="income",normal_balance="debit_credit",is_system=True),
+            Account(id=26,company_id=1,code="311",name="Bank",account_type="asset",normal_balance="debit_credit",is_system=True),
+            Account(id=27,company_id=1,code="371",name="Supplier advances",account_type="asset",normal_balance="debit_credit",is_system=True),
+            Account(id=28,company_id=1,code="631",name="AP",account_type="liability",normal_balance="debit_credit",is_system=True),
+            Account(id=29,company_id=1,code="281",name="Inventory",account_type="asset",normal_balance="debit_credit",is_system=True),
         ])
         (await db.get(Account,10)).is_system=True
+        (await db.get(Account,11)).is_system=True
         await db.flush()
         await db.execute(role_permissions.insert().values(role_id=1,permission_id=1))
         db.add(UserCompanyRole(user_id=1,company_id=1,role_id=1))
@@ -211,7 +229,7 @@ async def test_reporting_http_permissions_and_read_only_contract(year_engine):
             response=await client.get("/companies/1/"+endpoint+query)
             assert response.status_code==200,response.text
             if endpoint=="accounting-controls":
-                assert response.json()["status"]=="incomplete" and not response.json()["matched"]
+                assert response.json()["status"]=="matched" and response.json()["matched"]
             denied=await client.get("/companies/2/"+endpoint+query)
             assert denied.status_code==403
         for endpoint in ("general-ledger","trial-balance","accounting-controls"):

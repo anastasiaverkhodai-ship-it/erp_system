@@ -169,6 +169,19 @@ async def test_capitalization_issue_and_reversal_gl_conserve_source(method):
                     await execute_warehouse_transfer_reconciliation(db, target=None, adjustment_date=DAY, **transfer_args)
                     assert await account_net(db, 1) == D("40")
 
+                    from app.services.document_gl_control_service import reconcile_documents_gl
+                    from app.models.warehouse_transfer_line import WarehouseTransferLine
+                    transfer_pair = (await db.execute(select(
+                        WarehouseTransferLine.issue_document_id, WarehouseTransferLine.receipt_document_id
+                    ).where(WarehouseTransferLine.company_id == 1))).first()
+                    reports, _ = await reconcile_documents_gl(db, company_id=1, date_from=DAY,
+                        date_to=DAY, focus_account_id=1)
+                    transfer_reports = [r for r in reports if any(
+                        i.source_id in transfer_pair for i in r.issues)]
+                    assert not transfer_reports, transfer_reports
+                    # Both original and reversal are explicitly checked as zero-GL events.
+                    assert sum(r.matched and r.expected_amount == 0 for r in reports) >= 4
+
                     from app.services.accounting_reversal import reverse_journal_entry, AccountingReversalError
                     source_line = await db.get(JournalEntryLine, line_id)
                     with pytest.raises(AccountingReversalError, match="active capitalized"):
@@ -199,6 +212,13 @@ async def test_capitalization_issue_and_reversal_gl_conserve_source(method):
                     assert await account_net(db, 4) == D("10")
                     assert await account_net(db, 3) == D("-200")
                     assert (await landed_cost_issue_amounts(db, company_id=1))[cost_id] == 0
+                    from app.services.purchase_gl_control_service import purchase_event_controls
+                    from app.services.accounting_account_roles import AccountingAccountRole as R
+                    controls, balance = await purchase_event_controls(db, company_id=1, date_from=DAY, date_to=DAY,
+                        ids={R.INVENTORY_GOODS:1,R.GOODS_COGS:4,R.SUPPLIER_PAYABLES:3},focus_role=R.INVENTORY_GOODS)
+                    assert all(c.matched for c in controls), controls
+                    assert balance == 0
+
                     assert await db.scalar(select(func.count()).select_from(PurchaseLandedCostEvent)) == 2
             finally:
                 await tx.rollback()

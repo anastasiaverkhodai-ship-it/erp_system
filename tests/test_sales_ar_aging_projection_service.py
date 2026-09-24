@@ -85,6 +85,7 @@ def db_with_results(
     allocations,
 ):
     db = AsyncMock()
+    db.scalars.return_value = MagicMock(all=lambda: [])
 
     first = MagicMock()
     first.all.return_value = open_item_rows
@@ -251,6 +252,7 @@ async def test_invoice_cancelled_after_as_of_is_historically_visible():
 @pytest.mark.asyncio
 async def test_invoice_cancelled_on_as_of_is_excluded():
     db = AsyncMock()
+    db.scalars.return_value = MagicMock(all=lambda: [])
 
     first = MagicMock()
     first.all.return_value = [
@@ -351,6 +353,7 @@ async def test_counterparty_filter_is_supported():
 @pytest.mark.asyncio
 async def test_no_open_items_avoids_settlement_query():
     db = AsyncMock()
+    db.scalars.return_value = MagicMock(all=lambda: [])
 
     first = MagicMock()
     first.all.return_value = []

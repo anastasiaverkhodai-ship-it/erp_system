@@ -157,6 +157,12 @@ async def _reverse_document_internal(
             "Receipt has active landed costs; reverse landed costs before receipt reversal"
         )
 
+    from app.models.opening_balance_detail import OpeningBalanceDetail
+    opening_id=await db.scalar(select(OpeningBalanceDetail.opening_balance_id).where(
+        OpeningBalanceDetail.company_id==company_id, OpeningBalanceDetail.stock_document_id==document.id))
+    if opening_id is not None and db.info.get('opening_detail_lifecycle')!=opening_id:
+        raise DocumentReversalError('Reverse opening stock through its opening lifecycle')
+
     # CHECK REVERSAL ACCOUNTING PERIOD
     await ensure_period_open(
         company_id=document.company_id,

@@ -1,6 +1,6 @@
 from datetime import date
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -24,6 +24,7 @@ class AccountingControlFamilyResult(BaseModel):
     difference: Decimal | None = None
     issue_count: int = 0
     note: str | None = None
+    details: dict[str, Any] | None = None
 
 
 class ConsolidatedAccountingControlReport(BaseModel):

@@ -451,6 +451,18 @@ async def reverse_journal_entry(
             "Journal entry not found"
         )
 
+    if getattr(original_entry,'payment_settlement_allocation_id',None):
+        from app.models.payment_settlement_allocation import PaymentSettlementAllocation
+        from app.models.counterparty_open_item import CounterpartyOpenItem
+        opening_item=await db.scalar(select(CounterpartyOpenItem.id).join(PaymentSettlementAllocation,
+            (PaymentSettlementAllocation.company_id==CounterpartyOpenItem.company_id)
+            & (PaymentSettlementAllocation.open_item_id==CounterpartyOpenItem.id)).where(
+                PaymentSettlementAllocation.company_id==company_id,
+                PaymentSettlementAllocation.id==original_entry.payment_settlement_allocation_id,
+                CounterpartyOpenItem.opening_balance_id.is_not(None)))
+        if opening_item is not None and db.info.get('opening_settlement_reversal')!=original_entry.payment_settlement_allocation_id:
+            raise AccountingReversalError('Reverse opening settlement through its allocation lifecycle')
+
     closing_id = getattr(original_entry, "year_end_closing_id", None)
     if closing_id is not None and db.info.get("year_end_closing_active") != closing_id:
         raise AccountingReversalError("Reverse year-end journals through their closing lifecycle")
@@ -469,6 +481,12 @@ async def reverse_journal_entry(
         )
 
     if getattr(original_entry, "opening_balance_id", None):
+        from app.models.opening_balance_detail import OpeningBalanceDetail
+        detail=await db.scalar(select(OpeningBalanceDetail.id).where(
+            OpeningBalanceDetail.company_id==company_id,
+            OpeningBalanceDetail.opening_balance_id==original_entry.opening_balance_id))
+        if detail is not None and db.info.get('opening_detail_lifecycle')!=original_entry.opening_balance_id:
+            raise AccountingReversalError('Reverse detailed opening through its opening lifecycle')
         if reversed_by <= 0 or not original_entry.entry_date <= reversal_date <= date.today():
             raise AccountingReversalError("Invalid opening reversal actor/date")
 

@@ -48,7 +48,27 @@ async def _response(
         )
     )
 
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.opening_balance_detail import OpeningBalanceDetail
+    from app.models.document import Document
+    from app.models.counterparty_open_item import CounterpartyOpenItem
+    package=await db.scalar(select(OpeningBalanceDetail).where(
+        OpeningBalanceDetail.company_id==company_id,OpeningBalanceDetail.opening_balance_id==opening.id))
+    detail=None
+    if package:
+        document=await db.scalar(select(Document).options(selectinload(Document.lines)).where(
+            Document.company_id==company_id,Document.id==package.stock_document_id)) if package.stock_document_id else None
+        items=(await db.scalars(select(CounterpartyOpenItem).where(CounterpartyOpenItem.company_id==company_id,
+            CounterpartyOpenItem.opening_balance_id==opening.id).order_by(CounterpartyOpenItem.id))).all()
+        detail=dict(id=package.id,stock_document_id=package.stock_document_id,
+            stock=[dict(product_id=line.product_id,warehouse_id=line.warehouse_id,quantity=line.quantity,unit_cost=line.price)
+                for line in document.lines] if document else [],
+            debts=[dict(open_item_id=item.id,reference=item.opening_reference,item_type=item.item_type,
+                counterparty_id=item.counterparty_id,contract_id=item.contract_id,document_date=item.document_date,
+                due_date=item.due_date,amount=item.original_amount,status=item.status) for item in items])
     return OpeningBalanceResponse(
+        detail=detail,
         id=opening.id,
         company_id=opening.company_id,
         opening_date=opening.opening_date,
@@ -253,6 +273,55 @@ async def reverse_opening_balance_endpoint(
         await db.rollback()
         raise
 
+    except Exception:
+        await db.rollback()
+        raise
+
+
+from app.schemas.opening_balance_detail import OpeningDetailsCreate, OpeningPackageCreate
+from app.services.opening_balance_detail_service import attach_opening_details, create_opening_package
+
+
+@router.post('/packages/create', response_model=OpeningBalanceResponse, status_code=201,
+    dependencies=[Depends(require_company_permission('journal_entries.create'))])
+async def create_opening_package_endpoint(company_id: int, data: OpeningPackageCreate,
+    current_user: User = Depends(require_company_permission('journal_entries.post')),
+    db: AsyncSession = Depends(get_db)):
+    try:
+        opening=await create_opening_package(db,company_id=company_id,created_by=current_user.id,data=data)
+        response=await _response(db,company_id,opening.id)
+        await db.commit()
+        return response
+    except HTTPException:
+        await db.rollback()
+        raise
+    except (OpeningBalanceError, AccountingPostingError, IntegrityError, ValueError) as exc:
+        await db.rollback()
+        raise HTTPException(409, 'Opening package conflict' if isinstance(exc,IntegrityError) else str(exc)) from exc
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.post('/{opening_balance_id}/details', response_model=OpeningBalanceResponse)
+async def attach_opening_details_endpoint(company_id: int, opening_balance_id: int, data: OpeningDetailsCreate,
+    current_user: User = Depends(require_company_permission('journal_entries.post')),
+    db: AsyncSession = Depends(get_db)):
+    try:
+        opening=await attach_opening_details(db,company_id=company_id,opening_balance_id=opening_balance_id,
+            created_by=current_user.id,data=data)
+        response=await _response(db,company_id,opening.id)
+        await db.commit()
+        return response
+    except OpeningBalanceNotFoundError as exc:
+        await db.rollback()
+        raise HTTPException(404,str(exc)) from exc
+    except HTTPException:
+        await db.rollback()
+        raise
+    except (OpeningBalanceError, IntegrityError, ValueError) as exc:
+        await db.rollback()
+        raise HTTPException(409,'Opening detail conflict' if isinstance(exc,IntegrityError) else str(exc)) from exc
     except Exception:
         await db.rollback()
         raise

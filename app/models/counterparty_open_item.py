@@ -37,6 +37,10 @@ class CounterpartyOpenItem(Base):
     __tablename__ = "counterparty_open_items"
 
     __table_args__ = (
+        ForeignKeyConstraint(['company_id', 'opening_balance_id'],
+            ['opening_balances.company_id', 'opening_balances.id'], name='fk_open_item_opening', ondelete='RESTRICT', use_alter=True),
+        CheckConstraint('(trade_document_id IS NOT NULL AND opening_balance_id IS NULL) OR '
+            '(trade_document_id IS NULL AND opening_balance_id IS NOT NULL)', name='ck_open_item_single_source'),
         UniqueConstraint(
             "company_id",
             "id",
@@ -158,9 +162,12 @@ class CounterpartyOpenItem(Base):
         index=True,
     )
 
-    trade_document_id: Mapped[int] = mapped_column(
+    opening_balance_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    opening_reference: Mapped[str | None] = mapped_column(String(255))
+
+    trade_document_id: Mapped[int | None] = mapped_column(
         Integer,
-        nullable=False,
+        nullable=True,
         index=True,
     )
 

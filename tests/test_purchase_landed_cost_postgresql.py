@@ -49,7 +49,7 @@ LANDED = {"purchase_landed_cost_events", "purchase_landed_cost_allocation_events
 
 
 def setup_schema(connection):
-    names = {"trade_fulfillment_lines"}
+    names = {"trade_fulfillment_lines", "opening_balance_details"}
     while True:
         expanded = names | {fk.column.table.name for n in names for fk in Base.metadata.tables[n].foreign_keys}
         if names == expanded:

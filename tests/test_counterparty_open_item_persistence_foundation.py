@@ -56,6 +56,8 @@ def test_open_item_has_expected_columns():
         "id",
         "company_id",
         "trade_document_id",
+        "opening_balance_id",
+        "opening_reference",
         "counterparty_id",
         "contract_id",
         "item_type",
@@ -118,7 +120,6 @@ def test_open_item_core_fields_are_required():
 
     for name in (
         "company_id",
-        "trade_document_id",
         "counterparty_id",
         "item_type",
         "status",
@@ -131,6 +132,10 @@ def test_open_item_core_fields_are_required():
             table.c[name].nullable
             is False
         )
+
+    assert table.c.trade_document_id.nullable
+    assert table.c.opening_balance_id.nullable
+    assert "ck_open_item_single_source" in {c.name for c in table.constraints}
 
 
 def test_open_item_unique_source_invoice_constraint_exists():

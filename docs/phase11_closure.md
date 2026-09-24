@@ -127,3 +127,27 @@ The schema remains `c0441bc30ae0`; 11.10 requires no new migration.
   this gate did not alter business records or remove test data.
 - Agreed Phase 11 scope: complete. Deferred comparator families and other product
   boundaries remain explicitly documented above.
+
+## Post-11.10 extension — 2026-09-24
+
+The five previously deferred source-to-GL comparator families are implemented;
+see `source_gl_controls.md` for exact scope and local historical-data findings.
+Detailed opening stock and AR/AP can now be imported atomically with a new GL
+opening or attached to an existing posted opening. They use the existing stock
+and settlement engines and generate no duplicate GL or VAT. See
+`opening_balances.md` for API, chronology and correction constraints.
+
+The approved isolated foreign-account draft was backed up and deleted. Other
+historical records remain unchanged. Official DPS schemas/submission/KEP,
+production overhead, income tax and statutory financial statements remain
+separate product work; this extension does not certify their completion.
+
+## Extension verification — 2026-09-24
+
+- Full regression with PostgreSQL enabled: **3557 passed**, no failures or skips
+  (499.83 seconds). Existing warnings remain; passing tests does not erase the
+  historical-data findings documented above.
+- Local database and code head: `d1552cd41bf1`; Alembic reports no schema drift.
+- Detailed cutover tests cover both creation/attachment modes, FIFO/moving-average
+  receipt and issue, AR/AP settlement without VAT, coherent reversal, atomic rollback,
+  company isolation, permissions, concurrent retry and migration preservation.

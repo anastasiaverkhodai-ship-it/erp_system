@@ -24,7 +24,9 @@ class CounterpartyOpenItemResponse(BaseModel):
 
     id: int
     company_id: int
-    trade_document_id: int
+    trade_document_id: int | None
+    opening_balance_id: int | None = None
+    opening_reference: str | None = None
     counterparty_id: int
     contract_id: int | None
 
