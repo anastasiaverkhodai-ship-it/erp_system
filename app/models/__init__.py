@@ -142,4 +142,12 @@ from app.models.opening_balance import OpeningBalance
 from app.models.year_end_closing import YearEndClosing
 
 from app.models.opening_balance_detail import OpeningBalanceDetail
-from app.models.fixed_asset import FixedAsset, FixedAssetDepreciationMethod, FixedAssetStatus
+from app.models.fixed_asset import (
+    FixedAsset,
+    FixedAssetCardHistory,
+    FixedAssetDepreciationMethod,
+    FixedAssetGroup,
+    FixedAssetLocation,
+    FixedAssetResponsiblePerson,
+    FixedAssetStatus,
+)
