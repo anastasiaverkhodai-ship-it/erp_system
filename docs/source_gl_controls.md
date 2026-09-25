@@ -68,3 +68,14 @@ that the newly implemented controls or the complete local database are all green
 - Detailed cutover tests cover both creation/attachment modes, FIFO/moving-average
   receipt and issue, AR/AP settlement without VAT, coherent reversal, atomic rollback,
   company isolation, permissions, concurrent retry and migration preservation.
+
+## Follow-up — 2026-09-25
+
+The 1,905 UAH provenance repair has now been applied to local receipt documents
+1/5 and journals 8/9 after independent plan verification and backup. All six
+monetary differences are zero. AP/inventory still report eight provenance issues
+each; no automatic waiver was introduced. The user confirmed the two receipts
+are test data. The separately approved unbalanced draft journal 2 and its two
+lines were backed up and deleted; no draft journals remain for company 1.
+See [pre-block-12 readiness](pre12_readiness.md) for reviewed historical exceptions,
+disposable-copy month-close evidence and the limits of this conclusion.
