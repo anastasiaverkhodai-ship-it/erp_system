@@ -151,3 +151,5 @@ from app.models.fixed_asset import (
     FixedAssetResponsiblePerson,
     FixedAssetStatus,
 )
+
+from app.models.fixed_asset_acquisition import FixedAssetAcquisitionCost, FixedAssetAcquisitionCostType
