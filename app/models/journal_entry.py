@@ -32,16 +32,40 @@ class JournalEntry(Base):
     tax_invoice_correction_line_id: Mapped[int | None] = mapped_column(Integer,nullable=True)
 
     __table_args__ = (
-        CheckConstraint('year_end_closing_id IS NULL OR num_nonnulls(document_id,payment_id,payment_settlement_allocation_id,tax_recognition_event_id,sales_recognition_event_id,vat_advance_bridge_event_id,input_vat_fulfillment_bridge_event_id,supplier_advance_clearing_event_id,customer_advance_clearing_event_id,sales_return_recognition_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_ma_replay_event_id,sales_return_cost_restoration_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_return_input_vat_credit_correction_event_id,purchase_value_correction_vat_adjustment_event_id,purchase_value_correction_input_vat_credit_correction_event_id,opening_balance_id,tax_invoice_correction_line_id) = 0', name="ck_je_year_end_exclusive"),
+        CheckConstraint('fixed_asset_commissioning_id IS NULL OR num_nonnulls(year_end_closing_id,document_id,payment_id,payment_settlement_allocation_id,tax_recognition_event_id,sales_recognition_event_id,vat_advance_bridge_event_id,input_vat_fulfillment_bridge_event_id,supplier_advance_clearing_event_id,customer_advance_clearing_event_id,sales_return_recognition_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_ma_replay_event_id,sales_return_cost_restoration_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_return_input_vat_credit_correction_event_id,purchase_value_correction_vat_adjustment_event_id,purchase_value_correction_input_vat_credit_correction_event_id,opening_balance_id,tax_invoice_correction_line_id) = 0', name="ck_je_commissioning_exclusive"),
+        CheckConstraint('year_end_closing_id IS NULL OR num_nonnulls(fixed_asset_commissioning_id,document_id,payment_id,payment_settlement_allocation_id,tax_recognition_event_id,sales_recognition_event_id,vat_advance_bridge_event_id,input_vat_fulfillment_bridge_event_id,supplier_advance_clearing_event_id,customer_advance_clearing_event_id,sales_return_recognition_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_ma_replay_event_id,sales_return_cost_restoration_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_return_input_vat_credit_correction_event_id,purchase_value_correction_vat_adjustment_event_id,purchase_value_correction_input_vat_credit_correction_event_id,opening_balance_id,tax_invoice_correction_line_id) = 0', name="ck_je_year_end_exclusive"),
         ForeignKeyConstraint(["company_id", "year_end_closing_id"],
             ["year_end_closings.company_id", "year_end_closings.id"],
             name="fk_je_company_year_end", ondelete="RESTRICT", use_alter=True),
         Index("ix_je_year_end_closing", "year_end_closing_id"),
         Index("uq_je_year_end_original", "year_end_closing_id", unique=True,
             postgresql_where=text("year_end_closing_id IS NOT NULL AND reversal_of_id IS NULL")),
+        ForeignKeyConstraint(
+            ["company_id", "fixed_asset_commissioning_id"],
+            [
+                "fixed_asset_commissionings.company_id",
+                "fixed_asset_commissionings.id",
+            ],
+            name="fk_je_company_fixed_asset_commissioning",
+            ondelete="RESTRICT",
+            use_alter=True,
+        ),
+        Index(
+            "ix_je_fixed_asset_commissioning",
+            "fixed_asset_commissioning_id",
+        ),
+        Index(
+            "uq_je_fixed_asset_commissioning_original",
+            "fixed_asset_commissioning_id",
+            unique=True,
+            postgresql_where=text(
+                "fixed_asset_commissioning_id IS NOT NULL "
+                "AND reversal_of_id IS NULL"
+            ),
+        ),
         UniqueConstraint("company_id", "id", name="uq_je_company_id"),
         ForeignKeyConstraint(['company_id','tax_invoice_correction_line_id'],['tax_invoice_correction_lines.company_id','tax_invoice_correction_lines.id'],name='fk_je_rk_line',ondelete='RESTRICT'),
-        CheckConstraint('tax_invoice_correction_line_id IS NULL OR num_nonnulls(document_id,payment_id,payment_settlement_allocation_id,tax_recognition_event_id,sales_recognition_event_id,vat_advance_bridge_event_id,input_vat_fulfillment_bridge_event_id,supplier_advance_clearing_event_id,customer_advance_clearing_event_id,sales_return_recognition_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_ma_replay_event_id,sales_return_cost_restoration_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_return_input_vat_credit_correction_event_id,purchase_value_correction_vat_adjustment_event_id,purchase_value_correction_input_vat_credit_correction_event_id,opening_balance_id) = 0',name='ck_je_rk_exclusive'),
+        CheckConstraint('tax_invoice_correction_line_id IS NULL OR num_nonnulls(fixed_asset_commissioning_id,document_id,payment_id,payment_settlement_allocation_id,tax_recognition_event_id,sales_recognition_event_id,vat_advance_bridge_event_id,input_vat_fulfillment_bridge_event_id,supplier_advance_clearing_event_id,customer_advance_clearing_event_id,sales_return_recognition_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_ma_replay_event_id,sales_return_cost_restoration_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_return_input_vat_credit_correction_event_id,purchase_value_correction_vat_adjustment_event_id,purchase_value_correction_input_vat_credit_correction_event_id,opening_balance_id) = 0',name='ck_je_rk_exclusive'),
         Index('uq_je_rk_line','tax_invoice_correction_line_id',unique=True,postgresql_where=text('tax_invoice_correction_line_id IS NOT NULL')),
         ForeignKeyConstraint(
             [
@@ -1664,6 +1688,11 @@ class JournalEntry(Base):
             ondelete="RESTRICT",
             use_alter=True,
         ),
+        nullable=True,
+    )
+
+    fixed_asset_commissioning_id: Mapped[int | None] = mapped_column(
+        Integer,
         nullable=True,
     )
 

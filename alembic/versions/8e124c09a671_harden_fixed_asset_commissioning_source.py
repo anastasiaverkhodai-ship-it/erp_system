@@ -1,0 +1,12 @@
+"""Make commissioning journals exclusive of every other business source."""
+from alembic import op
+revision = '8e124c09a671'
+down_revision = '760e17482bce'
+branch_labels = None
+depends_on = None
+
+def upgrade():
+    op.create_check_constraint('ck_je_commissioning_exclusive','journal_entries', 'fixed_asset_commissioning_id IS NULL OR num_nonnulls(year_end_closing_id,document_id,payment_id,payment_settlement_allocation_id,tax_recognition_event_id,sales_recognition_event_id,vat_advance_bridge_event_id,input_vat_fulfillment_bridge_event_id,supplier_advance_clearing_event_id,customer_advance_clearing_event_id,sales_return_recognition_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_ma_replay_event_id,sales_return_cost_restoration_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_return_input_vat_credit_correction_event_id,purchase_value_correction_vat_adjustment_event_id,purchase_value_correction_input_vat_credit_correction_event_id,opening_balance_id,tax_invoice_correction_line_id) = 0')
+
+def downgrade():
+    op.drop_constraint('ck_je_commissioning_exclusive','journal_entries',type_='check')

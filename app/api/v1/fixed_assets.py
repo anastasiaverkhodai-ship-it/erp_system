@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.permissions import require_company_permission
 from app.core.database import get_db
 from app.models.user import User
 from app.schemas.fixed_asset import (
@@ -58,7 +58,7 @@ def _raise_service_error(exc: Exception):
 async def get_groups(
     company_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.read")),
 ):
     return await list_fixed_asset_groups(db, company_id)
 
@@ -72,7 +72,7 @@ async def post_group(
     company_id: int,
     payload: FixedAssetGroupCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.create")),
 ):
     try:
         row = await create_fixed_asset_group(db, company_id, payload)
@@ -96,7 +96,7 @@ async def patch_group(
     group_id: int,
     payload: FixedAssetGroupUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.update")),
 ):
     try:
         row = await update_fixed_asset_group(
@@ -123,7 +123,7 @@ async def patch_group(
 async def get_locations(
     company_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.read")),
 ):
     return await list_fixed_asset_locations(db, company_id)
 
@@ -137,7 +137,7 @@ async def post_location(
     company_id: int,
     payload: FixedAssetLocationCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.create")),
 ):
     try:
         row = await create_fixed_asset_location(db, company_id, payload)
@@ -164,7 +164,7 @@ async def patch_location(
     location_id: int,
     payload: FixedAssetLocationUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.update")),
 ):
     try:
         row = await update_fixed_asset_location(
@@ -194,7 +194,7 @@ async def patch_location(
 async def get_responsible_persons(
     company_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.read")),
 ):
     return await list_fixed_asset_responsible_persons(db, company_id)
 
@@ -208,7 +208,7 @@ async def post_responsible_person(
     company_id: int,
     payload: FixedAssetResponsiblePersonCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.create")),
 ):
     try:
         row = await create_fixed_asset_responsible_person(
@@ -239,7 +239,7 @@ async def patch_responsible_person(
     responsible_person_id: int,
     payload: FixedAssetResponsiblePersonUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.update")),
 ):
     try:
         row = await update_fixed_asset_responsible_person(
@@ -269,7 +269,7 @@ async def patch_responsible_person(
 async def get_assets(
     company_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.read")),
 ):
     return await list_fixed_assets(db, company_id)
 
@@ -279,7 +279,7 @@ async def get_asset(
     company_id: int,
     fixed_asset_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.read")),
 ):
     try:
         return await get_fixed_asset(db, company_id, fixed_asset_id)
@@ -296,7 +296,7 @@ async def post_asset(
     company_id: int,
     payload: FixedAssetCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.create")),
 ):
     try:
         row = await create_fixed_asset(
@@ -325,7 +325,7 @@ async def patch_asset(
     fixed_asset_id: int,
     payload: FixedAssetUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.update")),
 ):
     try:
         row = await update_fixed_asset(
@@ -357,7 +357,7 @@ async def get_asset_history(
     company_id: int,
     fixed_asset_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.read")),
 ):
     try:
         return await list_fixed_asset_card_history(

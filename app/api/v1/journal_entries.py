@@ -287,6 +287,9 @@ async def update_journal_entry(
                 detail="Journal entry not found",
             )
 
+        if getattr(journal_entry, "fixed_asset_commissioning_id", None) is not None:
+            raise HTTPException(409, "Use the fixed asset commissioning lifecycle")
+
         if getattr(journal_entry, "year_end_closing_id", None) is not None:
             raise HTTPException(409, "Year-end journals are immutable; use their closing lifecycle")
 
@@ -444,6 +447,9 @@ async def delete_journal_entry(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Journal entry not found",
             )
+
+        if getattr(journal_entry, "fixed_asset_commissioning_id", None) is not None:
+            raise HTTPException(409, "Use the fixed asset commissioning lifecycle")
 
         if getattr(journal_entry, "year_end_closing_id", None) is not None:
             raise HTTPException(409, "Year-end journals are immutable; use their closing lifecycle")

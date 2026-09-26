@@ -463,6 +463,10 @@ async def reverse_journal_entry(
         if opening_item is not None and db.info.get('opening_settlement_reversal')!=original_entry.payment_settlement_allocation_id:
             raise AccountingReversalError('Reverse opening settlement through its allocation lifecycle')
 
+    commissioning_id = getattr(original_entry, "fixed_asset_commissioning_id", None)
+    if commissioning_id is not None and db.info.get("fixed_asset_commissioning") != commissioning_id:
+        raise AccountingReversalError("Use the fixed asset commissioning lifecycle")
+
     closing_id = getattr(original_entry, "year_end_closing_id", None)
     if closing_id is not None and db.info.get("year_end_closing_active") != closing_id:
         raise AccountingReversalError("Reverse year-end journals through their closing lifecycle")
@@ -505,6 +509,18 @@ async def reverse_journal_entry(
         raise AccountingReversalError("Reverse landed-cost valuation through its lifecycle")
     if await has_capitalized_expenses_for_journal(db, company_id=company_id, journal_entry_id=original_entry.id):
         raise AccountingReversalError("Expense has active capitalized landed costs; reverse them first")
+
+    from app.models.fixed_asset_acquisition import FixedAssetAcquisitionCost
+    from app.models.journal_entry_line import JournalEntryLine as SourceLine
+    from app.services.fixed_asset_acquisition_service import _active_original_condition
+    allocated = await db.scalar(select(FixedAssetAcquisitionCost.id).join(
+        SourceLine, SourceLine.id == FixedAssetAcquisitionCost.source_journal_entry_line_id).where(
+        SourceLine.journal_entry_id == original_entry.id,
+        FixedAssetAcquisitionCost.company_id == company_id,
+        FixedAssetAcquisitionCost.reversal_of_id.is_(None),
+        _active_original_condition()).limit(1))
+    if allocated is not None:
+        raise AccountingReversalError("Reverse fixed asset acquisition allocations before their source journal")
 
     if original_entry.document_id is not None:
         from app.services.landed_cost_inventory_lifecycle import inventory_operation_active

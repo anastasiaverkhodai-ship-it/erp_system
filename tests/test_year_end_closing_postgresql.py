@@ -199,11 +199,19 @@ async def test_year_end_migration_roundtrip(year_engine):
     from app.core.database import Base
     spec=spec_from_file_location("year_end_revision","alembic/versions/c0441bc30ae0_add_year_end_closing.py")
     migration=module_from_spec(spec);spec.loader.exec_module(migration)
+    spec=spec_from_file_location("commissioning_source_revision",
+        "alembic/versions/8e124c09a671_harden_fixed_asset_commissioning_source.py")
+    commissioning_source=module_from_spec(spec);spec.loader.exec_module(commissioning_source)
     async with year_engine.begin() as conn:
         def roundtrip(sync):
             with Operations.context(MigrationContext.configure(sync)):
+                # A later check references year_end_closing_id. Remove that
+                # dependency first, as an ordered Alembic downgrade would do,
+                # then restore it after reintroducing the year-end column.
+                commissioning_source.downgrade()
                 migration.downgrade()
                 migration.upgrade()
+                commissioning_source.upgrade()
             assert compare_metadata(MigrationContext.configure(sync),Base.metadata) == []
         await conn.run_sync(roundtrip)
 

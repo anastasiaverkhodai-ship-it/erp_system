@@ -7,7 +7,7 @@ from sqlalchemy.orm import aliased
 
 from app.models.account import Account
 from app.models.company import Company
-from app.models.fixed_asset import FixedAsset
+from app.models.fixed_asset import FixedAsset, FixedAssetStatus
 from app.models.fixed_asset_acquisition import (
     FixedAssetAcquisitionCost,
     FixedAssetAcquisitionCostType,
@@ -308,6 +308,8 @@ async def add_fixed_asset_acquisition_cost(
         fixed_asset_id,
         for_update=True,
     )
+    if asset.status not in (FixedAssetStatus.DRAFT, FixedAssetStatus.READY_FOR_COMMISSIONING):
+        raise FixedAssetAcquisitionError("Reverse commissioning before changing acquisition costs")
 
     journal, source, account = await _load_source(
         db,
@@ -411,6 +413,8 @@ async def reverse_fixed_asset_acquisition_cost(
         fixed_asset_id,
         for_update=True,
     )
+    if asset.status not in (FixedAssetStatus.DRAFT, FixedAssetStatus.READY_FOR_COMMISSIONING):
+        raise FixedAssetAcquisitionError("Reverse commissioning before changing acquisition costs")
 
     result = await db.execute(
         select(FixedAssetAcquisitionCost)

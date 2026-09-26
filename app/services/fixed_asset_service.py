@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.account import Account
 from app.models.fixed_asset import (
     FixedAsset,
+    FixedAssetStatus,
     FixedAssetCardHistory,
     FixedAssetGroup,
     FixedAssetLocation,
@@ -250,6 +251,8 @@ async def create_fixed_asset(
     data: FixedAssetCreate,
     created_by: int,
 ):
+    if data.status not in (FixedAssetStatus.DRAFT, FixedAssetStatus.READY_FOR_COMMISSIONING) or data.in_service_date is not None:
+        raise FixedAssetValidationError("Use the commissioning lifecycle to enter service")
     await _require_group(db, company_id, data.asset_group_id)
     await _require_location(db, company_id, data.location_id)
     await _require_responsible_person(
@@ -288,9 +291,27 @@ async def update_fixed_asset(
     data: FixedAssetUpdate,
     changed_by: int,
 ):
-    row = await get_fixed_asset(db, company_id, fixed_asset_id)
+    from app.services.fixed_asset_acquisition_service import _lock_company, FixedAssetAcquisitionError
+    try:
+        await _lock_company(db, company_id)
+    except FixedAssetAcquisitionError as exc:
+        raise FixedAssetNotFoundError(str(exc)) from exc
+    row = await db.scalar(select(FixedAsset).where(
+        FixedAsset.company_id == company_id, FixedAsset.id == fixed_asset_id
+    ).with_for_update().execution_options(populate_existing=True))
+    if row is None:
+        raise FixedAssetNotFoundError("fixed asset not found")
     changes = data.model_dump(exclude_unset=True)
     effective_date = changes.pop("effective_date")
+    if row.status not in (FixedAssetStatus.DRAFT, FixedAssetStatus.READY_FOR_COMMISSIONING):
+        raise FixedAssetValidationError("In-service asset changes require their dedicated lifecycle")
+    if "status" in changes and changes["status"] not in (FixedAssetStatus.DRAFT, FixedAssetStatus.READY_FOR_COMMISSIONING):
+        raise FixedAssetValidationError("Use the commissioning lifecycle to enter service")
+    if changes.get("in_service_date") is not None:
+        raise FixedAssetValidationError("Use the commissioning lifecycle to set the in-service date")
+    for key in ("name", "salvage_value", "useful_life_months", "depreciation_method", "asset_group_id"):
+        if key in changes and changes[key] is None:
+            raise FixedAssetValidationError(f"{key} cannot be null")
 
     new_group_id = changes.get("asset_group_id", row.asset_group_id)
     new_location_id = changes.get("location_id", row.location_id)

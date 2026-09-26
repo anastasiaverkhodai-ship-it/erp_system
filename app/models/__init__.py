@@ -153,3 +153,4 @@ from app.models.fixed_asset import (
 )
 
 from app.models.fixed_asset_acquisition import FixedAssetAcquisitionCost, FixedAssetAcquisitionCostType
+from app.models.fixed_asset_commissioning import FixedAssetCommissioning

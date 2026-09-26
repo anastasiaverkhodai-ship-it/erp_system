@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.permissions import require_company_permission
 from app.core.database import get_db
 from app.models.user import User
 from app.schemas.fixed_asset_acquisition import (
@@ -39,7 +39,7 @@ async def get_acquisition_costs(
     company_id: int,
     fixed_asset_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.read")),
 ):
     try:
         return await list_fixed_asset_acquisition_costs(
@@ -61,7 +61,7 @@ async def post_acquisition_cost(
     fixed_asset_id: int,
     payload: FixedAssetAcquisitionCostCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.create")),
 ):
     try:
         row = await add_fixed_asset_acquisition_cost(
@@ -103,12 +103,13 @@ async def post_acquisition_cost_reversal(
     acquisition_cost_id: int,
     payload: FixedAssetAcquisitionCostReverse,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("journal_entries.reverse")),
 ):
     try:
         row = await reverse_fixed_asset_acquisition_cost(
             db,
             company_id=company_id,
+            fixed_asset_id=fixed_asset_id,
             acquisition_cost_id=acquisition_cost_id,
             reversal_date=payload.reversal_date,
             reversed_by=current_user.id,
@@ -134,6 +135,7 @@ async def post_acquisition_cost_reversal(
             detail="fixed asset acquisition reversal conflict",
         )
     except HTTPException:
+        await db.rollback()
         raise
     except Exception:
         await db.rollback()
