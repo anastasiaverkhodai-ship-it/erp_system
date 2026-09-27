@@ -19,6 +19,9 @@ from app.models.product import Product
 from app.models.warehouse import Warehouse
 from app.models.stock_ledger import StockLedger
 from app.models.payment_settlement_allocation import PaymentSettlementAllocation
+from app.models.fixed_asset import FixedAsset, FixedAssetStatus
+from app.models.fixed_asset_commissioning import FixedAssetCommissioning
+from app.models.fixed_asset_opening_balance import FixedAssetOpeningBalance
 from app.services.opening_balance_service import OpeningBalanceError, get_opening_balance
 from app.services.accounting_account_roles import AccountingAccountRole as R
 from app.services.accounting_account_role_resolver import resolve_company_account_roles, AccountingAccountRoleResolutionError
@@ -30,6 +33,356 @@ from app.services.warehouse_posting_handler import WarehousePostingHandler, Ware
 
 ZERO=Decimal(0)
 
+
+
+
+async def _validate_and_materialize_fixed_asset_openings(
+    db,
+    *,
+    company_id,
+    opening,
+    journal,
+    created_by,
+    lines,
+):
+    if not lines:
+        return
+
+    asset_ids = [
+        line.fixed_asset_id
+        for line in lines
+    ]
+
+    assets = (
+        await db.scalars(
+            select(FixedAsset)
+            .where(
+                FixedAsset.company_id == company_id,
+                FixedAsset.id.in_(asset_ids),
+            )
+            .order_by(FixedAsset.id)
+            .with_for_update()
+            .execution_options(
+                populate_existing=True
+            )
+        )
+    ).all()
+
+    assets_by_id = {
+        asset.id: asset
+        for asset in assets
+    }
+
+    if set(assets_by_id) != set(asset_ids):
+        raise OpeningBalanceError(
+            "Invalid or foreign-company "
+            "fixed asset opening source"
+        )
+
+    previous_opening = await db.scalar(
+        select(FixedAssetOpeningBalance.id)
+        .where(
+            FixedAssetOpeningBalance.company_id
+            == company_id,
+            FixedAssetOpeningBalance.fixed_asset_id
+            .in_(asset_ids),
+        )
+        .limit(1)
+    )
+
+    if previous_opening is not None:
+        raise OpeningBalanceError(
+            "Fixed asset already has "
+            "opening-balance history"
+        )
+
+    commissioning = await db.scalar(
+        select(FixedAssetCommissioning.id)
+        .where(
+            FixedAssetCommissioning.company_id
+            == company_id,
+            FixedAssetCommissioning.fixed_asset_id
+            .in_(asset_ids),
+            FixedAssetCommissioning.reversal_of_id
+            .is_(None),
+        )
+        .limit(1)
+    )
+
+    if commissioning is not None:
+        raise OpeningBalanceError(
+            "Fixed asset opening conflicts "
+            "with commissioning history"
+        )
+
+    expected = {}
+
+    def add_expected(
+        account_id,
+        *,
+        debit=ZERO,
+        credit=ZERO,
+    ):
+        values = expected.setdefault(
+            account_id,
+            [ZERO, ZERO],
+        )
+
+        values[0] += debit
+        values[1] += credit
+
+    for line in lines:
+        asset = assets_by_id[
+            line.fixed_asset_id
+        ]
+
+        if asset.status not in {
+            FixedAssetStatus.DRAFT,
+            FixedAssetStatus.READY_FOR_COMMISSIONING,
+        }:
+            raise OpeningBalanceError(
+                "Fixed asset opening requires "
+                "draft or ready-for-commissioning "
+                "status"
+            )
+
+        if (
+            line.acquisition_date
+            > opening.opening_date
+        ):
+            raise OpeningBalanceError(
+                "Fixed asset acquisition date "
+                "cannot follow opening date"
+            )
+
+        if (
+            line.in_service_date
+            > opening.opening_date
+        ):
+            raise OpeningBalanceError(
+                "Fixed asset in-service date "
+                "cannot follow opening date"
+            )
+
+        if (
+            line.original_cost
+            < asset.salvage_value
+        ):
+            raise OpeningBalanceError(
+                "Fixed asset opening cost cannot "
+                "be below salvage value"
+            )
+
+        add_expected(
+            asset.asset_account_id,
+            debit=line.original_cost,
+        )
+
+        if (
+            line.accumulated_depreciation
+            > ZERO
+        ):
+            add_expected(
+                asset.accumulated_depreciation_account_id,
+                credit=(
+                    line.accumulated_depreciation
+                ),
+            )
+
+    for account_id, values in expected.items():
+        actual_debit = sum(
+            (
+                journal_line.debit
+                for journal_line in journal.lines
+                if journal_line.account_id
+                == account_id
+            ),
+            ZERO,
+        )
+
+        actual_credit = sum(
+            (
+                journal_line.credit
+                for journal_line in journal.lines
+                if journal_line.account_id
+                == account_id
+            ),
+            ZERO,
+        )
+
+        if (
+            actual_debit,
+            actual_credit,
+        ) != (
+            values[0],
+            values[1],
+        ):
+            raise OpeningBalanceError(
+                "Fixed asset opening detail "
+                "does not exactly match GL "
+                f"account {account_id}"
+            )
+
+    for line in lines:
+        asset = assets_by_id[
+            line.fixed_asset_id
+        ]
+
+        previous_status = (
+            asset.status.value
+            if hasattr(asset.status, "value")
+            else str(asset.status)
+        )
+
+        db.add(
+            FixedAssetOpeningBalance(
+                company_id=company_id,
+                opening_balance_id=opening.id,
+                fixed_asset_id=asset.id,
+                acquisition_date=(
+                    line.acquisition_date
+                ),
+                in_service_date=(
+                    line.in_service_date
+                ),
+                original_cost=(
+                    line.original_cost
+                ),
+                accumulated_depreciation=(
+                    line.accumulated_depreciation
+                ),
+                previous_status=(
+                    previous_status
+                ),
+                previous_acquisition_date=(
+                    asset.acquisition_date
+                ),
+                previous_in_service_date=(
+                    asset.in_service_date
+                ),
+                previous_original_cost=(
+                    asset.original_cost
+                ),
+                created_by=created_by,
+            )
+        )
+
+        asset.acquisition_date = (
+            line.acquisition_date
+        )
+        asset.in_service_date = (
+            line.in_service_date
+        )
+        asset.original_cost = (
+            line.original_cost
+        )
+        asset.status = (
+            FixedAssetStatus.IN_SERVICE
+        )
+
+    await db.flush()
+
+
+async def _reverse_fixed_asset_openings(
+    db,
+    *,
+    company_id,
+    opening_balance_id,
+):
+    rows = (
+        await db.scalars(
+            select(FixedAssetOpeningBalance)
+            .where(
+                FixedAssetOpeningBalance.company_id
+                == company_id,
+                FixedAssetOpeningBalance.opening_balance_id
+                == opening_balance_id,
+            )
+            .order_by(
+                FixedAssetOpeningBalance.id
+            )
+            .with_for_update()
+            .execution_options(
+                populate_existing=True
+            )
+        )
+    ).all()
+
+    if not rows:
+        return
+
+    asset_ids = [
+        row.fixed_asset_id
+        for row in rows
+    ]
+
+    assets = (
+        await db.scalars(
+            select(FixedAsset)
+            .where(
+                FixedAsset.company_id
+                == company_id,
+                FixedAsset.id.in_(
+                    asset_ids
+                ),
+            )
+            .order_by(FixedAsset.id)
+            .with_for_update()
+            .execution_options(
+                populate_existing=True
+            )
+        )
+    ).all()
+
+    assets_by_id = {
+        asset.id: asset
+        for asset in assets
+    }
+
+    if set(assets_by_id) != set(asset_ids):
+        raise OpeningBalanceError(
+            "Fixed asset opening reversal "
+            "source is incomplete"
+        )
+
+    for row in rows:
+        asset = assets_by_id[
+            row.fixed_asset_id
+        ]
+
+        if (
+            asset.status
+            != FixedAssetStatus.IN_SERVICE
+            or asset.acquisition_date
+            != row.acquisition_date
+            or asset.in_service_date
+            != row.in_service_date
+            or asset.original_cost
+            != row.original_cost
+        ):
+            raise OpeningBalanceError(
+                "Fixed asset changed after "
+                "opening; reverse later "
+                "fixed-asset lifecycle first"
+            )
+
+        asset.status = FixedAssetStatus(
+            row.previous_status
+        )
+
+        asset.acquisition_date = (
+            row.previous_acquisition_date
+        )
+
+        asset.in_service_date = (
+            row.previous_in_service_date
+        )
+
+        asset.original_cost = (
+            row.previous_original_cost
+        )
+
+    await db.flush()
 
 @landed_cost_inventory_operation(result_date=lambda opening: opening.opening_date)
 async def attach_opening_details(db, *, company_id, opening_balance_id, created_by, data):
@@ -93,6 +446,14 @@ async def attach_opening_details(db, *, company_id, opening_balance_id, created_
             tuple_(StockLedger.product_id,StockLedger.warehouse_id).in_(identities),
             or_(Document.status!='reversed',StockLedger.movement_date>opening.opening_date)).limit(1)):
             raise OpeningBalanceError('Opening stock conflicts with active or later stock history; reverse it first and use a cutover date after its reversal')
+    await _validate_and_materialize_fixed_asset_openings(
+        db,
+        company_id=company_id,
+        opening=opening,
+        journal=journal,
+        created_by=created_by,
+        lines=data.fixed_assets,
+    )
     package=OpeningBalanceDetail(company_id=company_id,opening_balance_id=opening.id,
         request_fingerprint=fingerprint,created_by=created_by)
     db.add(package)
@@ -135,6 +496,11 @@ async def reverse_opening_detail(db, *, company_id, opening_balance_id, reversal
         OpeningBalanceDetail.company_id==company_id,OpeningBalanceDetail.opening_balance_id==opening_balance_id))
     if package is None:
         return
+    await _reverse_fixed_asset_openings(
+        db,
+        company_id=company_id,
+        opening_balance_id=opening_balance_id,
+    )
     items=(await db.scalars(select(CounterpartyOpenItem).where(CounterpartyOpenItem.company_id==company_id,
         CounterpartyOpenItem.opening_balance_id==opening_balance_id).with_for_update()
         .execution_options(populate_existing=True))).all()

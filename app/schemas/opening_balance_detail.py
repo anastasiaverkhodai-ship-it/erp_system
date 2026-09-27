@@ -30,20 +30,57 @@ class OpeningDebtLine(BaseModel):
         return self
 
 
+class OpeningFixedAssetLine(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    fixed_asset_id: int = Field(gt=0)
+    acquisition_date: date
+    in_service_date: date
+    original_cost: Decimal = Field(
+        gt=0,
+        max_digits=18,
+        decimal_places=2,
+    )
+    accumulated_depreciation: Decimal = Field(
+        ge=0,
+        max_digits=18,
+        decimal_places=2,
+    )
+
+    @model_validator(mode='after')
+    def validate_fixed_asset_opening(self):
+        if self.in_service_date < self.acquisition_date:
+            raise ValueError(
+                'In-service date precedes acquisition date'
+            )
+        if self.accumulated_depreciation > self.original_cost:
+            raise ValueError(
+                'Accumulated depreciation exceeds original cost'
+            )
+        return self
+
+
 class OpeningDetailsCreate(BaseModel):
     model_config = ConfigDict(extra='forbid')
     stock: list[OpeningStockLine] = Field(default_factory=list, max_length=1000)
     debts: list[OpeningDebtLine] = Field(default_factory=list, max_length=1000)
+    fixed_assets: list[OpeningFixedAssetLine] = Field(
+        default_factory=list,
+        max_length=1000,
+    )
 
     @model_validator(mode='after')
     def unique_sources(self):
-        if not self.stock and not self.debts:
-            raise ValueError('Provide stock or debt detail')
+        if not self.stock and not self.debts and not self.fixed_assets:
+            raise ValueError('Provide stock, debt, or fixed asset detail')
         if len({(l.product_id, l.warehouse_id) for l in self.stock}) != len(self.stock):
             raise ValueError('Duplicate product/warehouse opening line')
         keys=[(l.item_type,l.counterparty_id,l.contract_id,l.reference) for l in self.debts]
         if len(set(keys)) != len(keys):
             raise ValueError('Duplicate opening debt reference')
+        asset_ids=[l.fixed_asset_id for l in self.fixed_assets]
+        if len(set(asset_ids)) != len(asset_ids):
+            raise ValueError('Duplicate fixed asset opening line')
         return self
 
 
