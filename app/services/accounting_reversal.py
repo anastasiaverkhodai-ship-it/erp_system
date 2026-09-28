@@ -451,6 +451,20 @@ async def reverse_journal_entry(
             "Journal entry not found"
         )
 
+    valuation_id = getattr(
+        original_entry,
+        "fixed_asset_revaluation_impairment_id",
+        None,
+    )
+    if (
+        valuation_id is not None
+        and db.info.get("fixed_asset_revaluation_impairment")
+        != valuation_id
+    ):
+        raise AccountingReversalError(
+            "Use the fixed asset revaluation/impairment lifecycle"
+        )
+
     repair_improvement_id = getattr(
         original_entry,
         "fixed_asset_repair_improvement_id",
@@ -796,6 +810,11 @@ async def reverse_journal_entry(
                 "purchase_value_correction_ma_replay_event_id",
                 None,
             )
+        ),
+        fixed_asset_revaluation_impairment_id=getattr(
+            original_entry,
+            "fixed_asset_revaluation_impairment_id",
+            None,
         ),
         accounting_rule_id=original_entry.accounting_rule_id,
         entry_date=reversal_date,

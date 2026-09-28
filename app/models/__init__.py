@@ -160,3 +160,5 @@ from app.models.fixed_asset_repair_improvement import (
     FixedAssetRepairImprovement,
     FixedAssetRepairImprovementType,
 )
+
+from app.models.fixed_asset_revaluation_impairment import FixedAssetRevaluationImpairment, FixedAssetRevaluationImpairmentType

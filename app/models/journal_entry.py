@@ -73,6 +73,29 @@ class JournalEntry(Base):
             ondelete="RESTRICT",
             use_alter=True,
         ),
+        ForeignKeyConstraint(
+            ["company_id", "fixed_asset_revaluation_impairment_id"],
+            [
+                "fixed_asset_revaluation_impairments.company_id",
+                "fixed_asset_revaluation_impairments.id",
+            ],
+            name="fk_je_company_fixed_asset_revaluation_impairment",
+            ondelete="RESTRICT",
+            use_alter=True,
+        ),
+        Index(
+            "ix_je_fixed_asset_revaluation_impairment",
+            "fixed_asset_revaluation_impairment_id",
+        ),
+        Index(
+            "uq_je_fixed_asset_revaluation_impairment_original",
+            "fixed_asset_revaluation_impairment_id",
+            unique=True,
+            postgresql_where=text(
+                "fixed_asset_revaluation_impairment_id IS NOT NULL "
+                "AND reversal_of_id IS NULL"
+            ),
+        ),
         Index(
             "ix_je_fixed_asset_repair_improvement",
             "fixed_asset_repair_improvement_id",
@@ -1726,6 +1749,12 @@ class JournalEntry(Base):
     )
 
     fixed_asset_repair_improvement_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+    )
+
+    fixed_asset_revaluation_impairment_id: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
         index=True,
