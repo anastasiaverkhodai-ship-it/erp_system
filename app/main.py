@@ -174,6 +174,7 @@ from app.api.v1.year_end_closings import router as year_end_closings_router
 from app.api.v1.fixed_assets import router as fixed_assets_router
 from app.api.v1.fixed_asset_repair_improvements import router as fixed_asset_repair_improvements_router
 from app.api.v1.fixed_asset_revaluation_impairments import router as fixed_asset_revaluation_impairments_router
+from app.api.v1.fixed_asset_disposals import router as fixed_asset_disposals_router
 from app.api.v1.fixed_asset_acquisitions import router as fixed_asset_acquisitions_router
 from app.api.v1.fixed_asset_commissionings import router as fixed_asset_commissionings_router
 from app.api.v1.fixed_asset_depreciations import router as fixed_asset_depreciations_router
@@ -181,6 +182,7 @@ app.include_router(year_end_closings_router, prefix="/api/v1")
 app.include_router(fixed_assets_router, prefix="/api/v1")
 app.include_router(fixed_asset_repair_improvements_router, prefix="/api/v1")
 app.include_router(fixed_asset_revaluation_impairments_router, prefix="/api/v1")
+app.include_router(fixed_asset_disposals_router, prefix="/api/v1")
 app.include_router(fixed_asset_acquisitions_router, prefix="/api/v1")
 app.include_router(fixed_asset_commissionings_router, prefix="/api/v1")
 app.include_router(fixed_asset_depreciations_router, prefix="/api/v1")

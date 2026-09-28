@@ -1585,6 +1585,13 @@ class JournalEntry(Base):
         ),
 )
 
+
+    fixed_asset_disposal_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+    )
+
     id: Mapped[int] = mapped_column(
         primary_key=True,
     )

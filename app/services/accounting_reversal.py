@@ -465,6 +465,20 @@ async def reverse_journal_entry(
             "Use the fixed asset revaluation/impairment lifecycle"
         )
 
+    disposal_id = getattr(
+        original_entry,
+        "fixed_asset_disposal_id",
+        None,
+    )
+    if (
+        disposal_id is not None
+        and db.info.get("fixed_asset_disposal")
+        != disposal_id
+    ):
+        raise AccountingReversalError(
+            "Use the fixed asset disposal lifecycle"
+        )
+
     repair_improvement_id = getattr(
         original_entry,
         "fixed_asset_repair_improvement_id",
@@ -810,6 +824,11 @@ async def reverse_journal_entry(
                 "purchase_value_correction_ma_replay_event_id",
                 None,
             )
+        ),
+        fixed_asset_disposal_id=getattr(
+            original_entry,
+            "fixed_asset_disposal_id",
+            None,
         ),
         fixed_asset_revaluation_impairment_id=getattr(
             original_entry,
