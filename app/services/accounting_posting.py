@@ -129,6 +129,20 @@ async def post_journal_entry(
     if commissioning_id is not None and db.info.get("fixed_asset_commissioning") != commissioning_id:
         raise AccountingPostingError("Use the fixed asset commissioning lifecycle")
 
+    repair_improvement_id = getattr(
+        journal_entry,
+        "fixed_asset_repair_improvement_id",
+        None,
+    )
+    if (
+        repair_improvement_id is not None
+        and db.info.get("fixed_asset_repair_improvement")
+        != repair_improvement_id
+    ):
+        raise AccountingPostingError(
+            "Use the fixed asset repair/improvement lifecycle"
+        )
+
     closing_id = getattr(journal_entry, "year_end_closing_id", None)
     if closing_id is not None and db.info.get("year_end_closing_active") != closing_id:
         raise AccountingPostingError("Post year-end journals through their closing lifecycle")

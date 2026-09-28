@@ -451,6 +451,20 @@ async def reverse_journal_entry(
             "Journal entry not found"
         )
 
+    repair_improvement_id = getattr(
+        original_entry,
+        "fixed_asset_repair_improvement_id",
+        None,
+    )
+    if (
+        repair_improvement_id is not None
+        and db.info.get("fixed_asset_repair_improvement")
+        != repair_improvement_id
+    ):
+        raise AccountingReversalError(
+            "Use the fixed asset repair/improvement lifecycle"
+        )
+
     if getattr(original_entry,'payment_settlement_allocation_id',None):
         from app.models.payment_settlement_allocation import PaymentSettlementAllocation
         from app.models.counterparty_open_item import CounterpartyOpenItem

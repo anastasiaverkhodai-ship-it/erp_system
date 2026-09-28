@@ -293,6 +293,16 @@ async def update_journal_entry(
         if getattr(journal_entry, "fixed_asset_depreciation_id", None) is not None:
             raise HTTPException(409, "Use the fixed asset depreciation lifecycle")
 
+        if getattr(
+            journal_entry,
+            "fixed_asset_repair_improvement_id",
+            None,
+        ) is not None:
+            raise HTTPException(
+                409,
+                "Use the fixed asset repair/improvement lifecycle",
+            )
+
         if getattr(journal_entry, "year_end_closing_id", None) is not None:
             raise HTTPException(409, "Year-end journals are immutable; use their closing lifecycle")
 
@@ -456,6 +466,16 @@ async def delete_journal_entry(
 
         if getattr(journal_entry, "fixed_asset_depreciation_id", None) is not None:
             raise HTTPException(409, "Use the fixed asset depreciation lifecycle")
+
+        if getattr(
+            journal_entry,
+            "fixed_asset_repair_improvement_id",
+            None,
+        ) is not None:
+            raise HTTPException(
+                409,
+                "Use the fixed asset repair/improvement lifecycle",
+            )
 
         if getattr(journal_entry, "year_end_closing_id", None) is not None:
             raise HTTPException(409, "Year-end journals are immutable; use their closing lifecycle")

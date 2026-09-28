@@ -156,3 +156,7 @@ from app.models.fixed_asset_acquisition import FixedAssetAcquisitionCost, FixedA
 from app.models.fixed_asset_commissioning import FixedAssetCommissioning
 from app.models.fixed_asset_opening_balance import FixedAssetOpeningBalance
 from app.models.fixed_asset_depreciation import FixedAssetDepreciation
+from app.models.fixed_asset_repair_improvement import (
+    FixedAssetRepairImprovement,
+    FixedAssetRepairImprovementType,
+)
