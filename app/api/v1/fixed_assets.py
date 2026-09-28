@@ -18,8 +18,10 @@ from app.schemas.fixed_asset import (
     FixedAssetResponsiblePersonResponse,
     FixedAssetResponsiblePersonUpdate,
     FixedAssetResponse,
-    FixedAssetUpdate,
+    FixedAssetUpdate,    FixedAssetMovementCreate,
+    FixedAssetMovementResponse,
 )
+
 from app.services.fixed_asset_service import (
     FixedAssetNotFoundError,
     FixedAssetValidationError,
@@ -36,8 +38,9 @@ from app.services.fixed_asset_service import (
     update_fixed_asset,
     update_fixed_asset_group,
     update_fixed_asset_location,
-    update_fixed_asset_responsible_person,
+    update_fixed_asset_responsible_person,    move_fixed_asset,
 )
+
 
 
 router = APIRouter(
@@ -344,6 +347,50 @@ async def patch_asset(
     except IntegrityError:
         await db.rollback()
         raise HTTPException(status_code=409, detail="fixed asset conflict")
+    except Exception:
+        await db.rollback()
+        raise
+
+
+
+
+@router.post(
+    "/{fixed_asset_id}/movements",
+    response_model=FixedAssetMovementResponse,
+    status_code=201,
+)
+async def post_asset_movement(
+    company_id: int,
+    fixed_asset_id: int,
+    data: FixedAssetMovementCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_company_permission("journal_entries.create")
+    ),
+):
+    try:
+        row = await move_fixed_asset(
+            db,
+            company_id,
+            fixed_asset_id,
+            effective_date=data.effective_date,
+            changed_by=current_user.id,
+            location_id=data.location_id,
+            responsible_person_id=data.responsible_person_id,
+            status=data.status,
+        )
+        await db.commit()
+        await db.refresh(row)
+        return row
+    except (FixedAssetNotFoundError, FixedAssetValidationError) as exc:
+        await db.rollback()
+        _raise_service_error(exc)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="fixed asset movement conflict",
+        )
     except Exception:
         await db.rollback()
         raise

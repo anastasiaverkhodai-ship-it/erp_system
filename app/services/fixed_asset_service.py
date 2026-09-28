@@ -22,6 +22,7 @@ from app.schemas.fixed_asset import (
     FixedAssetResponsiblePersonUpdate,
     FixedAssetUpdate,
 )
+from app.services.accounting_period_service import ensure_period_open
 
 
 class FixedAssetNotFoundError(ValueError):
@@ -302,6 +303,19 @@ async def update_fixed_asset(
     if row is None:
         raise FixedAssetNotFoundError("fixed asset not found")
     changes = data.model_dump(exclude_unset=True)
+
+    lifecycle_owned_fields = {
+        "location_id",
+        "responsible_person_id",
+        "status",
+    }
+    attempted_lifecycle_fields = lifecycle_owned_fields.intersection(changes)
+    if attempted_lifecycle_fields:
+        raise FixedAssetValidationError(
+            "12.7 lifecycle-owned fields must be changed through "
+            "the fixed-asset movement endpoint: "
+            + ", ".join(sorted(attempted_lifecycle_fields))
+        )
     effective_date = changes.pop("effective_date")
     if row.status not in (FixedAssetStatus.DRAFT, FixedAssetStatus.READY_FOR_COMMISSIONING):
         raise FixedAssetValidationError("In-service asset changes require their dedicated lifecycle")
@@ -380,7 +394,9 @@ async def update_fixed_asset(
             salvage_value=new_salvage,
             depreciation_method=new_method,
             changed_by=changed_by,
-        )
+
+                      status=row.status,
+                  )
         db.add(history)
 
     await db.flush()
@@ -406,3 +422,125 @@ async def list_fixed_asset_card_history(
         )
     )
     return list(result.scalars().all())
+
+
+async def move_fixed_asset(
+    db: AsyncSession,
+    company_id: int,
+    fixed_asset_id: int,
+    *,
+    effective_date: date,
+    changed_by: int,
+    location_id: int | None = None,
+    responsible_person_id: int | None = None,
+    status: FixedAssetStatus | None = None,
+) -> FixedAssetCardHistory:
+    await ensure_period_open(db, company_id, effective_date)
+
+    row = await db.scalar(
+        select(FixedAsset)
+        .where(
+            FixedAsset.id == fixed_asset_id,
+            FixedAsset.company_id == company_id,
+        )
+        .with_for_update()
+    )
+    if row is None:
+        raise FixedAssetNotFoundError("fixed asset not found")
+
+    if effective_date < row.acquisition_date:
+        raise FixedAssetValidationError(
+            "movement effective_date cannot precede acquisition_date"
+        )
+
+    if location_id is not None:
+        await _require_location(db, company_id, location_id)
+
+    if responsible_person_id is not None:
+        await _require_responsible_person(
+            db,
+            company_id,
+            responsible_person_id,
+        )
+
+    target_status = status if status is not None else row.status
+
+    allowed_status_transitions = {
+        FixedAssetStatus.IN_SERVICE: {
+            FixedAssetStatus.IN_SERVICE,
+            FixedAssetStatus.SUSPENDED,
+        },
+        FixedAssetStatus.SUSPENDED: {
+            FixedAssetStatus.SUSPENDED,
+            FixedAssetStatus.IN_SERVICE,
+        },
+    }
+
+    if status is not None:
+        if row.status == FixedAssetStatus.DISPOSED:
+            raise FixedAssetValidationError(
+                "disposed fixed asset cannot be moved or reactivated"
+            )
+
+        if target_status == FixedAssetStatus.DISPOSED:
+            raise FixedAssetValidationError(
+                "disposal is owned by fixed-asset disposal lifecycle"
+            )
+
+        if row.status not in allowed_status_transitions:
+            raise FixedAssetValidationError(
+                "status transition is not owned by movement lifecycle"
+            )
+
+        if target_status not in allowed_status_transitions[row.status]:
+            raise FixedAssetValidationError(
+                f"invalid fixed asset status transition: "
+                f"{row.status.value} -> {target_status.value}"
+            )
+
+    if row.status == FixedAssetStatus.DISPOSED:
+        raise FixedAssetValidationError(
+            "disposed fixed asset cannot be moved"
+        )
+
+    target_location_id = (
+        location_id if location_id is not None else row.location_id
+    )
+    target_responsible_person_id = (
+        responsible_person_id
+        if responsible_person_id is not None
+        else row.responsible_person_id
+    )
+
+    changed = (
+        target_location_id != row.location_id
+        or target_responsible_person_id != row.responsible_person_id
+        or target_status != row.status
+    )
+    if not changed:
+        raise FixedAssetValidationError(
+            "movement must change location, responsible person, or status"
+        )
+
+    row.location_id = target_location_id
+    row.responsible_person_id = target_responsible_person_id
+    row.status = target_status
+
+    history = FixedAssetCardHistory(
+        company_id=company_id,
+        fixed_asset_id=row.id,
+        effective_date=effective_date,
+        asset_group_id=row.asset_group_id,
+        location_id=row.location_id,
+        responsible_person_id=row.responsible_person_id,
+        name=row.name,
+        useful_life_months=row.useful_life_months,
+        salvage_value=row.salvage_value,
+        depreciation_method=row.depreciation_method,
+        status=row.status,
+        changed_by=changed_by,
+    )
+    db.add(history)
+    await db.flush()
+    await db.refresh(history)
+    return history

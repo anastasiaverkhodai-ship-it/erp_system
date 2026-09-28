@@ -177,3 +177,30 @@ class FixedAssetCardHistoryResponse(BaseModel):
     depreciation_method: FixedAssetDepreciationMethod
     changed_by: int
     created_at: datetime
+
+
+class FixedAssetMovementCreate(BaseModel):
+    effective_date: date
+    location_id: int | None = None
+    responsible_person_id: int | None = None
+    status: FixedAssetStatus | None = None
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class FixedAssetMovementResponse(BaseModel):
+    id: int
+    company_id: int
+    fixed_asset_id: int
+    effective_date: date
+    asset_group_id: int
+    location_id: int | None
+    responsible_person_id: int | None
+    name: str
+    useful_life_months: int
+    salvage_value: Decimal
+    depreciation_method: FixedAssetDepreciationMethod
+    status: FixedAssetStatus
+    changed_by: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

@@ -4,7 +4,7 @@ import enum
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, ForeignKeyConstraint, Index, Numeric, String, UniqueConstraint, func, true
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, ForeignKeyConstraint, Index, Numeric, String, UniqueConstraint, func, true, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -402,6 +402,15 @@ class FixedAssetCardHistory(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     useful_life_months: Mapped[int] = mapped_column(nullable=False)
     salvage_value: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    status: Mapped[FixedAssetStatus] = mapped_column(
+        SAEnum(
+            FixedAssetStatus,
+            name="fixed_asset_status",
+            native_enum=False,
+        ),
+        nullable=False,
+    )
+
     depreciation_method: Mapped[FixedAssetDepreciationMethod] = mapped_column(
         Enum(
             FixedAssetDepreciationMethod,
