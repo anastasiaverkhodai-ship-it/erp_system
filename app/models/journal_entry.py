@@ -1696,6 +1696,12 @@ class JournalEntry(Base):
         nullable=True,
     )
 
+    fixed_asset_depreciation_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+    )
+
     accounting_rule_id: Mapped[int | None] = mapped_column(
     ForeignKey(
         "accounting_rules.id",
