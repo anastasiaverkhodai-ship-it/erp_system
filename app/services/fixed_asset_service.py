@@ -318,7 +318,19 @@ async def update_fixed_asset(
         )
     effective_date = changes.pop("effective_date")
     if row.status not in (FixedAssetStatus.DRAFT, FixedAssetStatus.READY_FOR_COMMISSIONING):
-        raise FixedAssetValidationError("In-service asset changes require their dedicated lifecycle")
+        from app.models.fixed_asset import FixedAssetDepreciationMethod
+        initial_production_plan = (
+            row.status == FixedAssetStatus.IN_SERVICE
+            and row.depreciation_method == FixedAssetDepreciationMethod.PRODUCTION
+            and row.expected_output is None
+            and set(changes) == {"expected_output"}
+            and changes["expected_output"] is not None
+        )
+        if not initial_production_plan:
+            raise FixedAssetValidationError("In-service asset changes require their dedicated lifecycle")
+        from app.services.fixed_asset_lifecycle_guard import require_chronology
+        await require_chronology(db, row, effective_date)
+        await ensure_period_open(company_id=company_id, operation_date=effective_date, db=db)
     if "status" in changes and changes["status"] not in (FixedAssetStatus.DRAFT, FixedAssetStatus.READY_FOR_COMMISSIONING):
         raise FixedAssetValidationError("Use the commissioning lifecycle to enter service")
     if changes.get("in_service_date") is not None:
@@ -370,6 +382,7 @@ async def update_fixed_asset(
         for key in (
             "name",
             "useful_life_months",
+            "expected_output",
             "salvage_value",
             "depreciation_method",
             "asset_group_id",
@@ -390,6 +403,7 @@ async def update_fixed_asset(
             location_id=new_location_id,
             responsible_person_id=new_responsible_person_id,
             name=new_name,
+            expected_output=row.expected_output,
             useful_life_months=new_useful_life,
             salvage_value=new_salvage,
             depreciation_method=new_method,
@@ -435,7 +449,9 @@ async def move_fixed_asset(
     responsible_person_id: int | None = None,
     status: FixedAssetStatus | None = None,
 ) -> FixedAssetCardHistory:
-    await ensure_period_open(db, company_id, effective_date)
+    from app.services.fixed_asset_lifecycle_guard import lock_company, require_chronology, event_time
+    await lock_company(db, company_id)
+    await ensure_period_open(company_id=company_id, operation_date=effective_date, db=db)
 
     row = await db.scalar(
         select(FixedAsset)
@@ -444,10 +460,12 @@ async def move_fixed_asset(
             FixedAsset.company_id == company_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if row is None:
         raise FixedAssetNotFoundError("fixed asset not found")
 
+    await require_chronology(db, row, effective_date)
     if effective_date < row.acquisition_date:
         raise FixedAssetValidationError(
             "movement effective_date cannot precede acquisition_date"
@@ -527,6 +545,7 @@ async def move_fixed_asset(
     row.status = target_status
 
     history = FixedAssetCardHistory(
+        created_at=event_time(),
         company_id=company_id,
         fixed_asset_id=row.id,
         effective_date=effective_date,
@@ -534,6 +553,7 @@ async def move_fixed_asset(
         location_id=row.location_id,
         responsible_person_id=row.responsible_person_id,
         name=row.name,
+        expected_output=row.expected_output,
         useful_life_months=row.useful_life_months,
         salvage_value=row.salvage_value,
         depreciation_method=row.depreciation_method,

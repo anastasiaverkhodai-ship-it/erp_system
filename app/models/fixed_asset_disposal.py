@@ -38,6 +38,12 @@ class FixedAssetDisposal(Base):
         nullable=False,
     )
 
+    disposal_fraction: Mapped[Decimal] = mapped_column(Numeric(9, 8), nullable=False, default=Decimal('1'), server_default='1')
+    asset_cost_before: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    asset_salvage_before: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    sale_source_line_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sale_net_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+
     original_cost: Mapped[Decimal] = mapped_column(
         Numeric(18, 2),
         nullable=False,
@@ -95,6 +101,10 @@ class FixedAssetDisposal(Base):
     )
 
     __table_args__ = (
+        ForeignKeyConstraint(['sale_source_line_id'], ['journal_entry_lines.id'], name='fk_fad_sale_source_line', ondelete='RESTRICT'),
+        Index('ix_fad_sale_source_line', 'sale_source_line_id'),
+        CheckConstraint('disposal_fraction > 0 AND disposal_fraction <= 1', name='ck_fad_fraction'),
+        CheckConstraint('(sale_source_line_id IS NULL AND sale_net_amount IS NULL) OR (sale_source_line_id IS NOT NULL AND sale_net_amount > 0)', name='ck_fad_sale_source'),
         UniqueConstraint(
             "company_id",
             "id",

@@ -31,6 +31,7 @@ class FixedAssetRepairImprovement(Base):
     __tablename__ = "fixed_asset_repair_improvements"
 
     __table_args__ = (
+        CheckConstraint('new_remaining_life_months IS NULL OR new_remaining_life_months > 0', name='ck_fari_remaining_life'),
         UniqueConstraint(
             "company_id",
             "id",
@@ -81,6 +82,12 @@ class FixedAssetRepairImprovement(Base):
             postgresql_where=text("reversal_of_id IS NOT NULL"),
         ),
     )
+
+    new_remaining_life_months: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    useful_life_months_before: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    depreciable_base_after: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    original_cost_after: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    accumulated_at_change: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 

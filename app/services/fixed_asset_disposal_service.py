@@ -1,7 +1,9 @@
+from app.services.fixed_asset_lifecycle_guard import lock_company, require_chronology, require_no_later_events, event_time
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import select
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
@@ -59,6 +61,7 @@ async def _get_asset_for_update(
             FixedAsset.id == fixed_asset_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
 
     if asset is None:
@@ -133,6 +136,7 @@ async def create_fixed_asset_disposal(
     data: FixedAssetDisposalCreate,
     created_by: int,
 ) -> FixedAssetDisposal:
+    await lock_company(db, company_id)
     await ensure_period_open(
         company_id=company_id,
         operation_date=data.disposal_date,
@@ -155,6 +159,8 @@ async def create_fixed_asset_disposal(
     if existing is not None:
         same = (
             existing.fixed_asset_id == fixed_asset_id
+            and existing.disposal_fraction == data.disposal_fraction
+            and existing.sale_source_line_id == data.sale_source_line_id
             and existing.disposal_date == data.disposal_date
             and existing.disposal_account_id
             == data.disposal_account_id
@@ -169,6 +175,8 @@ async def create_fixed_asset_disposal(
             )
 
         return existing
+
+    await require_chronology(db, asset, data.disposal_date)
 
     asset_status = getattr(
         asset.status,
@@ -216,14 +224,27 @@ async def create_fixed_asset_disposal(
             "accumulated depreciation exceeds original cost"
         )
 
-    carrying_amount = _money(
-        original_cost - accumulated
-    )
+    asset_cost_before, asset_salvage_before = original_cost, salvage_value
+    original_cost = _money(original_cost * data.disposal_fraction)
+    accumulated = _money(accumulated * data.disposal_fraction)
+    salvage_value = _money(salvage_value * data.disposal_fraction)
+    if original_cost <= 0 or (data.disposal_fraction < 1 and original_cost >= asset_cost_before):
+        raise FixedAssetDisposalError("Partial disposal must leave a positive asset cost")
+    sale_net_amount = None
+    if data.sale_source_line_id is not None:
+        sale_net_amount = await _validate_sale_source(db, company_id, asset, data)
+    carrying_amount = _money(original_cost - accumulated)
 
     row = FixedAssetDisposal(
+        created_at=event_time().replace(tzinfo=None),
         company_id=company_id,
         fixed_asset_id=fixed_asset_id,
         disposal_date=data.disposal_date,
+        disposal_fraction=data.disposal_fraction,
+        asset_cost_before=asset_cost_before,
+        asset_salvage_before=asset_salvage_before,
+        sale_source_line_id=data.sale_source_line_id,
+        sale_net_amount=sale_net_amount,
         original_cost=original_cost,
         accumulated_depreciation=accumulated,
         carrying_amount=carrying_amount,
@@ -338,7 +359,11 @@ async def create_fixed_asset_disposal(
             ] = previous
 
     row.journal_entry_id = journal.id
-    asset.status = FixedAssetStatus.DISPOSED
+    if data.disposal_fraction == 1:
+        asset.status = FixedAssetStatus.DISPOSED
+    else:
+        asset.original_cost = asset_cost_before - original_cost
+        asset.salvage_value = asset_salvage_before - salvage_value
 
     await db.flush()
 
@@ -354,6 +379,7 @@ async def reverse_fixed_asset_disposal(
     request_key: str,
     reversed_by: int,
 ) -> FixedAssetDisposal:
+    await lock_company(db, company_id)
     await ensure_period_open(
         company_id=company_id,
         operation_date=reversal_date,
@@ -375,6 +401,7 @@ async def reverse_fixed_asset_disposal(
             == fixed_asset_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
 
     if original is None:
@@ -395,7 +422,7 @@ async def reverse_fixed_asset_disposal(
     )
 
     if existing is not None:
-        if existing.reversal_of_id != original.id:
+        if existing.reversal_of_id != original.id or existing.disposal_date != reversal_date:
             raise FixedAssetDisposalError(
                 "request key already used with different payload"
             )
@@ -409,7 +436,12 @@ async def reverse_fixed_asset_disposal(
     )
 
     if prior_reversal is not None:
+        if prior_reversal.disposal_date != reversal_date:
+            raise FixedAssetDisposalError("disposal reversed on another date")
         return prior_reversal
+
+    await require_chronology(db, asset, reversal_date)
+    await require_no_later_events(db, company_id, fixed_asset_id, original)
 
     current_status = getattr(
         asset.status,
@@ -417,7 +449,8 @@ async def reverse_fixed_asset_disposal(
         asset.status,
     )
 
-    if current_status != FixedAssetStatus.DISPOSED.value:
+    expected_status = FixedAssetStatus.DISPOSED.value if original.disposal_fraction == 1 else original.previous_status
+    if current_status != expected_status:
         raise FixedAssetDisposalError(
             "asset is no longer in deterministic disposed state"
         )
@@ -428,9 +461,15 @@ async def reverse_fixed_asset_disposal(
         )
 
     reversal = FixedAssetDisposal(
+        created_at=event_time().replace(tzinfo=None),
         company_id=company_id,
         fixed_asset_id=fixed_asset_id,
         disposal_date=reversal_date,
+        disposal_fraction=original.disposal_fraction,
+        asset_cost_before=original.asset_cost_before,
+        asset_salvage_before=original.asset_salvage_before,
+        sale_source_line_id=original.sale_source_line_id,
+        sale_net_amount=original.sale_net_amount,
         original_cost=original.original_cost,
         accumulated_depreciation=(
             original.accumulated_depreciation
@@ -479,6 +518,10 @@ async def reverse_fixed_asset_disposal(
     )
     reversal.journal_entry_id = reversal_journal.id
 
+    if original.disposal_fraction < 1:
+        asset.original_cost = original.asset_cost_before
+        asset.salvage_value = original.asset_salvage_before
+
     try:
         asset.status = FixedAssetStatus(
             original.previous_status
@@ -491,3 +534,39 @@ async def reverse_fixed_asset_disposal(
     await db.flush()
 
     return reversal
+
+
+async def _validate_sale_source(db, company_id, asset, data):
+    """Bind one posted net-revenue line to one disposal; never repost the sale."""
+    from app.models.account import AccountType
+    result = (await db.execute(select(JournalEntryLine, JournalEntry, Account).join(
+        JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id).join(
+        Account, Account.id == JournalEntryLine.account_id).where(
+        JournalEntryLine.id == data.sale_source_line_id,
+        JournalEntry.company_id == company_id, Account.company_id == company_id
+    ).with_for_update().execution_options(populate_existing=True))).first()
+    if result is None:
+        raise FixedAssetDisposalError("Sale source line not found for company")
+    line, entry, account = result
+    if entry.status != JournalEntryStatus.POSTED or entry.reversal_of_id is not None:
+        raise FixedAssetDisposalError("Sale source must be an original posted entry")
+    if entry.entry_date > data.disposal_date:
+        raise FixedAssetDisposalError("Sale source date cannot follow disposal")
+    if account.account_type != AccountType.INCOME or line.credit <= 0 or line.debit != 0:
+        raise FixedAssetDisposalError("Sale source must be a net revenue credit line")
+    # A disposal must not repeat a cost removal already included in its source.
+    cost_credit = await db.scalar(select(JournalEntryLine.id).where(
+        JournalEntryLine.journal_entry_id == entry.id,
+        JournalEntryLine.account_id == asset.asset_account_id,
+        JournalEntryLine.credit > 0).limit(1))
+    if cost_credit is not None:
+        raise FixedAssetDisposalError("Sale source already removes asset cost")
+    reversal = aliased(FixedAssetDisposal)
+    used = await db.scalar(select(FixedAssetDisposal.id).where(
+        FixedAssetDisposal.sale_source_line_id == line.id,
+        FixedAssetDisposal.reversal_of_id.is_(None),
+        ~select(reversal.id).where(reversal.reversal_of_id == FixedAssetDisposal.id).exists()
+    ).limit(1))
+    if used is not None:
+        raise FixedAssetDisposalError("Sale source line is already assigned to an active disposal")
+    return _money(line.credit)

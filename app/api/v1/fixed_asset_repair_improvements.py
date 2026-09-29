@@ -52,7 +52,7 @@ async def post_repair_improvement(
     payload: FixedAssetRepairImprovementCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_company_permission("journal_entries.create")
+        require_company_permission("journal_entries.post")
     ),
 ):
     try:
@@ -88,7 +88,7 @@ async def post_repair_improvement_reversal(
     payload: FixedAssetRepairImprovementReverse,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_company_permission("journal_entries.create")
+        require_company_permission("journal_entries.reverse")
     ),
 ):
     try:

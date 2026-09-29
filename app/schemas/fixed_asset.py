@@ -99,6 +99,7 @@ class FixedAssetCreate(BaseModel):
     in_service_date: date | None = None
     original_cost: Decimal = Field(ge=0)
     salvage_value: Decimal = Field(default=Decimal("0.00"), ge=0)
+    expected_output: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)
     useful_life_months: int = Field(gt=0)
     depreciation_method: FixedAssetDepreciationMethod
     status: FixedAssetStatus = FixedAssetStatus.DRAFT
@@ -127,6 +128,7 @@ class FixedAssetUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     in_service_date: date | None = None
     salvage_value: Decimal | None = Field(default=None, ge=0)
+    expected_output: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)
     useful_life_months: int | None = Field(default=None, gt=0)
     depreciation_method: FixedAssetDepreciationMethod | None = None
     status: FixedAssetStatus | None = None
@@ -147,6 +149,7 @@ class FixedAssetResponse(BaseModel):
     in_service_date: date | None
     original_cost: Decimal
     salvage_value: Decimal
+    expected_output: Decimal | None = None
     useful_life_months: int
     depreciation_method: FixedAssetDepreciationMethod
     status: FixedAssetStatus
@@ -172,6 +175,7 @@ class FixedAssetCardHistoryResponse(BaseModel):
     location_id: int | None
     responsible_person_id: int | None
     name: str
+    expected_output: Decimal | None = None
     useful_life_months: int
     salvage_value: Decimal
     depreciation_method: FixedAssetDepreciationMethod
@@ -196,6 +200,7 @@ class FixedAssetMovementResponse(BaseModel):
     location_id: int | None
     responsible_person_id: int | None
     name: str
+    expected_output: Decimal | None = None
     useful_life_months: int
     salvage_value: Decimal
     depreciation_method: FixedAssetDepreciationMethod

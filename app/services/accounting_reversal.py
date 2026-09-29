@@ -451,6 +451,10 @@ async def reverse_journal_entry(
             "Journal entry not found"
         )
 
+    depreciation_id = getattr(original_entry, "fixed_asset_depreciation_id", None)
+    if depreciation_id is not None and db.info.get("fixed_asset_depreciation") != depreciation_id:
+        raise AccountingReversalError("Use the fixed asset depreciation lifecycle")
+
     valuation_id = getattr(
         original_entry,
         "fixed_asset_revaluation_impairment_id",
@@ -563,6 +567,29 @@ async def reverse_journal_entry(
         _active_original_condition()).limit(1))
     if allocated is not None:
         raise AccountingReversalError("Reverse fixed asset acquisition allocations before their source journal")
+
+    from app.models.fixed_asset_repair_improvement import FixedAssetRepairImprovement
+    from sqlalchemy.orm import aliased as source_alias
+    undone_repair = source_alias(FixedAssetRepairImprovement)
+    repair_source = await db.scalar(select(FixedAssetRepairImprovement.id).join(
+        SourceLine, SourceLine.id == FixedAssetRepairImprovement.source_journal_entry_line_id).where(
+        SourceLine.journal_entry_id == original_entry.id,
+        FixedAssetRepairImprovement.company_id == company_id,
+        FixedAssetRepairImprovement.reversal_of_id.is_(None),
+        ~select(undone_repair.id).where(undone_repair.reversal_of_id == FixedAssetRepairImprovement.id).exists()).limit(1))
+    if repair_source is not None:
+        raise AccountingReversalError("Reverse fixed asset repair/improvement allocations before their source journal")
+    from app.models.fixed_asset_disposal import FixedAssetDisposal
+    undone_disposal = source_alias(FixedAssetDisposal)
+    sale_disposal = await db.scalar(select(FixedAssetDisposal.id).join(
+        SourceLine, SourceLine.id == FixedAssetDisposal.sale_source_line_id).where(
+        SourceLine.journal_entry_id == original_entry.id,
+        FixedAssetDisposal.company_id == company_id,
+        FixedAssetDisposal.reversal_of_id.is_(None),
+        ~select(undone_disposal.id).where(undone_disposal.reversal_of_id == FixedAssetDisposal.id).exists()).limit(1))
+    if sale_disposal is not None:
+        raise AccountingReversalError("Reverse fixed asset disposal before its sale source journal")
+
 
     if original_entry.document_id is not None:
         from app.services.landed_cost_inventory_lifecycle import inventory_operation_active

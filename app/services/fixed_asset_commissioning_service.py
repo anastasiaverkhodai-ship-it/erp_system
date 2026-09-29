@@ -512,6 +512,8 @@ async def reverse_commissioning(
             raise FixedAssetCommissioningError("commissioning reversed on another date")
         return existing_reversal
 
+    from app.services.fixed_asset_lifecycle_guard import require_no_later_events
+    await require_no_later_events(db, company_id, fixed_asset_id, original)
     if reversal_date > date.today():
         raise FixedAssetCommissioningError("reversal date cannot be in the future")
     if asset.status != FixedAssetStatus.IN_SERVICE:

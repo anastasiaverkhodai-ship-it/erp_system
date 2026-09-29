@@ -5,6 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class FixedAssetDisposalCreate(BaseModel):
+    disposal_fraction: Decimal = Field(default=Decimal('1'), gt=0, le=1, max_digits=9, decimal_places=8)
+    sale_source_line_id: int | None = Field(default=None, gt=0)
     disposal_date: date
     disposal_account_id: int
     request_key: str = Field(
@@ -30,6 +32,11 @@ class FixedAssetDisposalRead(BaseModel):
     fixed_asset_id: int
     disposal_date: date
 
+    disposal_fraction: Decimal
+    asset_cost_before: Decimal | None
+    asset_salvage_before: Decimal | None
+    sale_source_line_id: int | None
+    sale_net_amount: Decimal | None
     original_cost: Decimal
     accumulated_depreciation: Decimal
     carrying_amount: Decimal

@@ -212,6 +212,7 @@ class FixedAsset(Base):
             name="fk_fixed_assets_company_depr_expense_account",
             ondelete="RESTRICT",
         ),
+        CheckConstraint("expected_output IS NULL OR expected_output > 0", name="ck_fa_expected_output_positive"),
         CheckConstraint(
             "original_cost >= 0",
             name="ck_fixed_assets_original_cost_nonnegative",
@@ -288,6 +289,8 @@ class FixedAsset(Base):
         nullable=False,
         default=Decimal("0.00"),
     )
+
+    expected_output: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
 
     useful_life_months: Mapped[int] = mapped_column(
         nullable=False,
@@ -400,6 +403,7 @@ class FixedAssetCardHistory(Base):
     responsible_person_id: Mapped[int | None] = mapped_column(nullable=True)
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    expected_output: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
     useful_life_months: Mapped[int] = mapped_column(nullable=False)
     salvage_value: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     status: Mapped[FixedAssetStatus] = mapped_column(

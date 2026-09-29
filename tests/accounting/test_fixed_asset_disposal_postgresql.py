@@ -85,38 +85,10 @@ def _minimal_kwargs(model, explicit):
     return result
 
 
-@pytest_asyncio.fixture
-async def engine():
-    url = os.environ.get(
-        "DATABASE_URL",
-        str(settings.database_url),
-    )
-
-    if url.startswith("postgresql://"):
-        url = url.replace(
-            "postgresql://",
-            "postgresql+asyncpg://",
-            1,
-        )
-
-    engine = create_async_engine(
-        url,
-        poolclass=NullPool,
-    )
-
-    async with engine.connect() as connection:
-        dialect = connection.dialect.name
-
-    if dialect != "postgresql":
-        await engine.dispose()
-        pytest.skip(
-            "real PostgreSQL required"
-        )
-
-    try:
-        yield engine
-    finally:
-        await engine.dispose()
+# Reuse the isolated full-schema fixture; never seed the configured public schema.
+from test_fixed_asset_commissioning import engine
+pytestmark = [pytest.mark.asyncio, pytest.mark.skipif(
+    os.getenv("RUN_POSTGRES_E2E") != "1", reason="Set RUN_POSTGRES_E2E=1")]
 
 
 async def seed(db):
@@ -983,12 +955,12 @@ async def test_disposal_with_accumulated_depreciation_uses_three_line_entry(
                 period_end=date(
                     2026,
                     2,
-                    18,
+                    28,
                 ),
                 posting_date=date(
                     2026,
                     2,
-                    18,
+                    28,
                 ),
                 created_by=f.actor,
             )
@@ -996,11 +968,8 @@ async def test_disposal_with_accumulated_depreciation_uses_three_line_entry(
 
         assert depreciation is not None
 
-        row = await create(
-            db,
-            f,
-            "with-depreciation",
-        )
+        data = payload(f, "with-depreciation").model_copy(update={"disposal_date": date(2026,2,28)})
+        row = await create_fixed_asset_disposal(db,f.company,f.asset,data,f.actor)
 
         assert (
             row.accumulated_depreciation

@@ -55,8 +55,10 @@ async def post_fixed_asset_depreciation(
     ),
 ):
     try:
+        if payload.fixed_asset_id != fixed_asset_id:
+            raise HTTPException(status_code=422, detail="Asset in body must match the URL")
         row = await create_and_post_depreciation(
-            db,
+            db=db,
             company_id=company_id,
             fixed_asset_id=fixed_asset_id,
             request_key=payload.request_key,
@@ -64,6 +66,7 @@ async def post_fixed_asset_depreciation(
             period_end=payload.period_end,
             posting_date=payload.posting_date,
             created_by=current_user.id,
+            actual_output=payload.actual_output,
         )
 
         await db.commit()
@@ -113,7 +116,7 @@ async def post_fixed_asset_depreciation_reversal(
 ):
     try:
         row = await reverse_depreciation(
-            db,
+            db=db,
             company_id=company_id,
             fixed_asset_id=fixed_asset_id,
             depreciation_id=depreciation_id,

@@ -11,7 +11,8 @@ from app.models.fixed_asset_repair_improvement import (
 class FixedAssetRepairImprovementCreate(BaseModel):
     operation_type: FixedAssetRepairImprovementType
     operation_date: date
-    amount: Decimal = Field(gt=0)
+    new_remaining_life_months: int | None = Field(default=None, gt=0)
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
     source_journal_entry_line_id: int
     request_key: str = Field(min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=500)
@@ -30,6 +31,9 @@ class FixedAssetRepairImprovementResponse(BaseModel):
     fixed_asset_id: int
     operation_type: FixedAssetRepairImprovementType
     operation_date: date
+    new_remaining_life_months: int | None
+    useful_life_months_before: int | None
+    depreciable_base_after: Decimal | None
     amount: Decimal
     source_journal_entry_line_id: int
     request_key: str

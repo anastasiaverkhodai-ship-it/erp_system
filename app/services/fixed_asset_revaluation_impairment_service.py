@@ -1,3 +1,4 @@
+from app.services.fixed_asset_lifecycle_guard import lock_company, require_chronology, require_no_later_events, event_time
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -71,7 +72,8 @@ async def _accumulated(
         company_id,
         fixed_asset_id,
     )
-    return _money(Decimal(opening) + Decimal(posted))
+    from app.services.fixed_asset_depreciation_service import _disposed_accumulated
+    return _money(Decimal(opening) + Decimal(posted) - await _disposed_accumulated(db, company_id, fixed_asset_id))
 
 
 async def list_fixed_asset_revaluation_impairments(
@@ -103,6 +105,7 @@ async def create_fixed_asset_revaluation_impairment(
     data: FixedAssetRevaluationImpairmentCreate,
     created_by: int,
 ) -> FixedAssetRevaluationImpairment:
+    await lock_company(db, company_id)
     await ensure_period_open(
         company_id=company_id,
         operation_date=data.operation_date,
@@ -148,6 +151,8 @@ async def create_fixed_asset_revaluation_impairment(
                 "request key already used with different payload"
             )
         return existing
+
+    await require_chronology(db, asset, data.operation_date)
 
     account = await db.scalar(
         select(Account).where(
@@ -204,6 +209,7 @@ async def create_fixed_asset_revaluation_impairment(
         )
 
     row = FixedAssetRevaluationImpairment(
+        created_at=event_time(),
         company_id=company_id,
         fixed_asset_id=fixed_asset_id,
         operation_type=data.operation_type,
@@ -317,6 +323,7 @@ async def reverse_fixed_asset_revaluation_impairment(
     request_key: str,
     reversed_by: int,
 ) -> FixedAssetRevaluationImpairment:
+    await lock_company(db, company_id)
     await ensure_period_open(
         company_id=company_id,
         operation_date=reversal_date,
@@ -357,6 +364,7 @@ async def reverse_fixed_asset_revaluation_impairment(
             FixedAssetRevaluationImpairment.id == operation_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
 
     if original is None:
@@ -386,6 +394,9 @@ async def reverse_fixed_asset_revaluation_impairment(
             "operation already reversed"
         )
 
+    await require_chronology(db, asset, reversal_date)
+    await require_no_later_events(db, company_id, fixed_asset_id, original)
+
     current_cost = _money(asset.original_cost)
 
     if current_cost != _money(original.original_cost_after):
@@ -407,6 +418,7 @@ async def reverse_fixed_asset_revaluation_impairment(
         )
 
     reversal = FixedAssetRevaluationImpairment(
+        created_at=event_time(),
         company_id=company_id,
         fixed_asset_id=fixed_asset_id,
         operation_type=original.operation_type,

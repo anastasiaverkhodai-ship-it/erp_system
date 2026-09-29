@@ -13,6 +13,7 @@ class FixedAssetDepreciationCreate(BaseModel):
     period_start: date
     period_end: date
     posting_date: date
+    actual_output: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=6)
 
     @model_validator(mode="after")
     def validate_dates(self):
@@ -43,6 +44,8 @@ class FixedAssetDepreciationRead(BaseModel):
     period_start: date
     period_end: date
     posting_date: date
+    actual_output: Decimal | None
+    expected_output: Decimal | None
     method: str
     amount: Decimal
     accumulated_before: Decimal

@@ -4,6 +4,8 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Index,
+    text,
     CheckConstraint,
     Date,
     DateTime,
@@ -28,19 +30,17 @@ class FixedAssetDepreciation(Base):
             "request_key",
             name="uq_fa_depr_company_request",
         ),
-        UniqueConstraint(
-            "company_id",
-            "fixed_asset_id",
-            "period_start",
-            "period_end",
-            name="uq_fa_depr_asset_period",
-        ),
+        Index("ix_fa_depr_asset_period", "company_id", "fixed_asset_id", "period_start", "period_end"),
+        Index("uq_fa_depr_reversal", "reversal_of_id", unique=True,
+              postgresql_where=text("reversal_of_id IS NOT NULL")),
+        CheckConstraint("actual_output IS NULL OR actual_output >= 0", name="ck_fa_depr_output_nonnegative"),
+        CheckConstraint("expected_output IS NULL OR expected_output > 0", name="ck_fa_depr_expected_positive"),
         CheckConstraint(
             "period_end >= period_start",
             name="ck_fa_depr_period_order",
         ),
         CheckConstraint(
-            "amount > 0",
+            "amount > 0 OR (amount = 0 AND method = 'production' AND actual_output IS NOT NULL)",
             name="ck_fa_depr_amount_positive",
         ),
         CheckConstraint(
@@ -48,10 +48,14 @@ class FixedAssetDepreciation(Base):
             name="ck_fa_depr_accum_before_nonnegative",
         ),
         CheckConstraint(
-            "accumulated_after >= accumulated_before",
+            "(reversal_of_id IS NULL AND accumulated_after >= accumulated_before) OR "
+            "(reversal_of_id IS NOT NULL AND accumulated_after <= accumulated_before)",
             name="ck_fa_depr_accum_order",
         ),
     )
+
+    actual_output: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
+    expected_output: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
 
     id: Mapped[int] = mapped_column(
         Integer,

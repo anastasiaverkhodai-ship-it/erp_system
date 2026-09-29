@@ -84,17 +84,21 @@ def test_service_uses_canonical_posting_and_reversal():
     assert "JournalEntryLine(" in text
 
 
-def test_production_is_explicitly_blocked_without_basis():
-    text = Path(
-        "app/services/"
-        "fixed_asset_depreciation_service.py"
-    ).read_text()
-
-    assert (
-        "production depreciation requires "
-        in text
-    )
-    assert "production quantity foundation" in text
+def test_production_requires_monthly_output_and_expected_total():
+    from types import SimpleNamespace
+    from decimal import Decimal
+    from datetime import date
+    import pytest
+    from app.services.fixed_asset_depreciation_service import _calculate_amount, FixedAssetDepreciationError
+    asset = SimpleNamespace(original_cost=Decimal(10000), salvage_value=Decimal(1000),
+        expected_output=None, depreciation_method=FixedAssetDepreciationMethod.PRODUCTION)
+    args = dict(asset=asset, accumulated_before=Decimal(0), period_start=date(2026,2,1), period_end=date(2026,2,28))
+    with pytest.raises(FixedAssetDepreciationError, match="expected total output"):
+        _calculate_amount(**args, actual_output=Decimal(10))
+    asset.expected_output = Decimal(1000)
+    with pytest.raises(FixedAssetDepreciationError, match="monthly actual output"):
+        _calculate_amount(**args)
+    assert _calculate_amount(**args, actual_output=Decimal(10)) == Decimal('90.00')
 
 
 def test_salvage_floor_is_explicit():
@@ -112,3 +116,20 @@ def test_journal_has_depreciation_provenance():
     ).read_text()
 
     assert "fixed_asset_depreciation_id" in text
+
+
+def test_annual_methods_use_year_basis_and_cumulative_year_weights():
+    from types import SimpleNamespace
+    from decimal import Decimal
+    from datetime import date
+    from app.services.fixed_asset_depreciation_service import _calculate_amount
+    asset=SimpleNamespace(original_cost=Decimal(10000),salvage_value=Decimal(1000),useful_life_months=60,
+        in_service_date=date(2026,1,1),depreciation_method=FixedAssetDepreciationMethod.DOUBLE_DIMINISHING_BALANCE)
+    args=dict(asset=asset,accumulated_before=Decimal('333.33'),period_start=date(2026,3,1),period_end=date(2026,3,31),year_start_carrying=Decimal(10000))
+    assert _calculate_amount(**args)==Decimal('333.33')
+    asset.depreciation_method=FixedAssetDepreciationMethod.DIMINISHING_BALANCE
+    assert _calculate_amount(**args)==Decimal('307.54')
+    asset.depreciation_method=FixedAssetDepreciationMethod.CUMULATIVE
+    assert _calculate_amount(**args)==Decimal('250.00')
+    args.update(period_start=date(2027,2,1),period_end=date(2027,2,28))
+    assert _calculate_amount(**args)==Decimal('200.00')

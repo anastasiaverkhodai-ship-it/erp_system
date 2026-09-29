@@ -1,3 +1,4 @@
+from app.services.fixed_asset_lifecycle_guard import lock_company, require_chronology, require_no_later_events, event_time
 from datetime import date
 from decimal import Decimal
 
@@ -61,6 +62,7 @@ async def _get_source_line(
             JournalEntryLine.id == line_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     line = result.scalar_one_or_none()
     if line is None:
@@ -151,6 +153,7 @@ async def create_fixed_asset_repair_improvement(
     data: FixedAssetRepairImprovementCreate,
     created_by: int,
 ) -> FixedAssetRepairImprovement:
+    await lock_company(db, company_id)
     await ensure_period_open(company_id, data.operation_date, db)
 
     asset = await _get_asset_for_update(
@@ -175,6 +178,7 @@ async def create_fixed_asset_repair_improvement(
     if existing is not None:
         same_request = (
             existing.fixed_asset_id == fixed_asset_id
+            and existing.new_remaining_life_months == data.new_remaining_life_months
             and existing.operation_type == data.operation_type
             and existing.operation_date == data.operation_date
             and Decimal(existing.amount) == Decimal(data.amount)
@@ -189,6 +193,10 @@ async def create_fixed_asset_repair_improvement(
                 "request key already used with different payload"
             )
         return existing
+
+    await require_chronology(db, asset, data.operation_date)
+    if data.new_remaining_life_months is not None and (data.operation_type != FixedAssetRepairImprovementType.IMPROVEMENT or asset.in_service_date is None):
+        raise FixedAssetRepairImprovementError("Remaining life can only change with an improvement of an in-service asset")
 
     source_line, source_entry = await _get_source_line(
         db,
@@ -240,11 +248,13 @@ async def create_fixed_asset_repair_improvement(
         )
 
     row = FixedAssetRepairImprovement(
+        created_at=event_time(),
         company_id=company_id,
         fixed_asset_id=fixed_asset_id,
         operation_type=data.operation_type,
         operation_date=data.operation_date,
         amount=amount,
+        new_remaining_life_months=data.new_remaining_life_months,
         source_journal_entry_line_id=data.source_journal_entry_line_id,
         request_key=data.request_key,
         description=data.description,
@@ -345,6 +355,15 @@ async def create_fixed_asset_repair_improvement(
 
     row.journal_entry_id = journal_entry.id
 
+    if data.new_remaining_life_months is not None:
+        from app.services.fixed_asset_revaluation_impairment_service import _accumulated
+        row.useful_life_months_before = asset.useful_life_months
+        row.accumulated_at_change = await _accumulated(db, company_id, fixed_asset_id)
+        row.original_cost_after = Decimal(asset.original_cost) + amount
+        row.depreciable_base_after = row.original_cost_after - Decimal(asset.salvage_value) - row.accumulated_at_change
+        elapsed = max(0, (data.operation_date.year - asset.in_service_date.year) * 12 + data.operation_date.month - asset.in_service_date.month)
+        asset.useful_life_months = elapsed + data.new_remaining_life_months
+
     asset.original_cost = (
         Decimal(asset.original_cost or 0) + amount
     )
@@ -362,6 +381,7 @@ async def reverse_fixed_asset_repair_improvement(
     request_key: str,
     reversed_by: int,
 ) -> FixedAssetRepairImprovement:
+    await lock_company(db, company_id)
     await ensure_period_open(company_id, reversal_date, db)
 
     asset = await _get_asset_for_update(
@@ -397,17 +417,16 @@ async def reverse_fixed_asset_repair_improvement(
             FixedAssetRepairImprovement.id == operation_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     original = result.scalar_one_or_none()
 
-    if reversal_date < original.operation_date:
-        raise FixedAssetRepairImprovementError(
-            "Reversal date cannot precede original operation date"
-        )
     if original is None:
         raise FixedAssetRepairImprovementError(
             "repair/improvement operation not found"
         )
+    if reversal_date < original.operation_date:
+        raise FixedAssetRepairImprovementError("Reversal date cannot precede original operation date")
     if original.reversal_of_id is not None:
         raise FixedAssetRepairImprovementError(
             "cannot reverse a reversal"
@@ -424,12 +443,21 @@ async def reverse_fixed_asset_repair_improvement(
             "operation is already reversed"
         )
 
+    await require_chronology(db, asset, reversal_date)
+    await require_no_later_events(db, company_id, fixed_asset_id, original)
+
     reversal = FixedAssetRepairImprovement(
+        created_at=event_time(),
         company_id=company_id,
         fixed_asset_id=fixed_asset_id,
         operation_type=original.operation_type,
         operation_date=reversal_date,
         amount=original.amount,
+        new_remaining_life_months=original.new_remaining_life_months,
+        useful_life_months_before=original.useful_life_months_before,
+        depreciable_base_after=original.depreciable_base_after,
+        original_cost_after=original.original_cost_after,
+        accumulated_at_change=original.accumulated_at_change,
         source_journal_entry_line_id=original.source_journal_entry_line_id,
         request_key=request_key,
         description=f"Reversal: {original.description or original.id}",
@@ -476,6 +504,8 @@ async def reverse_fixed_asset_repair_improvement(
                 "reversal would reduce original cost below salvage value"
             )
         asset.original_cost = new_cost
+        if original.useful_life_months_before is not None:
+            asset.useful_life_months = original.useful_life_months_before
 
     await db.flush()
     return reversal

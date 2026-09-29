@@ -56,7 +56,7 @@ async def post_revaluation_impairment(
     payload: FixedAssetRevaluationImpairmentCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_company_permission("journal_entries.create")
+        require_company_permission("journal_entries.post")
     ),
 ):
     try:
@@ -92,7 +92,7 @@ async def post_revaluation_impairment_reversal(
     payload: FixedAssetRevaluationImpairmentReverse,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        require_company_permission("journal_entries.create")
+        require_company_permission("journal_entries.reverse")
     ),
 ):
     try:

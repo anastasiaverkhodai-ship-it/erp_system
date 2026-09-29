@@ -350,6 +350,8 @@ async def _reverse_fixed_asset_openings(
             row.fixed_asset_id
         ]
 
+        from app.services.fixed_asset_lifecycle_guard import require_no_later_events
+        await require_no_later_events(db, company_id, asset.id, row)
         if (
             asset.status
             != FixedAssetStatus.IN_SERVICE
