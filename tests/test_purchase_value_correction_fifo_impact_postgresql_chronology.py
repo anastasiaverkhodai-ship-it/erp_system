@@ -6,6 +6,8 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+
+pytestmark = pytest.mark.usefixtures("stable_chronology_clock")
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1422,7 +1424,7 @@ async def test_purchase_value_correction_fifo_impact_postgresql_chronology():
                 "IDEMPOTENT = PASS"
             )
 
-        except BaseException as exc:
+        except Exception as exc:
             scenario_error = exc
             scenario_traceback = (
                 exc.__traceback__

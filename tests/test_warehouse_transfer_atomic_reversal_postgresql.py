@@ -10,6 +10,8 @@ import traceback
 from uuid import uuid4
 
 import pytest
+
+pytestmark = pytest.mark.usefixtures("stable_chronology_clock")
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1305,7 +1307,7 @@ async def test_warehouse_transfer_atomic_reversal_postgresql():
                 "ATOMIC PARTIAL REVERSAL ROLLBACK = PASS"
             )
 
-        except BaseException as exc:
+        except Exception as exc:
             scenario_error = exc
 
             scenario_traceback = (

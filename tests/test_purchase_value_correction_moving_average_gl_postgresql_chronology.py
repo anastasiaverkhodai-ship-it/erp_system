@@ -7229,3 +7229,6 @@ async def test_purchase_value_correction_moving_average_gl_postgresql_chronology
     print(
         "FULL TRANSACTION ROLLBACK = PASS"
     )
+
+
+pytestmark = [*(pytestmark if isinstance(pytestmark, list) else [pytestmark]), pytest.mark.usefixtures("stable_chronology_clock")]

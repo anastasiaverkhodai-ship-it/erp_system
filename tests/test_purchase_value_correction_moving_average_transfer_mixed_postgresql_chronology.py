@@ -1954,7 +1954,7 @@ async def test_purchase_value_correction_moving_average_transfer_postgresql_mixe
                 "ON_HAND = PASS"
             )
 
-        except BaseException as exc:
+        except Exception as exc:
             scenario_error = exc
             import traceback
 
@@ -1997,3 +1997,6 @@ async def test_purchase_value_correction_moving_average_transfer_postgresql_mixe
                 )
             )
         )
+
+
+pytestmark = [*(pytestmark if isinstance(pytestmark, list) else [pytestmark]), pytest.mark.usefixtures("stable_chronology_clock")]

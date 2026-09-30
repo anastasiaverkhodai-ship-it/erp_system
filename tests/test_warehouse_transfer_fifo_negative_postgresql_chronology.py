@@ -1491,7 +1491,7 @@ async def test_warehouse_transfer_fifo_consumed_destination_blocks_reversal():
                 "CHRONOLOGY = PASS"
             )
 
-        except BaseException as exc:
+        except Exception as exc:
             scenario_error = exc
             scenario_traceback = (
                 exc.__traceback__
@@ -1526,3 +1526,6 @@ async def test_warehouse_transfer_fifo_consumed_destination_blocks_reversal():
         raise scenario_error.with_traceback(
             scenario_traceback
         )
+
+
+pytestmark = [*(pytestmark if isinstance(pytestmark, list) else [pytestmark]), pytest.mark.usefixtures("stable_chronology_clock")]

@@ -11,6 +11,8 @@ from decimal import Decimal
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("stable_chronology_clock")
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -2615,7 +2617,7 @@ async def test_supplier_advance_payment_first_chronology_postgresql():
                 "PAYMENT CANCEL RE-ENTRY = REJECTED = PASS"
             )
 
-        except BaseException as exc:
+        except Exception as exc:
             scenario_error = exc
             scenario_traceback = (
                 sys.exc_info()[
@@ -3766,7 +3768,7 @@ async def test_purchase_value_correction_supplier_clearing_forward_only_postgres
                 "D1 ORIGINAL EVENT UNCHANGED = PASS"
             )
 
-        except BaseException as exc:
+        except Exception as exc:
             scenario_error = exc
             scenario_traceback = (
                 sys.exc_info()[

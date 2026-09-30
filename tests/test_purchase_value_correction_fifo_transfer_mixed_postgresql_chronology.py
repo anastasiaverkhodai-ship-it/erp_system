@@ -8,6 +8,8 @@ import sys
 from uuid import uuid4
 
 import pytest
+
+pytestmark = pytest.mark.usefixtures("stable_chronology_clock")
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1303,7 +1305,7 @@ async def test_fifo_transfer_pvc_mixed_postgresql_chronology():
                 "FIFO MIXED IDEMPOTENCY = PASS"
             )
 
-        except BaseException as exc:
+        except Exception as exc:
             import traceback
 
             scenario_error = exc

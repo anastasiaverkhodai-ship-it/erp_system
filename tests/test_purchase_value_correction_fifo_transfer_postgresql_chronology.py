@@ -1304,7 +1304,7 @@ async def test_fifo_transfer_pvc_on_hand_postgresql_chronology():
                 "IMMUTABLE = PASS"
             )
 
-        except BaseException as exc:
+        except Exception as exc:
             import traceback
 
             scenario_error = exc
@@ -1339,3 +1339,6 @@ async def test_fifo_transfer_pvc_on_hand_postgresql_chronology():
     print(
         "FIFO TRANSFER↔PVC OUTER ROLLBACK = PASS"
     )
+
+
+pytestmark = [*(pytestmark if isinstance(pytestmark, list) else [pytestmark]), pytest.mark.usefixtures("stable_chronology_clock")]

@@ -10,6 +10,8 @@ from datetime import (
 from decimal import Decimal
 
 import pytest
+
+pytestmark = pytest.mark.usefixtures("stable_chronology_clock")
 from sqlalchemy import (
     select,
     text,
@@ -2059,7 +2061,7 @@ async def test_purchase_value_correction_allocation_postgresql_chronology():
                 "ALL ACTIVE ALLOCATIONS ZEROED / IDEMPOTENT = PASS"
             )
 
-        except BaseException as exc:
+        except Exception as exc:
             scenario_error = exc
             scenario_traceback = (
                 exc.__traceback__

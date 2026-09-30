@@ -7,6 +7,8 @@ from pathlib import Path
 import sys
 
 import pytest
+
+pytestmark = pytest.mark.usefixtures("stable_chronology_clock")
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -1802,7 +1804,7 @@ async def test_purchase_value_correction_vat_rk_real_postgresql_d1_d5():
                 "RECONCILE = FULL NOOP = PASS"
             )
 
-        except BaseException as exc:
+        except Exception as exc:
             scenario_error = exc
             scenario_traceback = (
                 exc.__traceback__
