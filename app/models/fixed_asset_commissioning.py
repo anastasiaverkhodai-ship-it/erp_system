@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    JSON,
     String,
     UniqueConstraint,
     func,
@@ -69,6 +70,9 @@ class FixedAssetCommissioning(Base):
             postgresql_where=text("reversal_of_id IS NOT NULL"),
         ),
     )
+
+    # Immutable source allocations captured before posting; null denotes legacy history.
+    cost_snapshot: Mapped[list[dict] | None] = mapped_column(JSON(none_as_null=True), nullable=True)
 
     id: Mapped[int] = mapped_column(
         Integer,

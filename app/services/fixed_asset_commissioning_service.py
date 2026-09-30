@@ -400,6 +400,11 @@ async def create_and_post_commissioning(
             + Decimal(cost.amount)
         )
 
+    commissioning.cost_snapshot = [
+        {"cost_id": cost.id, "account_id": source_rows[cost.source_journal_entry_line_id][0].account_id,
+         "amount": str(cost.amount)} for cost in costs
+    ]
+
     entry = JournalEntry(
         company_id=company_id,
         fixed_asset_commissioning_id=commissioning.id,
@@ -555,6 +560,7 @@ async def reverse_commissioning(
     reversal = FixedAssetCommissioning(
         company_id=company_id,
         fixed_asset_id=fixed_asset_id,
+        cost_snapshot=original.cost_snapshot,
         request_key=f"reversal:{original.id}",
         commissioning_date=reversal_date,
         reversal_of_id=original.id,

@@ -186,3 +186,6 @@ app.include_router(fixed_asset_disposals_router, prefix="/api/v1")
 app.include_router(fixed_asset_acquisitions_router, prefix="/api/v1")
 app.include_router(fixed_asset_commissionings_router, prefix="/api/v1")
 app.include_router(fixed_asset_depreciations_router, prefix="/api/v1")
+
+from app.api.v1.fixed_asset_reports import router as fixed_asset_reports_router
+app.include_router(fixed_asset_reports_router, prefix="/api/v1")
