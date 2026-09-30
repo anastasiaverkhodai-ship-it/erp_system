@@ -163,3 +163,4 @@ from app.models.fixed_asset_repair_improvement import (
 
 from app.models.fixed_asset_revaluation_impairment import FixedAssetRevaluationImpairment, FixedAssetRevaluationImpairmentType
 from app.models.fixed_asset_disposal import FixedAssetDisposal
+from app.models.employee import Employee, EmployeeStatus

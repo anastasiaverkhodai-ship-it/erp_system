@@ -189,3 +189,6 @@ app.include_router(fixed_asset_depreciations_router, prefix="/api/v1")
 
 from app.api.v1.fixed_asset_reports import router as fixed_asset_reports_router
 app.include_router(fixed_asset_reports_router, prefix="/api/v1")
+
+from app.api.v1.employees import router as employees_router
+app.include_router(employees_router, prefix="/api/v1")
