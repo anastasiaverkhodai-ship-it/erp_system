@@ -170,3 +170,12 @@ from app.models.employment_contract import EmploymentContract
 
 from app.models.hr_change import HRChange
 from app.models.employee_salary_rate import EmployeeSalaryRate, SalaryRateType
+
+from app.models.time_attendance import (
+    AttendanceRecord,
+    AttendanceSource,
+    AttendanceStatus,
+    EmploymentScheduleAssignment,
+    WorkSchedule,
+    WorkScheduleDay,
+)
