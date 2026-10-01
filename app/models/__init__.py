@@ -169,3 +169,4 @@ from app.models.position import Position
 from app.models.employment_contract import EmploymentContract
 
 from app.models.hr_change import HRChange
+from app.models.employee_salary_rate import EmployeeSalaryRate, SalaryRateType

@@ -8,7 +8,7 @@ from app.core.database import Base
 class HRChange(Base):
     __tablename__ = 'hr_changes'
     __table_args__ = (
-        CheckConstraint("entity_type IN ('employee','department','position','employment_contract')", name='ck_hr_changes_entity_type'),
+        CheckConstraint("entity_type IN ('employee','department','position','employment_contract','salary_rate')", name='ck_hr_changes_entity_type'),
         Index('ix_hr_changes_entity', 'company_id', 'entity_type', 'entity_id', 'id'),
     )
     id: Mapped[int] = mapped_column(primary_key=True)

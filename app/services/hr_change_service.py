@@ -1,3 +1,4 @@
+from decimal import Decimal
 from datetime import date, datetime
 from enum import Enum
 from sqlalchemy import inspect, select
@@ -14,6 +15,8 @@ def snapshot(row):
             value = value.value
         elif isinstance(value, (date, datetime)):
             value = value.isoformat()
+        elif isinstance(value, Decimal):
+            value = str(value)
         result[column.name] = value
     return result
 

@@ -164,10 +164,20 @@ async def test_cash_payment_gl_postgresql_chronology():
                         )
                         VALUES (
                             :company_id,
-                            2026,
-                            9,
-                            DATE '2026-09-01',
-                            DATE '2026-09-30',
+                            EXTRACT(YEAR FROM CURRENT_DATE)::integer,
+                            EXTRACT(MONTH FROM CURRENT_DATE)::integer,
+                            date_trunc(
+                                'month',
+                                CURRENT_DATE
+                            )::date,
+                            (
+                                date_trunc(
+                                    'month',
+                                    CURRENT_DATE
+                                )
+                                + INTERVAL '1 month'
+                                - INTERVAL '1 day'
+                            )::date,
                             'open',
                             false,
                             CURRENT_TIMESTAMP,
@@ -292,7 +302,7 @@ async def test_cash_payment_gl_postgresql_chronology():
                 contract_id=None,
                 number=f"{marker}-IN",
                 direction=PaymentDirection.INCOMING,
-                payment_date=date(2026, 9, 13),
+                payment_date=date.today(),
                 currency_code="UAH",
                 amount=Decimal("1000.00"),
                 created_by=user.id,
@@ -473,7 +483,7 @@ async def test_cash_payment_gl_postgresql_chronology():
                 contract_id=None,
                 number=f"{marker}-OUT",
                 direction=PaymentDirection.OUTGOING,
-                payment_date=date(2026, 9, 13),
+                payment_date=date.today(),
                 currency_code="UAH",
                 amount=Decimal("700.00"),
                 created_by=user.id,
@@ -551,7 +561,7 @@ async def test_cash_payment_gl_postgresql_chronology():
                 contract_id=None,
                 number=f"{marker}-INACTIVE",
                 direction=PaymentDirection.INCOMING,
-                payment_date=date(2026, 9, 13),
+                payment_date=date.today(),
                 currency_code="UAH",
                 amount=Decimal("111.00"),
                 created_by=user.id,
@@ -625,7 +635,7 @@ async def test_cash_payment_gl_postgresql_chronology():
                 contract_id=None,
                 number=f"{marker}-NONPOST",
                 direction=PaymentDirection.OUTGOING,
-                payment_date=date(2026, 9, 13),
+                payment_date=date.today(),
                 currency_code="UAH",
                 amount=Decimal("222.00"),
                 created_by=user.id,

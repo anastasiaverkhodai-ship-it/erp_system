@@ -154,10 +154,20 @@ async def test_cash_document_payment_postgresql_chronology():
                         )
                         VALUES (
                             :company_id,
-                            2026,
-                            9,
-                            DATE '2026-09-01',
-                            DATE '2026-09-30',
+                            EXTRACT(YEAR FROM CURRENT_DATE)::integer,
+                            EXTRACT(MONTH FROM CURRENT_DATE)::integer,
+                            date_trunc(
+                                'month',
+                                CURRENT_DATE
+                            )::date,
+                            (
+                                date_trunc(
+                                    'month',
+                                    CURRENT_DATE
+                                )
+                                + INTERVAL '1 month'
+                                - INTERVAL '1 day'
+                            )::date,
                             'open',
                             false,
                             CURRENT_TIMESTAMP,
@@ -265,7 +275,7 @@ async def test_cash_document_payment_postgresql_chronology():
                     payment_number=f"{marker}-PAY-1",
                     document_number=f"{marker}-DOC-1",
                     direction=PaymentDirection.INCOMING,
-                    document_date=date(2026, 9, 13),
+                    document_date=date.today(),
                     amount=Decimal("1000.00"),
                     currency_code="UAH",
                     counterparty_id=counterparty.id,
@@ -337,7 +347,7 @@ async def test_cash_document_payment_postgresql_chronology():
                     payment_number=f"{marker}-PAY-1",
                     document_number=f"{marker}-DOC-1",
                     direction=PaymentDirection.INCOMING,
-                    document_date=date(2026, 9, 13),
+                    document_date=date.today(),
                     amount=Decimal("1000.00"),
                     currency_code="UAH",
                     counterparty_id=counterparty.id,
@@ -397,7 +407,7 @@ async def test_cash_document_payment_postgresql_chronology():
                     payment_number=f"{marker}-PAY-DIFFERENT",
                     document_number=f"{marker}-DOC-1",
                     direction=PaymentDirection.INCOMING,
-                    document_date=date(2026, 9, 13),
+                    document_date=date.today(),
                     amount=Decimal("1000.00"),
                     currency_code="UAH",
                     counterparty_id=counterparty.id,
@@ -553,7 +563,7 @@ async def test_cash_document_payment_postgresql_chronology():
                 payment_number=f"{marker}-PAY-2",
                 document_number=f"{marker}-DOC-2",
                 direction=PaymentDirection.OUTGOING,
-                document_date=date(2026, 9, 13),
+                document_date=date.today(),
                 amount=Decimal("400.00"),
                 currency_code="UAH",
                 counterparty_id=counterparty.id,
