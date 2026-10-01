@@ -151,6 +151,7 @@ async def post_employee(
             middle_name=data.middle_name,
             tax_number=data.tax_number,
             birth_date=data.birth_date,
+            payment_iban=data.payment_iban,
             hire_date=data.hire_date,
             termination_date=data.termination_date,
             status=data.status,
@@ -187,7 +188,7 @@ async def patch_employee(
     company_id: int,
     employee_id: int,
     data: EmployeeUpdate,
-    _=Depends(
+    current_user: User = Depends(
         require_company_permission(
             "employees.manage"
         )
@@ -203,6 +204,7 @@ async def patch_employee(
             db,
             company_id=company_id,
             employee_id=employee_id,
+            changed_by=current_user.id,
             fields_set=set(data.model_fields_set),
             **values,
         )

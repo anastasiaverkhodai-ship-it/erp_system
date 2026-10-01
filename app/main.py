@@ -191,4 +191,9 @@ from app.api.v1.fixed_asset_reports import router as fixed_asset_reports_router
 app.include_router(fixed_asset_reports_router, prefix="/api/v1")
 
 from app.api.v1.employees import router as employees_router
+from app.api.v1.employment_structure import router as employment_structure_router
 app.include_router(employees_router, prefix="/api/v1")
+app.include_router(employment_structure_router, prefix="/api/v1")
+
+from app.api.v1.hr_history import router as hr_history_router
+app.include_router(hr_history_router, prefix="/api/v1")

@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.company import Company
 from app.models.employee import Employee, EmployeeStatus
 from app.models.user import User
+from app.services.hr_change_service import snapshot, record_change
+from app.services.employee_bank_details import normalize_employee_iban
 from app.models.user_company import user_companies
 
 
@@ -82,7 +84,7 @@ async def _require_active_company(
             select(Company).where(
                 Company.id == company_id,
                 Company.is_active.is_(True),
-            )
+            ).with_for_update()
         )
     ).scalar_one_or_none()
 
@@ -218,7 +220,7 @@ async def get_employee(
     )
 
     if lock_row:
-        query = query.with_for_update()
+        query = query.with_for_update().execution_options(populate_existing=True)
 
     employee = (
         await db.execute(query)
@@ -247,6 +249,7 @@ async def create_employee(
     status: EmployeeStatus,
     user_id: int | None,
     created_by: int,
+    payment_iban: str | None = None,
 ) -> Employee:
     await _require_active_company(
         db,
@@ -276,6 +279,12 @@ async def create_employee(
         status=status,
     )
 
+    try:
+        payment_iban = normalize_employee_iban(payment_iban)
+    except ValueError as exc:
+        raise EmployeeError(str(exc)) from exc
+    if birth_date and birth_date > hire_date:
+        raise EmployeeLifecycleError("birth_date cannot be after hire_date")
     employee = Employee(
         company_id=company_id,
         employee_number=normalized_number,
@@ -299,10 +308,12 @@ async def create_employee(
         status=status,
         user_id=user_id,
         created_by=created_by,
+        payment_iban=payment_iban,
     )
 
     db.add(employee)
     await db.flush()
+    await record_change(db, employee, "employee", None, created_by)
 
     return employee
 
@@ -322,8 +333,11 @@ async def update_employee(
     termination_date: date | None = None,
     status: EmployeeStatus | None = None,
     user_id: int | None = None,
+    payment_iban: str | None = None,
+    changed_by: int | None = None,
     fields_set: set[str] | None = None,
 ) -> Employee:
+    await _require_active_company(db, company_id=company_id)
     employee = await get_employee(
         db,
         company_id=company_id,
@@ -331,7 +345,13 @@ async def update_employee(
         lock_row=True,
     )
 
+    before = snapshot(employee)
     supplied = fields_set or set()
+    if "payment_iban" in supplied:
+        try:
+            employee.payment_iban = normalize_employee_iban(payment_iban)
+        except ValueError as exc:
+            raise EmployeeError(str(exc)) from exc
 
     if "employee_number" in supplied:
         if employee_number is None:
@@ -431,10 +451,23 @@ async def update_employee(
         status=next_status,
     )
 
+    if employee.birth_date and employee.birth_date > next_hire_date:
+        raise EmployeeLifecycleError("birth_date cannot be after hire_date")
+    from app.models.employment_contract import EmploymentContract, EmploymentContractStatus
+    contracts = (await db.scalars(select(EmploymentContract).where(EmploymentContract.company_id == company_id,
+        EmploymentContract.employee_id == employee_id, EmploymentContract.status != EmploymentContractStatus.CANCELLED))).all()
+    for contract in contracts:
+        if contract.start_date < next_hire_date:
+            raise EmployeeLifecycleError("Existing contract starts before new hire date")
+        if next_termination_date and (contract.end_date is None or contract.end_date > next_termination_date):
+            raise EmployeeLifecycleError("End employee contracts before termination")
+        if next_status != EmployeeStatus.ACTIVE and contract.status == EmploymentContractStatus.ACTIVE:
+            raise EmployeeLifecycleError("End active contracts before deactivating employee")
     employee.hire_date = next_hire_date
     employee.termination_date = next_termination_date
     employee.status = next_status
 
     await db.flush()
+    await record_change(db, employee, "employee", before, changed_by)
 
     return employee

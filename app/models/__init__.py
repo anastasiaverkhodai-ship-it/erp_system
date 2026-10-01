@@ -164,3 +164,8 @@ from app.models.fixed_asset_repair_improvement import (
 from app.models.fixed_asset_revaluation_impairment import FixedAssetRevaluationImpairment, FixedAssetRevaluationImpairmentType
 from app.models.fixed_asset_disposal import FixedAssetDisposal
 from app.models.employee import Employee, EmployeeStatus
+from app.models.department import Department
+from app.models.position import Position
+from app.models.employment_contract import EmploymentContract
+
+from app.models.hr_change import HRChange

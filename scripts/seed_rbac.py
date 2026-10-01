@@ -8,6 +8,8 @@ from app.models.role import Role
 
 
 PERMISSIONS = [
+    "employees.read",
+    "employees.manage",
     "users.read",
     "users.create",
     "users.update",
@@ -65,6 +67,7 @@ PERMISSIONS = [
 
 
 ROLES = [
+    "hr_manager",
     "admin",
     "director",
     "accountant",

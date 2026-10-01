@@ -110,6 +110,8 @@ class Employee(Base):
         nullable=True,
     )
 
+    payment_iban: Mapped[str | None] = mapped_column(String(29), nullable=True)
+
     birth_date: Mapped[date | None] = mapped_column(
         Date,
         nullable=True,

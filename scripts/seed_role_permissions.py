@@ -9,7 +9,10 @@ from app.models.rbac import role_permissions
 
 
 ROLE_PERMISSIONS = {
+    "hr_manager": ["employees.read", "employees.manage"],
     "admin": [
+        "employees.read",
+        "employees.manage",
         "users.read",
         "users.create",
         "users.update",

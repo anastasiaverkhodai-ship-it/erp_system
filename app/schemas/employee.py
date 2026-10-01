@@ -9,6 +9,7 @@ from pydantic import (
 )
 
 from app.models.employee import EmployeeStatus
+from app.services.employee_bank_details import normalize_employee_iban
 
 
 def _normalize_required_text(value: str) -> str:
@@ -56,6 +57,10 @@ class EmployeeCreate(BaseModel):
         default=None,
         max_length=50,
     )
+    payment_iban: str | None = Field(default=None, max_length=64)
+
+    _validate_iban = field_validator("payment_iban")(normalize_employee_iban)
+
     birth_date: date | None = None
     hire_date: date
     termination_date: date | None = None
@@ -145,6 +150,10 @@ class EmployeeUpdate(BaseModel):
         default=None,
         max_length=50,
     )
+    payment_iban: str | None = Field(default=None, max_length=64)
+
+    _validate_iban = field_validator("payment_iban")(normalize_employee_iban)
+
     birth_date: date | None = None
     hire_date: date | None = None
     termination_date: date | None = None
@@ -193,6 +202,7 @@ class EmployeeResponse(BaseModel):
     last_name: str
     middle_name: str | None
     tax_number: str | None
+    payment_iban: str | None
     birth_date: date | None
     hire_date: date
     termination_date: date | None
