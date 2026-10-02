@@ -180,3 +180,11 @@ from app.models.time_attendance import (
     WorkScheduleDay,
 )
 from app.models.leave_request import LeaveRequest, LeaveRequestStatus, LeaveType
+
+from app.models.payroll import (
+    PayrollInput,
+    PayrollInputSalarySlice,
+    PayrollInputSource,
+    PayrollPeriod,
+    PayrollPeriodStatus,
+)
