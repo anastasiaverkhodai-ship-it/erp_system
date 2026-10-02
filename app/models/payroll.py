@@ -338,6 +338,14 @@ class PayrollInputSalarySlice(Base):
             name="ck_payroll_salary_slices_amount_positive",
         ),
         CheckConstraint(
+            "scheduled_minutes >= 0",
+            name="ck_payroll_salary_slices_scheduled_minutes_nonnegative",
+        ),
+        CheckConstraint(
+            "worked_minutes >= 0",
+            name="ck_payroll_salary_slices_worked_minutes_nonnegative",
+        ),
+        CheckConstraint(
             "char_length(currency_code) = 3 "
             "AND currency_code = upper(currency_code)",
             name="ck_payroll_salary_slices_currency",
@@ -386,6 +394,269 @@ class PayrollInputSalarySlice(Base):
     effective_to: Mapped[date] = mapped_column(
         Date,
         nullable=False,
+    )
+
+    scheduled_minutes: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    worked_minutes: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+class PayrollCalculationStatus(str, enum.Enum):
+    CALCULATED = "calculated"
+
+
+class PayrollCalculation(Base):
+    __tablename__ = "payroll_calculations"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "id",
+            name="uq_payroll_calculations_company_id_id",
+        ),
+        UniqueConstraint(
+            "company_id",
+            "payroll_period_id",
+            "employment_contract_id",
+            name="uq_payroll_calculations_company_period_contract",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "payroll_period_id"],
+            ["payroll_periods.company_id", "payroll_periods.id"],
+            name="fk_payroll_calculations_company_period",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "employment_contract_id"],
+            ["employment_contracts.company_id", "employment_contracts.id"],
+            name="fk_payroll_calculations_company_contract",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "payroll_input_id"],
+            ["payroll_inputs.company_id", "payroll_inputs.id"],
+            name="fk_payroll_calculations_company_input",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "status IN ('calculated')",
+            name="ck_payroll_calculations_status",
+        ),
+        CheckConstraint(
+            "gross_amount >= 0",
+            name="ck_payroll_calculations_gross_nonnegative",
+        ),
+        CheckConstraint(
+            "currency_code = upper(currency_code) AND char_length(currency_code) = 3",
+            name="ck_payroll_calculations_currency",
+        ),
+        Index(
+            "ix_payroll_calculations_company_period",
+            "company_id",
+            "payroll_period_id",
+        ),
+        Index(
+            "ix_payroll_calculations_company_contract",
+            "company_id",
+            "employment_contract_id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    payroll_period_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    payroll_input_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    employment_contract_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    status: Mapped[PayrollCalculationStatus] = mapped_column(
+        SAEnum(
+            PayrollCalculationStatus,
+            name="payroll_calculation_status",
+            native_enum=False,
+            values_callable=lambda enum_cls: [
+                item.value for item in enum_cls
+            ],
+        ),
+        nullable=False,
+        default=PayrollCalculationStatus.CALCULATED,
+        server_default=PayrollCalculationStatus.CALCULATED.value,
+    )
+
+    currency_code: Mapped[str] = mapped_column(
+        String(3),
+        nullable=False,
+    )
+
+    gross_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),
+        nullable=False,
+    )
+
+    calculated_by: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    calculated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class PayrollCalculationLine(Base):
+    __tablename__ = "payroll_calculation_lines"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "id",
+            name="uq_payroll_calculation_lines_company_id_id",
+        ),
+        UniqueConstraint(
+            "company_id",
+            "payroll_calculation_id",
+            "line_no",
+            name="uq_payroll_calculation_lines_company_calculation_line_no",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "source_salary_rate_id"],
+            ["employee_salary_rates.company_id", "employee_salary_rates.id"],
+            name="fk_payroll_calculation_lines_company_salary_rate",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "payroll_calculation_id"],
+            ["payroll_calculations.company_id", "payroll_calculations.id"],
+            name="fk_payroll_calculation_lines_company_calculation",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "line_no > 0",
+            name="ck_payroll_calculation_lines_line_no_positive",
+        ),
+        CheckConstraint(
+            "quantity >= 0",
+            name="ck_payroll_calculation_lines_quantity_nonnegative",
+        ),
+        CheckConstraint(
+            "rate >= 0",
+            name="ck_payroll_calculation_lines_rate_nonnegative",
+        ),
+        CheckConstraint(
+            "(line_type = 'salary' AND amount >= 0) "
+            "OR line_type = 'manual_adjustment'",
+            name="ck_payroll_calculation_lines_amount_by_type",
+        ),
+        CheckConstraint(
+            "line_type IN ('salary','manual_adjustment')",
+            name="ck_payroll_calculation_lines_type",
+        ),
+        CheckConstraint(
+            "currency_code = upper(currency_code) AND char_length(currency_code) = 3",
+            name="ck_payroll_calculation_lines_currency",
+        ),
+        Index(
+            "ix_payroll_calculation_lines_company_calculation",
+            "company_id",
+            "payroll_calculation_id",
+            "line_no",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    payroll_calculation_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    line_no: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    line_type: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+    )
+
+    description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4),
+        nullable=False,
+    )
+
+    rate: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4),
+        nullable=False,
+    )
+
+    amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),
+        nullable=False,
+    )
+
+    currency_code: Mapped[str] = mapped_column(
+        String(3),
+        nullable=False,
+    )
+
+    salary_rate_type: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+    )
+
+    source_salary_rate_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    source_effective_from: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
+    )
+
+    source_effective_to: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(

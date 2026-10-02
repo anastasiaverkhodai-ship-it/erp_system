@@ -532,6 +532,19 @@ async def _replace_salary_slices(
     )
 
     for rate, slice_from, slice_to in slices:
+        (
+            slice_scheduled_minutes,
+            slice_worked_minutes,
+            _slice_leave_days,
+            _slice_sick_days,
+        ) = await _derive_time_quantities(
+            db,
+            company_id=company_id,
+            employment_contract_id=employment_contract_id,
+            date_from=slice_from,
+            date_to=slice_to,
+        )
+
         db.add(
             PayrollInputSalarySlice(
                 company_id=company_id,
@@ -542,6 +555,8 @@ async def _replace_salary_slices(
                 currency_code=rate.currency_code,
                 effective_from=slice_from,
                 effective_to=slice_to,
+                scheduled_minutes=slice_scheduled_minutes,
+                worked_minutes=slice_worked_minutes,
             )
         )
 

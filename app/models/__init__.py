@@ -187,4 +187,7 @@ from app.models.payroll import (
     PayrollInputSource,
     PayrollPeriod,
     PayrollPeriodStatus,
+    PayrollCalculation,
+    PayrollCalculationLine,
+    PayrollCalculationStatus,
 )
