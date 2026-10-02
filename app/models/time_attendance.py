@@ -268,6 +268,12 @@ class AttendanceRecord(Base):
     __tablename__ = "attendance_records"
 
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["company_id", "leave_request_id"],
+            ["leave_requests.company_id", "leave_requests.id"],
+            name="fk_attendance_records_company_leave_request",
+            ondelete="RESTRICT",
+        ),
         UniqueConstraint(
             "company_id",
             "id",
@@ -345,6 +351,11 @@ class AttendanceRecord(Base):
     employment_contract_id: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
+    )
+
+    leave_request_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
     )
 
     work_date: Mapped[date] = mapped_column(Date, nullable=False)
