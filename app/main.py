@@ -209,5 +209,7 @@ app.include_router(payroll_statutory_router, prefix="/api/v1")
 
 from app.api.v1.hr_history import router as hr_history_router
 from app.api.v1.payroll_accounting import router as payroll_accounting_router
+from app.api.v1.payroll_disbursements import router as payroll_disbursements_router
 app.include_router(hr_history_router, prefix="/api/v1")
 app.include_router(payroll_accounting_router)
+app.include_router(payroll_disbursements_router, prefix="/api/v1")
