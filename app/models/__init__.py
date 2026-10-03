@@ -192,3 +192,5 @@ from app.models.payroll import (
     PayrollCalculationStatus,
 )
 from app.models.payroll_statutory import PayrollStatutoryComponent, PayrollStatutoryRate, PayrollStatutoryResult, PayrollStatutoryResultLine
+
+from app.models.payroll_payslip import PayrollPayslip, PayrollPayslipLine

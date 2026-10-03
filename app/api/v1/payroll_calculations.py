@@ -21,6 +21,18 @@ from app.services.payroll_calculation_service import (
     list_payroll_calculations,
 )
 
+from app.schemas.payroll_payslip import (
+    PayrollPayslipLineRead,
+    PayrollPayslipRead,
+)
+from app.services.payroll_payslip_service import (
+    PayrollPayslipNotFoundError,
+    PayrollPayslipValidationError,
+    generate_payroll_payslip,
+    get_payroll_payslip_by_calculation,
+    list_payroll_payslip_lines,
+)
+
 
 router = APIRouter(tags=["payroll-calculations"])
 
@@ -155,3 +167,104 @@ async def list_company_payroll_calculation_lines(
         )
     except PayrollCalculationError as exc:
         _raise_http(exc)
+
+@router.post(
+    "/companies/{company_id}/payroll-calculations/"
+    "{payroll_calculation_id}/payslip/generate",
+    response_model=PayrollPayslipRead,
+    status_code=status.HTTP_200_OK,
+)
+async def generate_company_payroll_payslip(
+    company_id: int,
+    payroll_calculation_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _: User = Depends(
+        require_company_permission("employees.manage")
+    ),
+) -> PayrollPayslipRead:
+    try:
+        payslip = await generate_payroll_payslip(
+            db,
+            company_id=company_id,
+            payroll_calculation_id=payroll_calculation_id,
+            actor_user_id=current_user.id,
+        )
+        await db.commit()
+        await db.refresh(payslip)
+        return payslip
+    except PayrollPayslipNotFoundError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except PayrollPayslipValidationError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.get(
+    "/companies/{company_id}/payroll-calculations/"
+    "{payroll_calculation_id}/payslip",
+    response_model=PayrollPayslipRead,
+)
+async def get_company_payroll_payslip(
+    company_id: int,
+    payroll_calculation_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(
+        require_company_permission("employees.read")
+    ),
+) -> PayrollPayslipRead:
+    payslip = await get_payroll_payslip_by_calculation(
+        db,
+        company_id=company_id,
+        payroll_calculation_id=payroll_calculation_id,
+    )
+
+    if payslip is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Payroll payslip not found",
+        )
+
+    return payslip
+
+
+@router.get(
+    "/companies/{company_id}/payroll-calculations/"
+    "{payroll_calculation_id}/payslip/lines",
+    response_model=list[PayrollPayslipLineRead],
+)
+async def list_company_payroll_payslip_lines(
+    company_id: int,
+    payroll_calculation_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(
+        require_company_permission("employees.read")
+    ),
+) -> list[PayrollPayslipLineRead]:
+    payslip = await get_payroll_payslip_by_calculation(
+        db,
+        company_id=company_id,
+        payroll_calculation_id=payroll_calculation_id,
+    )
+
+    if payslip is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Payroll payslip not found",
+        )
+
+    return await list_payroll_payslip_lines(
+        db,
+        company_id=company_id,
+        payroll_payslip_id=payslip.id,
+    )

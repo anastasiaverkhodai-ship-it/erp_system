@@ -571,7 +571,8 @@ class PayrollCalculationLine(Base):
             name="ck_payroll_calculation_lines_quantity_nonnegative",
         ),
         CheckConstraint(
-            "rate >= 0",
+            "(line_type = 'salary' AND rate >= 0) "
+            "OR line_type = 'manual_adjustment'",
             name="ck_payroll_calculation_lines_rate_nonnegative",
         ),
         CheckConstraint(
