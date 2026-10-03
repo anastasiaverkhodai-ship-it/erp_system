@@ -191,3 +191,4 @@ from app.models.payroll import (
     PayrollCalculationLine,
     PayrollCalculationStatus,
 )
+from app.models.payroll_statutory import PayrollStatutoryComponent, PayrollStatutoryRate, PayrollStatutoryResult, PayrollStatutoryResultLine
