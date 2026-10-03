@@ -61,6 +61,24 @@ GENERAL_291_WORKING_PROFILE = (
 
             AccountingAccountRole.GOODS_COGS:
                 "902",
+
+            AccountingAccountRole.PAYROLL_EXPENSE:
+                "92",
+
+            AccountingAccountRole.PAYROLL_EMPLOYER_CONTRIBUTION_EXPENSE:
+                "92",
+
+            AccountingAccountRole.PAYROLL_NET_PAYABLE:
+                "66",
+
+            AccountingAccountRole.PAYROLL_PIT_PAYABLE:
+                "64",
+
+            AccountingAccountRole.PAYROLL_MILITARY_LEVY_PAYABLE:
+                "64",
+
+            AccountingAccountRole.PAYROLL_USC_PAYABLE:
+                "65",
         },
     )
 )
@@ -76,6 +94,24 @@ SIMPLIFIED_186_WORKING_PROFILE = (
                 "26",
             AccountingAccountRole.GOODS_COGS:
                 "90",
+
+            AccountingAccountRole.PAYROLL_EXPENSE:
+                "90",
+
+            AccountingAccountRole.PAYROLL_EMPLOYER_CONTRIBUTION_EXPENSE:
+                "91",
+
+            AccountingAccountRole.PAYROLL_NET_PAYABLE:
+                "66",
+
+            AccountingAccountRole.PAYROLL_PIT_PAYABLE:
+                "64",
+
+            AccountingAccountRole.PAYROLL_MILITARY_LEVY_PAYABLE:
+                "64",
+
+            AccountingAccountRole.PAYROLL_USC_PAYABLE:
+                "64",
         },
     )
 )

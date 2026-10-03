@@ -862,6 +862,11 @@ async def reverse_journal_entry(
             "fixed_asset_revaluation_impairment_id",
             None,
         ),
+        payroll_calculation_id=getattr(
+            original_entry,
+            "payroll_calculation_id",
+            None,
+        ),
         accounting_rule_id=original_entry.accounting_rule_id,
         entry_date=reversal_date,
         description=(
