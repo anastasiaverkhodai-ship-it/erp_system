@@ -1,3 +1,5 @@
+from app.schemas.payroll_register import PayrollRegister
+from app.services.payroll_register_service import get_payroll_register
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -415,3 +417,17 @@ async def api_list_payroll_input_salary_slices(
         )
     except PayrollInputError as exc:
         raise _input_http_error(exc) from exc
+
+
+@router.get('/payroll-periods/{payroll_period_id}/register', response_model=PayrollRegister)
+async def read_payroll_register(
+    company_id: int,
+    payroll_period_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_company_permission('employees.read')),
+):
+    try:
+        return await get_payroll_register(db, company_id=company_id,
+                                          payroll_period_id=payroll_period_id)
+    except PayrollPeriodError as exc:
+        raise _period_http_error(exc) from exc

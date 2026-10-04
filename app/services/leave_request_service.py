@@ -1,5 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
+from app.services.payroll_mutation_guard import serialized_payroll_mutation, ensure_payroll_source_editable
+
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -191,7 +193,7 @@ async def _require_leave_request(
     leave_request_id: int,
 ) -> LeaveRequest:
     result = await db.execute(
-        select(LeaveRequest).where(
+        select(LeaveRequest).execution_options(populate_existing=True).where(
             LeaveRequest.company_id == company_id,
             LeaveRequest.id == leave_request_id,
         )
@@ -337,6 +339,7 @@ async def get_leave_request(
     )
 
 
+@serialized_payroll_mutation(LeaveRequestLifecycleError)
 async def create_leave_request(
     db: AsyncSession,
     *,
@@ -392,6 +395,7 @@ async def create_leave_request(
     return leave_request
 
 
+@serialized_payroll_mutation(LeaveRequestLifecycleError)
 async def approve_leave_request(
     db: AsyncSession,
     *,
@@ -404,6 +408,11 @@ async def approve_leave_request(
         company_id=company_id,
         leave_request_id=leave_request_id,
     )
+
+    await ensure_payroll_source_editable(db, company_id=company_id,
+        contract_id=leave_request.employment_contract_id,
+        date_from=leave_request.start_date, date_to=leave_request.end_date,
+        error_type=LeaveRequestLifecycleError)
 
     if leave_request.status != LeaveRequestStatus.PENDING:
         raise LeaveRequestLifecycleError(
@@ -450,6 +459,7 @@ async def approve_leave_request(
     return leave_request
 
 
+@serialized_payroll_mutation(LeaveRequestLifecycleError)
 async def reject_leave_request(
     db: AsyncSession,
     *,
@@ -494,6 +504,7 @@ async def reject_leave_request(
     return leave_request
 
 
+@serialized_payroll_mutation(LeaveRequestLifecycleError)
 async def cancel_leave_request(
     db: AsyncSession,
     *,
@@ -507,6 +518,11 @@ async def cancel_leave_request(
         company_id=company_id,
         leave_request_id=leave_request_id,
     )
+
+    await ensure_payroll_source_editable(db, company_id=company_id,
+        contract_id=leave_request.employment_contract_id,
+        date_from=leave_request.start_date, date_to=leave_request.end_date,
+        error_type=LeaveRequestLifecycleError)
 
     if leave_request.status not in {
         LeaveRequestStatus.PENDING,

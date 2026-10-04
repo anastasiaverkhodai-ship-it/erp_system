@@ -1,6 +1,8 @@
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+from app.services.payroll_mutation_guard import serialized_payroll_mutation, ensure_payroll_source_editable
+
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,7 +51,7 @@ async def _require_contract(
     contract_id: int,
 ) -> EmploymentContract:
     row = await db.scalar(
-        select(EmploymentContract).where(
+        select(EmploymentContract).execution_options(populate_existing=True).where(
             EmploymentContract.company_id == company_id,
             EmploymentContract.id == contract_id,
         )
@@ -70,7 +72,7 @@ async def _require_schedule(
     schedule_id: int,
 ) -> WorkSchedule:
     row = await db.scalar(
-        select(WorkSchedule).where(
+        select(WorkSchedule).execution_options(populate_existing=True).where(
             WorkSchedule.company_id == company_id,
             WorkSchedule.id == schedule_id,
         )
@@ -274,6 +276,7 @@ async def list_work_schedule_days(
     return list((await db.scalars(query)).all())
 
 
+@serialized_payroll_mutation(TimeAttendanceLifecycleError)
 async def create_work_schedule(
     db: AsyncSession,
     *,
@@ -324,6 +327,7 @@ async def create_work_schedule(
     return row
 
 
+@serialized_payroll_mutation(TimeAttendanceLifecycleError)
 async def update_work_schedule(
     db: AsyncSession,
     *,
@@ -338,6 +342,17 @@ async def update_work_schedule(
         schedule_id=schedule_id,
     )
 
+
+    if {'days', 'timezone'} & data.model_fields_set:
+        assignments = (await db.scalars(select(EmploymentScheduleAssignment).where(
+            EmploymentScheduleAssignment.company_id == company_id,
+            EmploymentScheduleAssignment.work_schedule_id == schedule_id,
+        ))).all()
+        for assignment in assignments:
+            await ensure_payroll_source_editable(db, company_id=company_id,
+                contract_id=assignment.employment_contract_id,
+                date_from=assignment.effective_from, date_to=assignment.effective_to,
+                error_type=TimeAttendanceLifecycleError)
 
     before = snapshot(row)
     supplied = data.model_fields_set
@@ -434,6 +449,7 @@ async def list_schedule_assignments(
     return list((await db.scalars(query)).all())
 
 
+@serialized_payroll_mutation(TimeAttendanceLifecycleError)
 async def create_schedule_assignment(
     db: AsyncSession,
     *,
@@ -465,6 +481,10 @@ async def create_schedule_assignment(
         effective_to=data.effective_to,
     )
 
+    await ensure_payroll_source_editable(db, company_id=company_id,
+        contract_id=contract_id, date_from=data.effective_from, date_to=data.effective_to,
+        error_type=TimeAttendanceLifecycleError)
+
     overlap = await db.scalar(
         select(EmploymentScheduleAssignment.id)
         .where(
@@ -476,10 +496,9 @@ async def create_schedule_assignment(
                 EmploymentScheduleAssignment.effective_to
                 >= data.effective_from,
             ),
-            or_(
-                data.effective_to is None,
-                EmploymentScheduleAssignment.effective_from
-                <= data.effective_to,
+            (
+                EmploymentScheduleAssignment.effective_from <= data.effective_to
+                if data.effective_to is not None else True
             ),
         )
         .limit(1)
@@ -711,7 +730,7 @@ async def get_attendance(
     attendance_id: int,
 ) -> AttendanceRecord:
     row = await db.scalar(
-        select(AttendanceRecord).where(
+        select(AttendanceRecord).execution_options(populate_existing=True).where(
             AttendanceRecord.company_id == company_id,
             AttendanceRecord.id == attendance_id,
         )
@@ -725,6 +744,7 @@ async def get_attendance(
     return row
 
 
+@serialized_payroll_mutation(TimeAttendanceLifecycleError)
 async def create_attendance(
     db: AsyncSession,
     *,
@@ -737,6 +757,10 @@ async def create_attendance(
         company_id=company_id,
         contract_id=data.employment_contract_id,
     )
+
+    await ensure_payroll_source_editable(db, company_id=company_id,
+        contract_id=contract.id, date_from=data.work_date, date_to=data.work_date,
+        error_type=TimeAttendanceLifecycleError)
 
     _validate_contract_date(
         contract,
@@ -802,6 +826,7 @@ async def create_attendance(
     return row
 
 
+@serialized_payroll_mutation(TimeAttendanceLifecycleError)
 async def update_attendance(
     db: AsyncSession,
     *,
@@ -816,6 +841,12 @@ async def update_attendance(
         attendance_id=attendance_id,
     )
 
+
+    await ensure_payroll_source_editable(db, company_id=company_id,
+        contract_id=row.employment_contract_id, date_from=row.work_date, date_to=row.work_date,
+        error_type=TimeAttendanceLifecycleError)
+    if row.leave_request_id is not None:
+        raise TimeAttendanceLifecycleError('Change leave-linked attendance through its leave request')
 
     before = snapshot(row)
     contract = await _require_contract(

@@ -2,6 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -28,9 +29,14 @@ class PayrollDisbursement(Base):
         ),
         UniqueConstraint(
             "company_id",
-            "payroll_calculation_id",
-            name="uq_payroll_disbursements_company_calculation",
+            "request_key",
+            name="uq_payroll_disbursements_company_request",
         ),
+        CheckConstraint("(cancelled_at IS NULL) = (cancelled_by IS NULL)",
+                        name="ck_payroll_disbursement_cancellation"),
+        CheckConstraint("reversed_on IS NULL OR confirmed_at IS NOT NULL",
+                        name="ck_payroll_disbursement_chronology"),
+        CheckConstraint("amount > 0", name="ck_payroll_disbursement_positive"),
         ForeignKeyConstraint(
             ["company_id", "payroll_calculation_id"],
             [
@@ -74,6 +80,8 @@ class PayrollDisbursement(Base):
         nullable=False,
         index=True,
     )
+    request_key: Mapped[str] = mapped_column(String(200), nullable=False)
+
     payroll_calculation_id: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -102,6 +110,11 @@ class PayrollDisbursement(Base):
         Date,
         nullable=False,
     )
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reversed_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_by: Mapped[int | None] = mapped_column(ForeignKey('users.id', ondelete='RESTRICT'), nullable=True)
+
     created_by: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,

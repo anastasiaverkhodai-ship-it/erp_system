@@ -10,6 +10,7 @@ from pydantic import (
 
 from app.models.employment_contract import (
     EmploymentContractStatus,
+    EmploymentKind,
     WorkArrangement,
 )
 
@@ -134,6 +135,7 @@ class EmploymentContractCreate(BaseModel):
     contract_type: str = Field(min_length=1, max_length=100)
     department_id: int | None = Field(default=None, gt=0)
     position_id: int | None = Field(default=None, gt=0)
+    employment_kind: EmploymentKind = EmploymentKind.PRIMARY
     work_arrangement: WorkArrangement = WorkArrangement.FULL_TIME
     start_date: date
     end_date: date | None = None
@@ -188,6 +190,7 @@ class EmploymentContractUpdate(BaseModel):
     )
     department_id: int | None = Field(default=None, gt=0)
     position_id: int | None = Field(default=None, gt=0)
+    employment_kind: EmploymentKind | None = None
     work_arrangement: WorkArrangement | None = None
     start_date: date | None = None
     end_date: date | None = None
@@ -214,6 +217,7 @@ class EmploymentContractResponse(BaseModel):
     contract_type: str
     department_id: int | None
     position_id: int | None
+    employment_kind: EmploymentKind | None
     work_arrangement: WorkArrangement
     start_date: date
     end_date: date | None

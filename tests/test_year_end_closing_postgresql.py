@@ -202,16 +202,31 @@ async def test_year_end_migration_roundtrip(year_engine):
     spec=spec_from_file_location("commissioning_source_revision",
         "alembic/versions/8e124c09a671_harden_fixed_asset_commissioning_source.py")
     commissioning_source=module_from_spec(spec);spec.loader.exec_module(commissioning_source)
+    payroll_dependencies = []
+    for filename in (
+        '080a2cca7057_add_payroll_journal_source_exclusivity.py',
+        'ae1b3f877577_add_payroll_disbursement_foundation.py',
+        '13d4a7b8c003_partial_payroll_disbursements.py',
+        '13d4a7b8c004_payroll_bank_reconciliation.py',
+        '13d4a7b8c005_payroll_confirmation_chronology.py',
+    ):
+        spec=spec_from_file_location(filename, 'alembic/versions/' + filename)
+        dependency=module_from_spec(spec);spec.loader.exec_module(dependency)
+        payroll_dependencies.append(dependency)
     async with year_engine.begin() as conn:
         def roundtrip(sync):
             with Operations.context(MigrationContext.configure(sync)):
                 # A later check references year_end_closing_id. Remove that
                 # dependency first, as an ordered Alembic downgrade would do,
                 # then restore it after reintroducing the year-end column.
+                for dependency in reversed(payroll_dependencies):
+                    dependency.downgrade()
                 commissioning_source.downgrade()
                 migration.downgrade()
                 migration.upgrade()
                 commissioning_source.upgrade()
+                for dependency in payroll_dependencies:
+                    dependency.upgrade()
             assert compare_metadata(MigrationContext.configure(sync),Base.metadata) == []
         await conn.run_sync(roundtrip)
 

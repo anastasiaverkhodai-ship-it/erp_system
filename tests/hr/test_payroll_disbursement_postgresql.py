@@ -20,6 +20,15 @@ from app.models.company import Company
 from app.models.employee import Employee
 from app.models.employee_salary_rate import EmployeeSalaryRate
 from app.models.employment_contract import EmploymentContract
+from app.services.accounting_posting import AccountingPostingError
+from app.services.accounting_reversal import AccountingReversalError, reverse_journal_entry
+from app.services.payroll_accounting_service import generate_and_post_payroll_journal_entry
+
+from app.models.bank_statement import BankStatement
+from app.models.bank_statement_line import BankStatementLine
+from app.services.payroll_bank_reconciliation_service import reconcile_payroll_disbursement, unmatch_payroll_disbursement
+from app.services.bank_statement_reconciliation_service import BankStatementReconciliationError
+
 from app.models.journal_entry import JournalEntry
 from app.models.journal_entry_line import JournalEntryLine
 from app.models.payment import Payment
@@ -45,6 +54,9 @@ from app.services.payroll_disbursement_service import (
     PayrollDisbursementNotFoundError,
     create_payroll_disbursement,
     generate_and_post_payroll_disbursement_journal,
+    PayrollDisbursementSourceStateError,
+    list_payroll_disbursements,
+    cancel_payroll_disbursement,
     get_payroll_disbursement,
     get_payroll_disbursement_journal,
     reverse_payroll_disbursement_journal,
@@ -450,6 +462,24 @@ async def test_payroll_disbursement_real_postgresql_e2e():
 
                 assert len(disbursement_rows) == 1
 
+                with pytest.raises(AccountingPostingError, match="Post payroll accrual"):
+                    async with db.begin_nested():
+                        await generate_and_post_payroll_disbursement_journal(
+                            db, company_id=company.id, payroll_disbursement_id=disbursement.id,
+                            created_by=user.id)
+                for code, kind, balance in [
+                    ("92", AccountType.EXPENSE, AccountNormalBalance.DEBIT),
+                    ("64", AccountType.LIABILITY, AccountNormalBalance.CREDIT),
+                    ("65", AccountType.LIABILITY, AccountNormalBalance.CREDIT),
+                ]:
+                    db.add(Account(company_id=company.id, code=code, name=code,
+                        account_type=kind, normal_balance=balance, is_postable=True,
+                        is_system=True, is_active=True))
+                await db.flush()
+                accrual = await generate_and_post_payroll_journal_entry(
+                    db, company_id=company.id, payroll_calculation_id=calculation.id,
+                    created_by=user.id)
+
                 journal = (
                     await generate_and_post_payroll_disbursement_journal(
                         db,
@@ -459,6 +489,10 @@ async def test_payroll_disbursement_real_postgresql_e2e():
                     )
                 )
                 await db.flush()
+
+                with pytest.raises(AccountingReversalError, match="Reverse payroll disbursement"):
+                    async with db.begin_nested():
+                        await reverse_journal_entry(db, company.id, accrual.id, payment_date, user.id)
 
                 assert journal.status == "posted"
                 assert journal.entry_date == payment_date
@@ -678,6 +712,163 @@ async def test_payroll_disbursement_real_postgresql_e2e():
                     )
                 )
                 assert payment_count_after_reversal == 0
+
+                with pytest.raises(PayrollDisbursementSourceStateError, match="not active"):
+                    await generate_and_post_payroll_disbursement_journal(db,
+                        company_id=company.id, payroll_disbursement_id=disbursement.id, created_by=user.id)
+                reserved_draft = await create_payroll_disbursement(db, company_id=company.id,
+                    payroll_calculation_id=calculation.id, bank_account_id=bank.id,
+                    payment_date=payment_date, created_by=user.id,
+                    amount=Decimal('100.00'), request_key='cancel-this-draft')
+                cancelled = await cancel_payroll_disbursement(db, company_id=company.id,
+                    payroll_disbursement_id=reserved_draft.id, cancelled_by=user.id)
+                assert cancelled.cancelled_at is not None
+                assert (await cancel_payroll_disbursement(db, company_id=company.id,
+                    payroll_disbursement_id=reserved_draft.id, cancelled_by=user.id)).id == cancelled.id
+                with pytest.raises(AccountingPostingError, match='Cancelled'):
+                    async with db.begin_nested():
+                        await generate_and_post_payroll_disbursement_journal(db, company_id=company.id,
+                            payroll_disbursement_id=reserved_draft.id, created_by=user.id)
+
+                first = await create_payroll_disbursement(db, company_id=company.id,
+                    payroll_calculation_id=calculation.id, bank_account_id=bank.id,
+                    payment_date=payment_date, created_by=user.id,
+                    amount=Decimal('5000.00'), request_key='installment-1')
+                second = await create_payroll_disbursement(db, company_id=company.id,
+                    payroll_calculation_id=calculation.id, bank_account_id=bank.id,
+                    payment_date=payment_date, created_by=user.id,
+                    amount=Decimal('2700.00'), request_key='installment-2')
+                repeated = await create_payroll_disbursement(db, company_id=company.id,
+                    payroll_calculation_id=calculation.id, bank_account_id=bank.id,
+                    payment_date=payment_date, created_by=user.id,
+                    amount=Decimal('5000.00'), request_key='installment-1')
+                assert repeated.id == first.id
+                with pytest.raises(PayrollDisbursementSourceStateError, match='different'):
+                    await create_payroll_disbursement(db, company_id=company.id,
+                        payroll_calculation_id=calculation.id, bank_account_id=bank.id,
+                        payment_date=payment_date, created_by=user.id,
+                        amount=Decimal('5001.00'), request_key='installment-1')
+                with pytest.raises(PayrollDisbursementSourceStateError, match='remaining'):
+                    await create_payroll_disbursement(db, company_id=company.id,
+                        payroll_calculation_id=calculation.id, bank_account_id=bank.id,
+                        payment_date=payment_date, created_by=user.id,
+                        amount=Decimal('0.01'), request_key='installment-3')
+                for part in (first, second):
+                    posted = await generate_and_post_payroll_disbursement_journal(db,
+                        company_id=company.id, payroll_disbursement_id=part.id, created_by=user.id)
+                    assert posted.status == 'posted'
+                assert len(await list_payroll_disbursements(db,company_id=company.id,
+                    payroll_calculation_id=calculation.id)) == 4
+
+                from app.services.payroll_cash_bank_gl_control_service import reconcile_payroll_bank_sources
+                async def payroll_control():
+                    return await reconcile_payroll_bank_sources(db, company_id=company.id,
+                        date_from=payment_date, date_to=payment_date)
+                controls = await payroll_control()
+                assert all(item.matched for item in controls), controls
+                assert sum(item.expected_amount for item in controls) == Decimal('-7700.00')
+                assert first.confirmed_at is not None
+                # Independent source evidence survives a missing posting state.
+                posted.status = 'draft'
+                await db.flush()
+                broken = await payroll_control()
+                assert not all(item.matched for item in broken)
+                assert sum(item.expected_amount for item in broken) == Decimal('-7700.00')
+                posted.status = 'posted'
+                await db.flush()
+                posted.payroll_disbursement_id = None
+                await db.flush()
+                missing = await payroll_control()
+                assert not all(item.matched for item in missing)
+                assert sum(item.expected_amount for item in missing) == Decimal('-7700.00')
+                posted.payroll_disbursement_id = second.id
+                await db.flush()
+
+                statement = BankStatement(**_required_values(BankStatement, {
+                    'company_id': company.id, 'bank_account_id': bank.id,
+                    'external_id': 'payroll-statement', 'created_by': user.id,
+                }))
+                db.add(statement); await db.flush()
+                bank_line = BankStatementLine(**_required_values(BankStatementLine, {
+                    'company_id': company.id, 'bank_account_id': bank.id,
+                    'bank_statement_id': statement.id, 'external_line_id': 'payroll-line',
+                    'amount': Decimal('-5000.00'), 'currency_code': 'UAH',
+                }))
+                db.add(bank_line); await db.flush()
+                match = await reconcile_payroll_disbursement(db, company_id=company.id,
+                    payroll_disbursement_id=first.id, bank_statement_line_id=bank_line.id,
+                    matched_amount=Decimal('5000.00'), currency_code='UAH', created_by=user.id)
+                assert match.payment_id is None
+                assert match.payroll_disbursement_id == first.id
+                assert (await reconcile_payroll_disbursement(db, company_id=company.id,
+                    payroll_disbursement_id=first.id, bank_statement_line_id=bank_line.id,
+                    matched_amount=Decimal('5000.00'), currency_code='UAH', created_by=user.id)).id == match.id
+                with pytest.raises(AccountingReversalError, match='Unmatch'):
+                    await reverse_payroll_disbursement_journal(db, company_id=company.id,
+                        payroll_disbursement_id=first.id, reversal_date=payment_date, reversed_by=user.id)
+                unmatched = await unmatch_payroll_disbursement(db, company_id=company.id,
+                    payroll_disbursement_id=first.id, reconciliation_id=match.id, reversed_by=user.id)
+                assert unmatched.reversal_of_id == match.id
+                assert unmatched.payroll_disbursement_id == first.id
+                reversal_day = date(2026, 10, 5)
+                db.add(AccountingPeriod(company_id=company.id, year=2026, month=10,
+                    start_date=date(2026,10,1), end_date=date(2026,10,31),
+                    status='open', is_locked=False))
+                await db.flush()
+                await reverse_payroll_disbursement_journal(db, company_id=company.id,
+                    payroll_disbursement_id=first.id, reversal_date=reversal_day, reversed_by=user.id)
+                assert await db.scalar(select(func.count(Payment.id)).where(Payment.company_id == company.id)) == 0
+
+                bank_gl.is_system = True
+                for code, kind, normal in [('371', AccountType.ASSET, AccountNormalBalance.DEBIT),
+                                            ('681', AccountType.LIABILITY, AccountNormalBalance.CREDIT)]:
+                    db.add(Account(company_id=company.id, code=code, name='Control counterpart',
+                        account_type=kind, normal_balance=normal, is_postable=True, is_active=True, is_system=True))
+                await db.flush()
+                from app.services.cash_bank_gl_control_service import reconcile_cash_bank_gl
+                combined = await reconcile_cash_bank_gl(db, company_id=company.id,
+                    date_from=payment_date, date_to=reversal_day)
+                assert combined.matched, combined
+                assert combined.expected_amount == combined.posted_amount == Decimal('-2700.00')
+                assert combined.unattributed_journal_ids == []
+
+                assert first.reversed_on == reversal_day
+                historical = await payroll_control()
+                assert all(item.matched for item in historical), historical
+                assert sum(item.expected_amount for item in historical) == Decimal('-7700.00')
+                controls = await reconcile_payroll_bank_sources(db, company_id=company.id,
+                    date_from=payment_date, date_to=reversal_day)
+                assert all(item.matched for item in controls), controls
+                assert sum(item.expected_amount for item in controls) == Decimal('-2700.00')
+
+                from app.services.payroll_register_service import get_payroll_register
+                from app.services.payroll_period_service import PayrollPeriodNotFoundError
+                register = await get_payroll_register(db, company_id=company.id, payroll_period_id=period.id)
+                assert register.complete and len(register.rows) == 1, register
+                row = register.rows[0]
+                assert row.gross_amount == Decimal('10000.00')
+                assert row.employee_withholding_amount == Decimal('2300.00')
+                assert row.net_amount == Decimal('7700.00')
+                assert row.paid_amount == Decimal('2700.00')
+                assert row.recognized_balance == row.available_to_pay == Decimal('5000.00')
+                assert row.reserved_amount == 0
+                with pytest.raises(PayrollPeriodNotFoundError):
+                    await get_payroll_register(db, company_id=company.id + 1000000, payroll_period_id=period.id)
+                uncalculated_period = PayrollPeriod(company_id=company.id, year=2026, month=10,
+                    start_date=date(2026,10,1), end_date=date(2026,10,31),
+                    status=PayrollPeriodStatus.DRAFT, created_by=user.id)
+                db.add(uncalculated_period)
+                await db.flush()
+                db.add(PayrollInput(company_id=company.id, payroll_period_id=uncalculated_period.id,
+                    employment_contract_id=contract.id, scheduled_minutes=0, worked_minutes=0,
+                    leave_days=0, sick_days=0, manual_adjustment_amount=Decimal(0), created_by=user.id))
+                await db.flush()
+                unfinished = await get_payroll_register(db, company_id=company.id,
+                    payroll_period_id=uncalculated_period.id)
+                assert not unfinished.complete
+                assert unfinished.rows[0].net_amount is None
+                assert unfinished.rows[0].recognized_balance is None
+                assert 'calculation_missing' in unfinished.rows[0].issues
 
                 print("PAYROLL DISBURSEMENT SNAPSHOT = PASS")
                 print("NET PAY 7700.00 = PASS")

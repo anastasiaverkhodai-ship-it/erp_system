@@ -429,6 +429,10 @@ async def reverse_journal_entry(
     purchase_value_correction_ma_replay_event_id_override: int | None = None,
     landed_cost_valuation_event_id: int | None = None,
 ) -> JournalEntry:
+    from app.services.payroll_mutation_guard import (
+        lock_payroll_journal_company, ensure_no_posted_payroll_disbursement,
+    )
+    await lock_payroll_journal_company(db, company_id, journal_entry_id)
     result = await db.execute(
         select(JournalEntry)
         .options(
@@ -450,6 +454,20 @@ async def reverse_journal_entry(
         raise JournalEntryReversalNotFoundError(
             "Journal entry not found"
         )
+
+    if original_entry.payroll_calculation_id is not None:
+        await ensure_no_posted_payroll_disbursement(db, company_id=company_id,
+            calculation_id=original_entry.payroll_calculation_id,
+            error_type=AccountingReversalError)
+
+    if original_entry.payroll_disbursement_id is not None:
+        from app.models.bank_statement_reconciliation import BankStatementReconciliationActiveLink
+        matched = await db.scalar(select(BankStatementReconciliationActiveLink.id).where(
+            BankStatementReconciliationActiveLink.company_id == company_id,
+            BankStatementReconciliationActiveLink.payroll_disbursement_id == original_entry.payroll_disbursement_id,
+        ).limit(1))
+        if matched is not None:
+            raise AccountingReversalError('Unmatch the bank statement before reversing payroll disbursement')
 
     depreciation_id = getattr(original_entry, "fixed_asset_depreciation_id", None)
     if depreciation_id is not None and db.info.get("fixed_asset_depreciation") != depreciation_id:
@@ -904,6 +922,15 @@ async def reverse_journal_entry(
     )
     original_entry.reversed_at = datetime.utcnow()
     original_entry.reversed_by = reversed_by
+    if original_entry.payroll_disbursement_id is not None:
+        from app.models.payroll_disbursement import PayrollDisbursement
+        payout = await db.scalar(select(PayrollDisbursement).where(
+            PayrollDisbursement.company_id == company_id,
+            PayrollDisbursement.id == original_entry.payroll_disbursement_id,
+        ))
+        if payout is None or payout.confirmed_at is None:
+            raise AccountingReversalError("Payroll payout lacks confirmation chronology")
+        payout.reversed_on = reversal_date
 
     await db.flush()
 

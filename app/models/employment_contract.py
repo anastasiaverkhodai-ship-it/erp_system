@@ -30,10 +30,18 @@ class WorkArrangement(str, Enum):
     PART_TIME = "part_time"
 
 
+class EmploymentKind(str, Enum):
+    PRIMARY = "primary"
+    INTERNAL_SECONDARY = "internal_secondary"
+    EXTERNAL_SECONDARY = "external_secondary"
+
+
 class EmploymentContract(Base):
     __tablename__ = "employment_contracts"
 
     __table_args__ = (
+        CheckConstraint("employment_kind IN ('primary','internal_secondary','external_secondary')",
+                        name='ck_employment_contracts_kind'),
         CheckConstraint("status IN ('active','ended','cancelled')", name='ck_employment_contracts_status'),
         CheckConstraint("work_arrangement IN ('full_time','part_time')", name='ck_employment_contracts_arrangement'),
         UniqueConstraint(
@@ -142,6 +150,9 @@ class EmploymentContract(Base):
         Integer,
         nullable=True,
     )
+
+    employment_kind: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, default='primary')
 
     work_arrangement: Mapped[WorkArrangement] = mapped_column(
         SQLEnum(

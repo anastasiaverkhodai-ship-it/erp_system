@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import select
+from app.services.payroll_mutation_guard import serialized_payroll_mutation
+
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -46,10 +48,12 @@ async def get_payroll_disbursement(
     *,
     company_id: int,
     payroll_calculation_id: int,
+    request_key: str | None = None,
 ) -> PayrollDisbursement | None:
     return (
         await db.execute(
-            select(PayrollDisbursement).where(
+            select(PayrollDisbursement).execution_options(populate_existing=True).where(
+                PayrollDisbursement.request_key == (request_key or f"payroll:{payroll_calculation_id}"),
                 PayrollDisbursement.company_id == company_id,
                 PayrollDisbursement.payroll_calculation_id
                 == payroll_calculation_id,
@@ -58,6 +62,7 @@ async def get_payroll_disbursement(
     ).scalar_one_or_none()
 
 
+@serialized_payroll_mutation(PayrollDisbursementSourceStateError)
 async def create_payroll_disbursement(
     db: AsyncSession,
     *,
@@ -66,13 +71,32 @@ async def create_payroll_disbursement(
     bank_account_id: int,
     payment_date: date,
     created_by: int,
+    amount: Decimal | None = None,
+    request_key: str | None = None,
 ) -> PayrollDisbursement:
+    if amount is not None and request_key is None:
+        raise PayrollDisbursementSourceStateError('Partial disbursement requires request_key')
+    key = request_key.strip() if request_key is not None else f"payroll:{payroll_calculation_id}"
+    if not key or len(key) > 200:
+        raise PayrollDisbursementSourceStateError('Invalid disbursement request key')
     existing = await get_payroll_disbursement(
         db,
         company_id=company_id,
         payroll_calculation_id=payroll_calculation_id,
+        request_key=key,
     )
     if existing is not None:
+        if existing.cancelled_at is not None:
+            raise PayrollDisbursementSourceStateError('Disbursement cancelled; use a new request key')
+        requested_amount = amount
+        if requested_amount is None:
+            requested_amount = await db.scalar(select(PayrollStatutoryResult.net_amount).where(
+                PayrollStatutoryResult.company_id == company_id,
+                PayrollStatutoryResult.payroll_calculation_id == payroll_calculation_id))
+        if (existing.bank_account_id != bank_account_id or existing.payment_date != payment_date
+            or (requested_amount is None or Decimal(existing.amount) != requested_amount)):
+            raise PayrollDisbursementSourceStateError(
+                'Existing disbursement has different bank account or payment date')
         return existing
 
     calculation = (
@@ -161,14 +185,33 @@ async def create_payroll_disbursement(
             "Payroll and bank account currencies must match"
         )
 
-    amount = Decimal(statutory.net_amount)
+    amount = Decimal(statutory.net_amount) if amount is None else Decimal(amount)
+    if not amount.is_finite() or amount != amount.quantize(Decimal('0.01')):
+        raise PayrollDisbursementSourceStateError('Disbursement amount must be finite money')
     if amount <= Decimal("0.00"):
         raise PayrollDisbursementSourceStateError(
             "Payroll net amount must be positive"
         )
 
+    reserved = await db.scalar(select(func.coalesce(func.sum(PayrollDisbursement.amount), 0))
+        .outerjoin(JournalEntry, and_(
+            JournalEntry.company_id == PayrollDisbursement.company_id,
+            JournalEntry.payroll_disbursement_id == PayrollDisbursement.id,
+            JournalEntry.reversal_of_id.is_(None)))
+        .where(PayrollDisbursement.company_id == company_id,
+            PayrollDisbursement.payroll_calculation_id == calculation.id,
+            PayrollDisbursement.cancelled_at.is_(None),
+            or_(JournalEntry.id.is_(None), JournalEntry.status != JournalEntryStatus.REVERSED)))
+    if Decimal(reserved) + amount > Decimal(statutory.net_amount):
+        raise PayrollDisbursementSourceStateError('Disbursement exceeds remaining net payroll')
+    key_owner = await db.scalar(select(PayrollDisbursement.id).where(
+        PayrollDisbursement.company_id == company_id, PayrollDisbursement.request_key == key))
+    if key_owner is not None:
+        raise PayrollDisbursementSourceStateError('Request key belongs to another payroll calculation')
+
     row = PayrollDisbursement(
         company_id=company_id,
+        request_key=key,
         payroll_calculation_id=calculation.id,
         employee_id=employee.id,
         bank_account_id=bank_account.id,
@@ -191,7 +234,7 @@ async def get_payroll_disbursement_journal(
 ) -> JournalEntry | None:
     return (
         await db.execute(
-            select(JournalEntry)
+            select(JournalEntry).execution_options(populate_existing=True)
             .options(selectinload(JournalEntry.lines))
             .where(
                 JournalEntry.company_id == company_id,
@@ -203,6 +246,7 @@ async def get_payroll_disbursement_journal(
     ).scalar_one_or_none()
 
 
+@serialized_payroll_mutation(PayrollDisbursementSourceStateError)
 async def generate_and_post_payroll_disbursement_journal(
     db: AsyncSession,
     *,
@@ -216,11 +260,13 @@ async def generate_and_post_payroll_disbursement_journal(
         payroll_disbursement_id=payroll_disbursement_id,
     )
     if existing is not None:
+        if existing.status != JournalEntryStatus.POSTED:
+            raise PayrollDisbursementSourceStateError('Disbursement is not active; use a new request key after reversal')
         return existing
 
     disbursement = (
         await db.execute(
-            select(PayrollDisbursement).where(
+            select(PayrollDisbursement).execution_options(populate_existing=True).where(
                 PayrollDisbursement.company_id == company_id,
                 PayrollDisbursement.id == payroll_disbursement_id,
             )
@@ -318,6 +364,7 @@ async def generate_and_post_payroll_disbursement_journal(
     )
 
 
+@serialized_payroll_mutation(PayrollDisbursementSourceStateError)
 async def reverse_payroll_disbursement_journal(
     db: AsyncSession,
     *,
@@ -343,3 +390,30 @@ async def reverse_payroll_disbursement_journal(
         reversal_date,
         reversed_by,
     )
+
+
+async def list_payroll_disbursements(db, *, company_id, payroll_calculation_id):
+    return list((await db.scalars(select(PayrollDisbursement).execution_options(populate_existing=True).where(
+        PayrollDisbursement.company_id == company_id,
+        PayrollDisbursement.payroll_calculation_id == payroll_calculation_id,
+    ).order_by(PayrollDisbursement.id))).all())
+
+
+@serialized_payroll_mutation(PayrollDisbursementSourceStateError)
+async def cancel_payroll_disbursement(db, *, company_id, payroll_disbursement_id, cancelled_by):
+    row = await db.scalar(select(PayrollDisbursement).where(
+        PayrollDisbursement.company_id == company_id,
+        PayrollDisbursement.id == payroll_disbursement_id,
+    ).execution_options(populate_existing=True))
+    if row is None:
+        raise PayrollDisbursementNotFoundError('Payroll disbursement not found')
+    if row.cancelled_at is not None:
+        return row
+    journal = await get_payroll_disbursement_journal(db, company_id=company_id,
+        payroll_disbursement_id=payroll_disbursement_id)
+    if journal is not None and journal.status != JournalEntryStatus.REVERSED:
+        raise PayrollDisbursementSourceStateError('Reverse or remove the disbursement journal before cancelling')
+    row.cancelled_at = datetime.now(timezone.utc)
+    row.cancelled_by = cancelled_by
+    await db.flush()
+    return row

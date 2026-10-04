@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from calendar import monthrange
 from decimal import Decimal
 
 from pydantic import (
@@ -32,10 +33,10 @@ class PayrollPeriodCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_date_range(self) -> "PayrollPeriodCreate":
-        if self.end_date < self.start_date:
-            raise ValueError(
-                "end_date must be on or after start_date"
-            )
+        expected_start = date(self.year, self.month, 1)
+        expected_end = date(self.year, self.month, monthrange(self.year, self.month)[1])
+        if self.start_date != expected_start or self.end_date != expected_end:
+            raise ValueError("Payroll period must cover its complete calendar month")
         return self
 
 
@@ -147,6 +148,7 @@ class PayrollInputRead(BaseModel):
     payroll_period_id: int
     employment_contract_id: int
 
+    monthly_norm_minutes: int | None = None
     scheduled_minutes: int
     worked_minutes: int
 

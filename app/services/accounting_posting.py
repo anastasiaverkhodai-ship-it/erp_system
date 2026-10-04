@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -105,6 +105,10 @@ async def post_journal_entry(
     company_id: int,
     journal_entry_id: int,
 ) -> JournalEntry:
+    from app.services.payroll_mutation_guard import (
+        lock_payroll_journal_company, require_posted_payroll_accrual,
+    )
+    await lock_payroll_journal_company(db, company_id, journal_entry_id)
     result = await db.execute(
         select(JournalEntry)
         .options(
@@ -124,6 +128,17 @@ async def post_journal_entry(
         raise JournalEntryNotFoundError(
             "Journal entry not found"
         )
+
+    if journal_entry.payroll_disbursement_id is not None:
+        from app.models.payroll_disbursement import PayrollDisbursement
+        disbursement = await db.scalar(select(PayrollDisbursement).where(
+            PayrollDisbursement.company_id == company_id,
+            PayrollDisbursement.id == journal_entry.payroll_disbursement_id,
+        ))
+        if disbursement is None:
+            raise AccountingPostingError('Payroll disbursement not found')
+        await require_posted_payroll_accrual(db, company_id=company_id,
+            disbursement=disbursement, error_type=AccountingPostingError)
 
     commissioning_id = getattr(journal_entry, "fixed_asset_commissioning_id", None)
     if commissioning_id is not None and db.info.get("fixed_asset_commissioning") != commissioning_id:
@@ -204,6 +219,8 @@ async def post_journal_entry(
     )
 
     journal_entry.posted_at = datetime.utcnow()
+    if journal_entry.payroll_disbursement_id is not None:
+        disbursement.confirmed_at = journal_entry.posted_at.replace(tzinfo=timezone.utc)
 
     await db.flush()
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
+from app.services.payroll_mutation_guard import serialized_payroll_mutation
+
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,6 +65,7 @@ def validate_rate_window(
         )
 
 
+@serialized_payroll_mutation(PayrollStatutoryValidationError)
 async def create_statutory_rate(
     session: AsyncSession,
     *,
@@ -325,6 +328,7 @@ def calculate_component_amount(
     return round_money(base_amount * rate)
 
 
+@serialized_payroll_mutation(PayrollStatutoryValidationError)
 async def calculate_payroll_statutory_result(
     session: AsyncSession,
     *,

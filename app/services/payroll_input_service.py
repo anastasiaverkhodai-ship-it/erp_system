@@ -1,6 +1,8 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
+from app.services.payroll_mutation_guard import serialized_payroll_mutation
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,7 +60,7 @@ async def _require_payroll_period(
     )
 
     if lock:
-        stmt = stmt.with_for_update()
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
 
     result = await db.execute(stmt)
     row = result.scalar_one_or_none()
@@ -78,7 +80,7 @@ async def _require_contract(
     employment_contract_id: int,
 ) -> EmploymentContract:
     result = await db.execute(
-        select(EmploymentContract).where(
+        select(EmploymentContract).execution_options(populate_existing=True).where(
             EmploymentContract.company_id == company_id,
             EmploymentContract.id == employment_contract_id,
         )
@@ -107,7 +109,7 @@ async def _require_payroll_input(
     )
 
     if lock:
-        stmt = stmt.with_for_update()
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
 
     result = await db.execute(stmt)
     row = result.scalar_one_or_none()
@@ -197,7 +199,7 @@ async def _load_schedule_assignments(
     date_to: date,
 ) -> list[EmploymentScheduleAssignment]:
     result = await db.execute(
-        select(EmploymentScheduleAssignment)
+        select(EmploymentScheduleAssignment).execution_options(populate_existing=True)
         .where(
             EmploymentScheduleAssignment.company_id == company_id,
             EmploymentScheduleAssignment.employment_contract_id
@@ -230,7 +232,7 @@ async def _load_schedule_days(
         return {}
 
     result = await db.execute(
-        select(WorkScheduleDay).where(
+        select(WorkScheduleDay).execution_options(populate_existing=True).where(
             WorkScheduleDay.company_id == company_id,
             WorkScheduleDay.work_schedule_id.in_(schedule_ids),
         )
@@ -253,7 +255,7 @@ async def _load_attendance(
     date_to: date,
 ) -> dict[date, AttendanceRecord]:
     result = await db.execute(
-        select(AttendanceRecord).where(
+        select(AttendanceRecord).execution_options(populate_existing=True).where(
             AttendanceRecord.company_id == company_id,
             AttendanceRecord.employment_contract_id
             == employment_contract_id,
@@ -290,6 +292,33 @@ def _assignment_for_day(
         )
 
     return matches[0] if matches else None
+
+
+async def _derive_monthly_norm(db, *, company_id, contract, period):
+    assignments = await _load_schedule_assignments(db, company_id=company_id,
+        employment_contract_id=contract.id, date_from=period.start_date,
+        date_to=period.end_date)
+    if not assignments:
+        raise PayrollInputDerivationError('Monthly payroll requires an assigned work schedule')
+    assignments = sorted(assignments, key=lambda row: row.effective_from)
+    days = await _load_schedule_days(db, company_id=company_id,
+        schedule_ids={row.work_schedule_id for row in assignments})
+    total = 0
+    current = period.start_date
+    while current <= period.end_date:
+        assignment = _assignment_for_day(assignments, current)
+        if assignment is None:
+            if current < contract.start_date:
+                assignment = assignments[0]
+            elif contract.end_date is not None and current > contract.end_date:
+                assignment = assignments[-1]
+            else:
+                raise PayrollInputDerivationError('Work schedule has a gap in the payroll month')
+        day = days.get((assignment.work_schedule_id, current.isoweekday()))
+        if day is not None:
+            total += _scheduled_minutes_for_day(day)
+        current += timedelta(days=1)
+    return total
 
 
 async def _derive_time_quantities(
@@ -390,7 +419,7 @@ async def _load_salary_rates(
     date_to: date,
 ) -> list[EmployeeSalaryRate]:
     result = await db.execute(
-        select(EmployeeSalaryRate)
+        select(EmployeeSalaryRate).execution_options(populate_existing=True)
         .where(
             EmployeeSalaryRate.company_id == company_id,
             EmployeeSalaryRate.employment_contract_id
@@ -653,6 +682,7 @@ async def list_salary_slices(
     return list(result.scalars().all())
 
 
+@serialized_payroll_mutation(PayrollInputLifecycleError)
 async def create_payroll_input(
     db: AsyncSession,
     *,
@@ -691,6 +721,9 @@ async def create_payroll_input(
         employment_contract_id=data.employment_contract_id,
     )
 
+    monthly_norm_minutes = await _derive_monthly_norm(db, company_id=company_id,
+        contract=contract, period=period)
+
     (
         scheduled_minutes,
         worked_minutes,
@@ -708,6 +741,7 @@ async def create_payroll_input(
         company_id=company_id,
         payroll_period_id=payroll_period_id,
         employment_contract_id=data.employment_contract_id,
+        monthly_norm_minutes=monthly_norm_minutes,
         scheduled_minutes=scheduled_minutes,
         worked_minutes=worked_minutes,
         leave_days=leave_days,
@@ -740,6 +774,7 @@ async def create_payroll_input(
     return row
 
 
+@serialized_payroll_mutation(PayrollInputLifecycleError)
 async def refresh_payroll_input(
     db: AsyncSession,
     *,
@@ -776,6 +811,9 @@ async def refresh_payroll_input(
         period,
     )
 
+    monthly_norm_minutes = await _derive_monthly_norm(db, company_id=company_id,
+        contract=contract, period=period)
+
     (
         scheduled_minutes,
         worked_minutes,
@@ -789,6 +827,7 @@ async def refresh_payroll_input(
         date_to=date_to,
     )
 
+    row.monthly_norm_minutes = monthly_norm_minutes
     row.scheduled_minutes = scheduled_minutes
     row.worked_minutes = worked_minutes
     row.leave_days = leave_days
@@ -809,6 +848,7 @@ async def refresh_payroll_input(
     return row
 
 
+@serialized_payroll_mutation(PayrollInputLifecycleError)
 async def update_payroll_input_adjustment(
     db: AsyncSession,
     *,

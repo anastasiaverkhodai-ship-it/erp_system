@@ -804,6 +804,11 @@ async def test_payroll_accounting_real_postgresql_e2e():
                 await db.refresh(journal)
 
                 assert journal.status == "reversed"
+                from app.services.payroll_accounting_service import PayrollAccountingSourceStateError
+                with pytest.raises(PayrollAccountingSourceStateError, match='not active'):
+                    await generate_and_post_payroll_journal_entry(db, company_id=company.id,
+                        payroll_calculation_id=calculation.id, created_by=user.id)
+
 
                 reversal_lines = (
                     await db.execute(

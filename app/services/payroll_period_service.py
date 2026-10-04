@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+from app.services.payroll_mutation_guard import serialized_payroll_mutation
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,7 +42,7 @@ async def _require_payroll_period(
     )
 
     if lock:
-        stmt = stmt.with_for_update()
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
 
     result = await db.execute(stmt)
     payroll_period = result.scalar_one_or_none()
@@ -127,6 +129,7 @@ async def get_payroll_period(
     )
 
 
+@serialized_payroll_mutation(PayrollPeriodLifecycleError)
 async def create_payroll_period(
     db: AsyncSession,
     *,
@@ -192,6 +195,10 @@ async def _validate_payroll_input_for_finalization(
             "Payroll input employment contract not found"
         )
 
+    from app.services.payroll_input_service import (
+        _load_schedule_assignments, _load_schedule_days, _load_attendance,
+        _assignment_for_day, _scheduled_minutes_for_day,
+    )
     date_from = max(
         payroll_period.start_date,
         contract.start_date,
@@ -209,6 +216,22 @@ async def _validate_payroll_input_for_finalization(
         raise PayrollPeriodLifecycleError(
             "Payroll input contract does not intersect payroll period"
         )
+
+    assignments = await _load_schedule_assignments(db, company_id=payroll_period.company_id,
+        employment_contract_id=contract.id, date_from=date_from, date_to=date_to)
+    days = await _load_schedule_days(db, company_id=payroll_period.company_id,
+        schedule_ids={row.work_schedule_id for row in assignments})
+    attendance = await _load_attendance(db, company_id=payroll_period.company_id,
+        employment_contract_id=contract.id, date_from=date_from, date_to=date_to)
+    current = date_from
+    while current <= date_to:
+        assignment = _assignment_for_day(assignments, current)
+        if assignment is None:
+            raise PayrollPeriodLifecycleError(f'Missing work schedule on {current}')
+        day = days.get((assignment.work_schedule_id, current.isoweekday()))
+        if day is not None and _scheduled_minutes_for_day(day) > 0 and current not in attendance:
+            raise PayrollPeriodLifecycleError(f'Missing attendance on {current}')
+        current += timedelta(days=1)
 
     slice_result = await db.execute(
         select(PayrollInputSalarySlice)
@@ -318,7 +341,14 @@ async def _validate_period_for_finalization(
             "Payroll period cannot be finalized without payroll inputs"
         )
 
+    from app.services.payroll_input_service import refresh_payroll_input, PayrollInputError
+
     for payroll_input in payroll_inputs:
+        try:
+            await refresh_payroll_input(db, company_id=payroll_period.company_id,
+                                       payroll_input_id=payroll_input.id)
+        except PayrollInputError as exc:
+            raise PayrollPeriodLifecycleError(str(exc)) from exc
         await _validate_payroll_input_for_finalization(
             db,
             payroll_period=payroll_period,
@@ -326,6 +356,7 @@ async def _validate_period_for_finalization(
         )
 
 
+@serialized_payroll_mutation(PayrollPeriodLifecycleError)
 async def finalize_payroll_period(
     db: AsyncSession,
     *,

@@ -112,6 +112,9 @@ async def api_post_payroll_accounting_journal(
             "journal_entries.create"
         )
     ),
+    approval: User = Depends(
+        require_company_permission("journal_entries.approve")
+    ),
 ):
     try:
         row = (

@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+from app.services.payroll_mutation_guard import serialized_payroll_mutation
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -311,7 +313,7 @@ async def get_payroll_accounting_journal(
 ) -> JournalEntry | None:
     return (
         await db.execute(
-            select(JournalEntry)
+            select(JournalEntry).execution_options(populate_existing=True)
             .options(
                 selectinload(JournalEntry.lines)
             )
@@ -326,6 +328,7 @@ async def get_payroll_accounting_journal(
     ).scalar_one_or_none()
 
 
+@serialized_payroll_mutation(PayrollAccountingSourceStateError)
 async def generate_and_post_payroll_journal_entry(
     db: AsyncSession,
     *,
@@ -340,6 +343,10 @@ async def generate_and_post_payroll_journal_entry(
     )
 
     if existing is not None:
+        if existing.status != JournalEntryStatus.POSTED:
+            raise PayrollAccountingSourceStateError(
+                'Payroll accrual is not active; use a payroll correction after reversal'
+            )
         return existing
 
     (
@@ -498,6 +505,7 @@ async def generate_and_post_payroll_journal_entry(
         ) from exc
 
 
+@serialized_payroll_mutation(PayrollAccountingSourceStateError)
 async def reverse_payroll_journal_entry(
     db: AsyncSession,
     *,

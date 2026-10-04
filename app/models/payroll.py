@@ -228,6 +228,10 @@ class PayrollInput(Base):
         nullable=False,
     )
 
+    # Full-month contractual norm, including days outside a mid-month hire/end.
+    # Null on legacy snapshots: never guess their historical denominator.
+    monthly_norm_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     scheduled_minutes: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

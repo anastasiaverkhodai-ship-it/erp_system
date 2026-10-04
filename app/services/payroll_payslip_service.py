@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from app.services.payroll_mutation_guard import serialized_payroll_mutation
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -200,6 +202,7 @@ async def get_payslip_generation_sources(
         statutory_lines,
     )
 
+@serialized_payroll_mutation(PayrollPayslipValidationError)
 async def generate_payroll_payslip(
     session: AsyncSession,
     *,

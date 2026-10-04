@@ -18,9 +18,14 @@ from app.services.payroll_disbursement_service import (
     create_payroll_disbursement,
     generate_and_post_payroll_disbursement_journal,
     get_payroll_disbursement,
+    list_payroll_disbursements,
+    cancel_payroll_disbursement,
     reverse_payroll_disbursement_journal,
 )
 
+
+from app.services.accounting_posting import AccountingPostingError
+from app.services.accounting_reversal import AccountingReversalError
 
 router = APIRouter(tags=["payroll-disbursements"])
 
@@ -87,11 +92,13 @@ async def api_create_payroll_disbursement(
             bank_account_id=payload.bank_account_id,
             payment_date=payload.payment_date,
             created_by=current_user.id,
+            amount=payload.amount,
+            request_key=payload.request_key,
         )
         await db.commit()
         await db.refresh(row)
         return row
-    except PayrollDisbursementError as exc:
+    except (PayrollDisbursementError, AccountingPostingError, AccountingReversalError) as exc:
         await db.rollback()
         raise _http_error(exc) from exc
     except Exception:
@@ -113,6 +120,9 @@ async def api_post_payroll_disbursement_journal(
     _: User = Depends(
         require_company_permission("journal_entries.create")
     ),
+    approval: User = Depends(
+        require_company_permission("journal_entries.approve")
+    ),
 ):
     try:
         row = await generate_and_post_payroll_disbursement_journal(
@@ -124,7 +134,7 @@ async def api_post_payroll_disbursement_journal(
         await db.commit()
         await db.refresh(row)
         return row
-    except PayrollDisbursementError as exc:
+    except (PayrollDisbursementError, AccountingPostingError, AccountingReversalError) as exc:
         await db.rollback()
         raise _http_error(exc) from exc
     except Exception:
@@ -159,9 +169,84 @@ async def api_reverse_payroll_disbursement_journal(
         await db.commit()
         await db.refresh(row)
         return row
+    except (PayrollDisbursementError, AccountingPostingError, AccountingReversalError) as exc:
+        await db.rollback()
+        raise _http_error(exc) from exc
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.get('/companies/{company_id}/payroll-calculations/{payroll_calculation_id}/disbursements',
+            response_model=list[PayrollDisbursementRead])
+async def api_list_payroll_disbursements(company_id: int, payroll_calculation_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_company_permission('journal_entries.read'))):
+    return await list_payroll_disbursements(db, company_id=company_id,
+        payroll_calculation_id=payroll_calculation_id)
+
+
+@router.post('/companies/{company_id}/payroll-disbursements/{payroll_disbursement_id}/cancel',
+             response_model=PayrollDisbursementRead)
+async def api_cancel_payroll_disbursement(company_id: int, payroll_disbursement_id: int,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_company_permission('journal_entries.delete'))):
+    try:
+        row = await cancel_payroll_disbursement(db, company_id=company_id,
+            payroll_disbursement_id=payroll_disbursement_id, cancelled_by=actor.id)
+        await db.commit()
+        await db.refresh(row)
+        return row
     except PayrollDisbursementError as exc:
         await db.rollback()
         raise _http_error(exc) from exc
+    except Exception:
+        await db.rollback()
+        raise
+
+
+from app.schemas.payroll_disbursement import PayrollBankMatchCreate, PayrollBankMatchRead
+from app.services.payroll_bank_reconciliation_service import (
+    reconcile_payroll_disbursement, unmatch_payroll_disbursement,
+)
+from app.services.bank_statement_reconciliation_service import BankStatementReconciliationError
+
+
+@router.post('/companies/{company_id}/payroll-disbursements/{payroll_disbursement_id}/bank-reconciliations',
+             response_model=PayrollBankMatchRead)
+async def api_match_payroll_bank(company_id: int, payroll_disbursement_id: int,
+    payload: PayrollBankMatchCreate, db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_company_permission('payments.manage'))):
+    try:
+        event = await reconcile_payroll_disbursement(db, company_id=company_id,
+            payroll_disbursement_id=payroll_disbursement_id, created_by=actor.id,
+            **payload.model_dump())
+        await db.commit()
+        await db.refresh(event)
+        return event
+    except BankStatementReconciliationError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.post('/companies/{company_id}/payroll-disbursements/{payroll_disbursement_id}/bank-reconciliations/{reconciliation_id}/reverse',
+             response_model=PayrollBankMatchRead)
+async def api_unmatch_payroll_bank(company_id: int, payroll_disbursement_id: int,
+    reconciliation_id: int, db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_company_permission('payments.manage'))):
+    try:
+        event = await unmatch_payroll_disbursement(db, company_id=company_id,
+            payroll_disbursement_id=payroll_disbursement_id,
+            reconciliation_id=reconciliation_id, reversed_by=actor.id)
+        await db.commit()
+        await db.refresh(event)
+        return event
+    except BankStatementReconciliationError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception:
         await db.rollback()
         raise

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP
 
+from app.services.payroll_mutation_guard import serialized_payroll_mutation
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -338,20 +340,24 @@ def _derive_monthly_salary_amount(
 ) -> Decimal:
     del period
 
-    if payroll_input.scheduled_minutes <= 0:
+    if payroll_input.monthly_norm_minutes is None or payroll_input.monthly_norm_minutes <= 0:
         raise PayrollCalculationDerivationError(
-            "Monthly payroll calculation requires positive scheduled minutes."
+            "Monthly payroll requires a verified full-month norm snapshot."
         )
 
-    if salary_slice.scheduled_minutes < 0:
+    if salary_slice.scheduled_minutes < 0 or salary_slice.worked_minutes < 0:
         raise PayrollCalculationDerivationError(
-            "Salary slice scheduled minutes cannot be negative."
+            "Salary slice time cannot be negative."
+        )
+    if salary_slice.worked_minutes > salary_slice.scheduled_minutes:
+        raise PayrollCalculationDerivationError(
+            "Monthly overtime requires a separate earning; review attendance."
         )
 
     amount = (
         Decimal(salary_slice.salary_rate_amount)
-        * Decimal(salary_slice.scheduled_minutes)
-        / Decimal(payroll_input.scheduled_minutes)
+        * Decimal(salary_slice.worked_minutes)
+        / Decimal(payroll_input.monthly_norm_minutes)
     )
 
     return _money(amount)
@@ -527,6 +533,7 @@ def derive_gross_calculation(
     return currency_code, gross, lines
 
 
+@serialized_payroll_mutation(PayrollCalculationLifecycleError)
 async def calculate_payroll_input(
     db: AsyncSession,
     *,

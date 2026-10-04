@@ -639,53 +639,38 @@ async def get_employment_contract(
 
 
 async def _assert_no_contract_overlap(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    employee_id: int,
-    start_date: date,
-    end_date: date | None,
-    status: EmploymentContractStatus,
-    exclude_id: int | None = None,
+    db: AsyncSession, *, company_id: int, employee_id: int,
+    start_date: date, end_date: date | None, status: EmploymentContractStatus,
+    exclude_id: int | None = None, employment_kind: str = "primary",
 ) -> None:
-    if status == EmploymentContractStatus.CANCELLED:
-        return
-
-    query = select(EmploymentContract.id).where(
+    if employment_kind not in {'primary', 'internal_secondary', 'external_secondary'}:
+        raise EmploymentStructureLifecycleError('Invalid employment kind')
+    query = select(EmploymentContract).where(
         EmploymentContract.company_id == company_id,
         EmploymentContract.employee_id == employee_id,
-        EmploymentContract.status
-        != EmploymentContractStatus.CANCELLED,
-    )
-
-    if end_date is not None:
-        query = query.where(
-            EmploymentContract.start_date <= end_date
-        )
-
-    query = query.where(
-        (
-            EmploymentContract.end_date.is_(None)
-        )
-        | (
-            EmploymentContract.end_date >= start_date
-        )
-    )
-
+        EmploymentContract.status != EmploymentContractStatus.CANCELLED,
+    ).execution_options(populate_existing=True)
     if exclude_id is not None:
-        query = query.where(
-            EmploymentContract.id != exclude_id
-        )
-
-    existing = (
-        await db.execute(query.limit(1))
-    ).scalar_one_or_none()
-
-    if existing is not None:
-        raise EmploymentStructureDuplicateError(
-            "Employment contract overlaps another "
-            "non-cancelled contract for this employee"
-        )
+        query = query.where(EmploymentContract.id != exclude_id)
+    rows = list((await db.scalars(query)).all())
+    if status != EmploymentContractStatus.CANCELLED and any(
+        row.employment_kind is None and row.start_date <= (end_date or date.max)
+        and (row.end_date or date.max) >= start_date for row in rows
+    ):
+        raise EmploymentStructureLifecycleError('Classify existing employment contracts before changing employment')
+    candidates = [(r.employment_kind, r.start_date, r.end_date) for r in rows]
+    if status != EmploymentContractStatus.CANCELLED:
+        candidates.append((employment_kind, start_date, end_date))
+    primary = [(start, end or date.max) for kind, start, end in candidates if kind == 'primary']
+    for index, (start, end) in enumerate(primary):
+        if any(start <= other_end and other_start <= end for other_start, other_end in primary[index+1:]):
+            raise EmploymentStructureDuplicateError('Employment contract overlaps another primary contract')
+    for kind, start, end in candidates:
+        until = end or date.max
+        if kind == 'internal_secondary' and not any(pstart <= start and pend >= until for pstart, pend in primary):
+            raise EmploymentStructureLifecycleError('Internal secondary employment requires a primary contract covering its dates')
+        if kind == 'external_secondary' and any(start <= pend and pstart <= until for pstart, pend in primary):
+            raise EmploymentStructureLifecycleError('Secondary employment at the primary employer must be internal')
 
 
 async def create_employment_contract(
@@ -702,6 +687,7 @@ async def create_employment_contract(
     end_date: date | None,
     status: EmploymentContractStatus,
     created_by: int,
+    employment_kind: str = "primary",
 ) -> EmploymentContract:
     await _require_active_company(
         db,
@@ -759,6 +745,7 @@ async def create_employment_contract(
         start_date=start_date,
         end_date=end_date,
         status=status,
+        employment_kind=employment_kind,
     )
 
     contract = EmploymentContract(
@@ -769,6 +756,7 @@ async def create_employment_contract(
         department_id=department_id,
         position_id=position_id,
         work_arrangement=work_arrangement,
+        employment_kind=employment_kind,
         start_date=start_date,
         end_date=end_date,
         status=status,
@@ -794,6 +782,7 @@ async def update_employment_contract(
     start_date: date | None = None,
     end_date: date | None = None,
     status: EmploymentContractStatus | None = None,
+    employment_kind: str | None = None,
     fields_set: set[str] | None = None,
     changed_by: int | None = None,
 ) -> EmploymentContract:
@@ -897,6 +886,7 @@ async def update_employment_contract(
         if contract.position_id is not None:
             await _require_position(db, company_id=company_id, position_id=contract.position_id, active_only=True)
     await _validate_employee_dates(db, company_id, contract.employee_id, next_start, next_end, next_status)
+    next_kind = employment_kind if 'employment_kind' in supplied else contract.employment_kind
     await _assert_no_contract_overlap(
         db,
         company_id=company_id,
@@ -905,8 +895,10 @@ async def update_employment_contract(
         end_date=next_end,
         status=next_status,
         exclude_id=contract.id,
+        employment_kind=next_kind,
     )
 
+    contract.employment_kind = next_kind
     contract.start_date = next_start
     contract.end_date = next_end
     contract.status = next_status

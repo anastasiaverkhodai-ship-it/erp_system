@@ -1,6 +1,12 @@
 from datetime import date
 
 from fastapi import HTTPException
+from app.services.payroll_mutation_guard import serialized_payroll_mutation, ensure_payroll_source_editable
+
+
+def _payroll_conflict(message):
+    return HTTPException(status_code=409, detail=message)
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,7 +47,7 @@ async def _get_contract(
     )
 
     if lock:
-        stmt = stmt.with_for_update()
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
 
     contract = (await db.execute(stmt)).scalar_one_or_none()
 
@@ -207,7 +213,7 @@ async def get_salary_rate(
     )
 
     if lock:
-        stmt = stmt.with_for_update()
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
 
     row = (await db.execute(stmt)).scalar_one_or_none()
 
@@ -220,6 +226,7 @@ async def get_salary_rate(
     return row
 
 
+@serialized_payroll_mutation(_payroll_conflict)
 async def create_salary_rate(
     db: AsyncSession,
     *,
@@ -233,6 +240,10 @@ async def create_salary_rate(
         contract_id=data.employment_contract_id,
         lock=True,
     )
+
+    await ensure_payroll_source_editable(db, company_id=company_id,
+        contract_id=contract.id, date_from=data.effective_from, date_to=data.effective_to,
+        error_type=_payroll_conflict)
 
     _validate_contract_window(
         contract,
@@ -275,6 +286,7 @@ async def create_salary_rate(
     return row
 
 
+@serialized_payroll_mutation(_payroll_conflict)
 async def update_salary_rate(
     db: AsyncSession,
     *,
@@ -309,6 +321,10 @@ async def update_salary_rate(
         "effective_to",
         row.effective_to,
     )
+
+    for start, end in [(row.effective_from, row.effective_to), (effective_from, effective_to)]:
+        await ensure_payroll_source_editable(db, company_id=company_id,
+            contract_id=contract.id, date_from=start, date_to=end, error_type=_payroll_conflict)
 
     _validate_contract_window(
         contract,
