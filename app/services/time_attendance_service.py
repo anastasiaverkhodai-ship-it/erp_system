@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 from app.services.payroll_mutation_guard import serialized_payroll_mutation, ensure_payroll_source_editable
@@ -606,13 +606,15 @@ def _worked_minutes(
             "attendance timestamps must be timezone-aware"
         )
 
-    if actual_end_at <= actual_start_at:
+    start_utc = actual_start_at.astimezone(timezone.utc)
+    end_utc = actual_end_at.astimezone(timezone.utc)
+    if end_utc <= start_utc:
         raise TimeAttendanceError(
             "actual_end_at must be after actual_start_at"
         )
 
     gross_minutes = int(
-        (actual_end_at - actual_start_at).total_seconds() // 60
+        (end_utc - start_utc).total_seconds() // 60
     )
 
     if break_minutes < 0:
@@ -744,6 +746,24 @@ async def get_attendance(
     return row
 
 
+async def _ensure_attendance_interval_available(
+    db, *, company_id, contract_id, start, end, exclude_id=None,
+):
+    """Prevent duplicate paid time across adjacent work dates."""
+    if start is None or end is None:
+        return
+    query = select(AttendanceRecord.id).where(
+        AttendanceRecord.company_id == company_id,
+        AttendanceRecord.employment_contract_id == contract_id,
+        AttendanceRecord.actual_start_at < end,
+        AttendanceRecord.actual_end_at > start,
+    )
+    if exclude_id is not None:
+        query = query.where(AttendanceRecord.id != exclude_id)
+    if await db.scalar(query.limit(1)) is not None:
+        raise TimeAttendanceConflictError('Worked interval overlaps another attendance record')
+
+
 @serialized_payroll_mutation(TimeAttendanceLifecycleError)
 async def create_attendance(
     db: AsyncSession,
@@ -794,6 +814,9 @@ async def create_attendance(
         actual_end_at=data.actual_end_at,
         break_minutes=data.break_minutes,
     )
+
+    await _ensure_attendance_interval_available(db, company_id=company_id,
+        contract_id=contract.id, start=data.actual_start_at, end=data.actual_end_at)
 
     row = AttendanceRecord(
         company_id=company_id,
@@ -918,6 +941,9 @@ async def update_attendance(
         actual_end_at=next_end,
         break_minutes=next_break,
     )
+
+    await _ensure_attendance_interval_available(db, company_id=company_id,
+        contract_id=contract.id, start=next_start, end=next_end, exclude_id=row.id)
 
     row.status = next_status
     row.actual_start_at = next_start

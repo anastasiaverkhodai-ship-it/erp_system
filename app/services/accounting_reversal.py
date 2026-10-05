@@ -549,6 +549,8 @@ async def reverse_journal_entry(
         )
 
     if getattr(original_entry, "opening_balance_id", None):
+        from app.services.payroll_opening_service import ensure_no_payroll_opening_detail
+        await ensure_no_payroll_opening_detail(db,company_id,original_entry.opening_balance_id,AccountingReversalError)
         from app.models.opening_balance_detail import OpeningBalanceDetail
         detail=await db.scalar(select(OpeningBalanceDetail.id).where(
             OpeningBalanceDetail.company_id==company_id,

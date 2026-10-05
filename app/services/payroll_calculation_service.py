@@ -337,6 +337,7 @@ def _derive_monthly_salary_amount(
     period: PayrollPeriod,
     payroll_input: PayrollInput,
     salary_slice: PayrollInputSalarySlice,
+    allow_extra_time: bool = False,
 ) -> Decimal:
     del period
 
@@ -349,7 +350,7 @@ def _derive_monthly_salary_amount(
         raise PayrollCalculationDerivationError(
             "Salary slice time cannot be negative."
         )
-    if salary_slice.worked_minutes > salary_slice.scheduled_minutes:
+    if salary_slice.worked_minutes > salary_slice.scheduled_minutes and not allow_extra_time:
         raise PayrollCalculationDerivationError(
             "Monthly overtime requires a separate earning; review attendance."
         )
@@ -393,6 +394,7 @@ def derive_gross_calculation(
     period: PayrollPeriod,
     payroll_input: PayrollInput,
     salary_slices: list[PayrollInputSalarySlice],
+    allowed_extra_slice_ids: set[int] | None = None,
 ) -> tuple[str, Decimal, list[dict[str, object]]]:
     if not salary_slices:
         raise PayrollCalculationDerivationError(
@@ -425,6 +427,7 @@ def derive_gross_calculation(
                 period=period,
                 payroll_input=payroll_input,
                 salary_slice=salary_slice,
+                allow_extra_time=(allowed_extra_slice_ids is not None and salary_slice.id in allowed_extra_slice_ids),
             )
             quantity = _quantity(
                 Decimal(_slice_days(salary_slice))
@@ -558,13 +561,26 @@ async def calculate_payroll_input(
     if existing is not None:
         return existing
 
+    from app.services.payroll_supplement_service import derive_supplement_lines, PayrollSupplementError
+    try:
+        supplement_lines,allowed_extra=await derive_supplement_lines(db,company_id=company_id,
+            payroll_input=payroll_input,period=period,salary_slices=salary_slices)
+    except PayrollSupplementError as exc:
+        raise PayrollCalculationDerivationError(str(exc)) from exc
+
     currency_code, gross_amount, derived_lines = (
         derive_gross_calculation(
             period=period,
             payroll_input=payroll_input,
             salary_slices=salary_slices,
+            allowed_extra_slice_ids=allowed_extra,
         )
     )
+    for line in supplement_lines:
+        line['line_no']=len(derived_lines)+1
+        derived_lines.append(line)
+        gross_amount+=line['amount']
+    gross_amount=_money(gross_amount)
 
     calculation = PayrollCalculation(
         company_id=company_id,

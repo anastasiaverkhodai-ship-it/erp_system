@@ -18,6 +18,7 @@ class PayrollCalculationLineRead(BaseModel):
     amount: Decimal
     currency_code: str
     salary_rate_type: str | None
+    source_supplement_id: int | None = None
     source_salary_rate_id: int | None
     source_effective_from: date | None
     source_effective_to: date | None

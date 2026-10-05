@@ -295,6 +295,14 @@ def _assignment_for_day(
 
 
 async def _derive_monthly_norm(db, *, company_id, contract, period):
+    from app.models.payroll_opening import PayrollEarningsHistory
+    imported=await db.scalar(select(PayrollEarningsHistory.id).where(
+        PayrollEarningsHistory.company_id==company_id,
+        PayrollEarningsHistory.employment_contract_id==contract.id,
+        PayrollEarningsHistory.month>=period.start_date.replace(day=1),
+        PayrollEarningsHistory.month<=period.end_date).limit(1))
+    if imported is not None:
+        raise PayrollInputDerivationError('Payroll period overlaps imported earnings history')
     assignments = await _load_schedule_assignments(db, company_id=company_id,
         employment_contract_id=contract.id, date_from=period.start_date,
         date_to=period.end_date)

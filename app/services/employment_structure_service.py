@@ -643,6 +643,8 @@ async def _assert_no_contract_overlap(
     start_date: date, end_date: date | None, status: EmploymentContractStatus,
     exclude_id: int | None = None, employment_kind: str = "primary",
 ) -> None:
+    if db.info.get('employment_event_batch'):
+        return
     if employment_kind not in {'primary', 'internal_secondary', 'external_secondary'}:
         raise EmploymentStructureLifecycleError('Invalid employment kind')
     query = select(EmploymentContract).where(
@@ -658,16 +660,25 @@ async def _assert_no_contract_overlap(
         and (row.end_date or date.max) >= start_date for row in rows
     ):
         raise EmploymentStructureLifecycleError('Classify existing employment contracts before changing employment')
-    candidates = [(r.employment_kind, r.start_date, r.end_date) for r in rows]
+    from app.services.employment_event_service import contract_kind_segments
+    candidates = []
+    for row in rows:
+        candidates.extend(await contract_kind_segments(db,row.id,company_id,row.start_date,row.end_date,row.employment_kind))
     if status != EmploymentContractStatus.CANCELLED:
-        candidates.append((employment_kind, start_date, end_date))
+        candidates.extend(await contract_kind_segments(db,exclude_id,company_id,start_date,end_date,employment_kind))
     primary = [(start, end or date.max) for kind, start, end in candidates if kind == 'primary']
     for index, (start, end) in enumerate(primary):
         if any(start <= other_end and other_start <= end for other_start, other_end in primary[index+1:]):
             raise EmploymentStructureDuplicateError('Employment contract overlaps another primary contract')
+    merged_primary = []
+    for start, end in sorted(primary):
+        if merged_primary and start.toordinal() <= merged_primary[-1][1].toordinal() + 1:
+            merged_primary[-1] = (merged_primary[-1][0], max(end, merged_primary[-1][1]))
+        else:
+            merged_primary.append((start, end))
     for kind, start, end in candidates:
         until = end or date.max
-        if kind == 'internal_secondary' and not any(pstart <= start and pend >= until for pstart, pend in primary):
+        if kind == 'internal_secondary' and not any(pstart <= start and pend >= until for pstart, pend in merged_primary):
             raise EmploymentStructureLifecycleError('Internal secondary employment requires a primary contract covering its dates')
         if kind == 'external_secondary' and any(start <= pend and pstart <= until for pstart, pend in primary):
             raise EmploymentStructureLifecycleError('Secondary employment at the primary employer must be internal')
@@ -794,6 +805,14 @@ async def update_employment_contract(
         lock_row=True,
     )
 
+    from app.models.employment_event import EmploymentEvent
+    from app.services.payroll_mutation_guard import ensure_payroll_source_editable
+    if db.info.get('employment_event_contract') != contract_id:
+        if await db.scalar(select(EmploymentEvent.id).where(EmploymentEvent.company_id==company_id,
+                EmploymentEvent.employment_contract_id==contract_id).limit(1)) is not None:
+            raise EmploymentStructureLifecycleError('Use documented employment events to change this contract')
+        await ensure_payroll_source_editable(db,company_id=company_id,date_from=contract.start_date,
+            contract_id=contract_id,error_type=EmploymentStructureLifecycleError)
     before = snapshot(contract)
     supplied = fields_set or set()
 

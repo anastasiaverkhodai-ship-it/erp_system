@@ -213,3 +213,10 @@ from app.api.v1.payroll_disbursements import router as payroll_disbursements_rou
 app.include_router(hr_history_router, prefix="/api/v1")
 app.include_router(payroll_accounting_router)
 app.include_router(payroll_disbursements_router, prefix="/api/v1")
+
+from app.api.v1.employment_events import router as employment_events_router
+app.include_router(employment_events_router, prefix='/api/v1')
+from app.api.v1.payroll_opening import router as payroll_opening_router
+app.include_router(payroll_opening_router, prefix='/api/v1')
+from app.api.v1.payroll_supplements import router as payroll_supplements_router
+app.include_router(payroll_supplements_router, prefix='/api/v1')

@@ -1,4 +1,4 @@
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
@@ -271,7 +271,7 @@ class AttendanceCreate(BaseModel):
                     "attendance timestamps must be timezone-aware"
                 )
 
-            if self.actual_end_at <= self.actual_start_at:
+            if self.actual_end_at.astimezone(timezone.utc) <= self.actual_start_at.astimezone(timezone.utc):
                 raise ValueError(
                     "actual_end_at must be after actual_start_at"
                 )

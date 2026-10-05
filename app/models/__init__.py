@@ -196,3 +196,6 @@ from app.models.payroll_statutory import PayrollStatutoryComponent, PayrollStatu
 from app.models.payroll_payslip import PayrollPayslip, PayrollPayslipLine
 
 from app.models.payroll_disbursement import PayrollDisbursement
+from app.models.employment_event import EmploymentEvent
+from app.models.payroll_opening import PayrollOpeningPackage, PayrollOpeningDebt, PayrollEarningsHistory, PayrollLeaveOpening
+from app.models.payroll_supplement import PayrollSupplement

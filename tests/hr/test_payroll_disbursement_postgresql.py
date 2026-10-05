@@ -852,6 +852,18 @@ async def test_payroll_disbursement_real_postgresql_e2e():
                 assert row.paid_amount == Decimal('2700.00')
                 assert row.recognized_balance == row.available_to_pay == Decimal('5000.00')
                 assert row.reserved_amount == 0
+                from app.services.payroll_employee_balance_service import employee_payroll_balance
+                before_reversal = await employee_payroll_balance(db, company_id=company.id,
+                    employee_id=employee.id, as_of=date(2026,9,30))
+                assert before_reversal['complete']
+                assert before_reversal['balances'][0]['accrued_net'] == Decimal('7700.00')
+                assert before_reversal['balances'][0]['paid_net'] == Decimal('7700.00')
+                assert before_reversal['balances'][0]['balance'] == Decimal('0.00')
+                after_reversal = await employee_payroll_balance(db, company_id=company.id,
+                    employee_id=employee.id, as_of=reversal_day)
+                assert after_reversal['complete']
+                assert after_reversal['balances'][0]['paid_net'] == Decimal('2700.00')
+                assert after_reversal['balances'][0]['balance'] == Decimal('5000.00')
                 with pytest.raises(PayrollPeriodNotFoundError):
                     await get_payroll_register(db, company_id=company.id + 1000000, payroll_period_id=period.id)
                 uncalculated_period = PayrollPeriod(company_id=company.id, year=2026, month=10,

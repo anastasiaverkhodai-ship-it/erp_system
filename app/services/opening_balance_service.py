@@ -222,6 +222,8 @@ async def reverse_opening_balance(
         opening_balance_id=opening_balance_id,
     )
 
+    from app.services.payroll_opening_service import ensure_no_payroll_opening_detail
+    await ensure_no_payroll_opening_detail(db,company_id,opening.id,OpeningBalanceError)
     if reversed_by <= 0 or not opening.opening_date <= reversal_date <= date.today():
         raise OpeningBalanceError("Invalid opening reversal actor/date")
     # Lock debt sources before the journal: settlement owns an item lock while

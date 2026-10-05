@@ -316,6 +316,14 @@ async def _validate_payroll_input_for_finalization(
         )
 
 
+    from app.services.payroll_supplement_service import derive_supplement_lines,PayrollSupplementError
+    try:
+        await derive_supplement_lines(db,company_id=payroll_period.company_id,
+            payroll_input=payroll_input,period=payroll_period,salary_slices=slices)
+    except PayrollSupplementError as exc:
+        raise PayrollPeriodLifecycleError(str(exc)) from exc
+
+
 async def _validate_period_for_finalization(
     db: AsyncSession,
     *,
