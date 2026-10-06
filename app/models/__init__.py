@@ -201,3 +201,6 @@ from app.models.payroll_opening import PayrollOpeningPackage, PayrollOpeningDebt
 from app.models.payroll_supplement import PayrollSupplement
 
 from app.models.payroll_advance import PayrollAdvance
+
+from app.models.payroll_deduction import PayrollDeductionInstruction
+from app.models.payroll_deduction_result import PayrollDeductionResult, PayrollDeductionResultLine

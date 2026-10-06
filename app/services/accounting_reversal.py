@@ -897,6 +897,11 @@ async def reverse_journal_entry(
             "payroll_advance_id",
             None,
         ),
+        payroll_deduction_result_id=getattr(
+            original_entry,
+            "payroll_deduction_result_id",
+            None,
+        ),
         accounting_rule_id=original_entry.accounting_rule_id,
         entry_date=reversal_date,
         description=(

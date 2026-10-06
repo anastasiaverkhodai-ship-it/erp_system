@@ -20,6 +20,7 @@ class PayrollPayslipLineRead(BaseModel):
     currency_code: str
     source_payroll_calculation_line_id: int | None
     source_payroll_statutory_result_line_id: int | None
+    source_payroll_deduction_result_line_id: int | None
     created_at: datetime
 
 
@@ -46,6 +47,9 @@ class PayrollPayslipRead(BaseModel):
     employee_withholding_amount: Decimal
     employer_contribution_amount: Decimal
     net_amount: Decimal
+    payroll_deduction_result_id: int | None
+    non_statutory_deduction_amount: Decimal
+    final_payable_amount: Decimal
 
     generated_by: int
     generated_at: datetime

@@ -104,6 +104,28 @@ class PayrollPayslip(Base):
             name="ck_payroll_payslips_net_reconciliation",
         ),
         CheckConstraint(
+            "non_statutory_deduction_amount >= 0",
+            name="ck_payroll_payslips_deduction_nonnegative",
+        ),
+        CheckConstraint(
+            "final_payable_amount >= 0",
+            name="ck_payroll_payslips_final_payable_nonnegative",
+        ),
+        CheckConstraint(
+            "final_payable_amount = "
+            "net_amount - non_statutory_deduction_amount",
+            name="ck_payroll_payslips_final_payable_reconciliation",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "payroll_deduction_result_id"],
+            [
+                "payroll_deduction_results.company_id",
+                "payroll_deduction_results.id",
+            ],
+            name="fk_payroll_payslips_company_deduction_result",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
             "length(btrim(employee_number)) > 0",
             name="ck_payroll_payslips_employee_number_nonempty",
         ),
@@ -199,6 +221,19 @@ class PayrollPayslip(Base):
         Numeric(18, 2),
         nullable=False,
     )
+    payroll_deduction_result_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    non_statutory_deduction_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+    )
+    final_payable_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),
+        nullable=False,
+    )
 
     generated_by: Mapped[int] = mapped_column(
         ForeignKey(
@@ -253,15 +288,34 @@ class PayrollPayslipLine(Base):
             name="fk_payroll_payslip_lines_statutory_line",
             ondelete="RESTRICT",
         ),
+        ForeignKeyConstraint(
+            [
+                "company_id",
+                "source_payroll_deduction_result_line_id",
+            ],
+            [
+                "payroll_deduction_result_lines.company_id",
+                "payroll_deduction_result_lines.id",
+            ],
+            name="fk_payroll_payslip_lines_company_deduction_line",
+            ondelete="RESTRICT",
+        ),
         CheckConstraint(
             """(
                 line_kind = 'earning'
                 AND source_payroll_calculation_line_id IS NOT NULL
                 AND source_payroll_statutory_result_line_id IS NULL
+                AND source_payroll_deduction_result_line_id IS NULL
             ) OR (
                 line_kind IN ('employee_withholding','employer_contribution')
                 AND source_payroll_calculation_line_id IS NULL
                 AND source_payroll_statutory_result_line_id IS NOT NULL
+                AND source_payroll_deduction_result_line_id IS NULL
+            ) OR (
+                line_kind = 'non_statutory_deduction'
+                AND source_payroll_calculation_line_id IS NULL
+                AND source_payroll_statutory_result_line_id IS NULL
+                AND source_payroll_deduction_result_line_id IS NOT NULL
             )""",
             name="ck_payroll_payslip_lines_source_by_kind",
         ),
@@ -270,7 +324,9 @@ class PayrollPayslipLine(Base):
             name="ck_payroll_payslip_lines_line_no_positive",
         ),
         CheckConstraint(
-            "line_kind IN ('earning','employee_withholding','employer_contribution')",
+            "line_kind IN "
+            "('earning','employee_withholding',"
+            "'employer_contribution','non_statutory_deduction')",
             name="ck_payroll_payslip_lines_kind",
         ),
         CheckConstraint(
@@ -332,6 +388,11 @@ class PayrollPayslipLine(Base):
         nullable=True,
     )
     source_payroll_statutory_result_line_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    source_payroll_deduction_result_line_id: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
     )

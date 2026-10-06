@@ -29,7 +29,7 @@ def test_general_291_working_profile_count() -> None:
         ChartOfAccountsTemplateType.GENERAL_291
     )
 
-    assert profile.count == 18
+    assert profile.count == 19
 
 
 def test_general_291_working_profile_mapping() -> None:
@@ -68,6 +68,8 @@ def test_general_291_working_profile_mapping() -> None:
             "92",
         AccountingAccountRole.PAYROLL_NET_PAYABLE:
             "66",
+        AccountingAccountRole.PAYROLL_DEDUCTION_PAYABLE:
+            "68",
         AccountingAccountRole.PAYROLL_PIT_PAYABLE:
             "64",
         AccountingAccountRole.PAYROLL_MILITARY_LEVY_PAYABLE:
@@ -86,7 +88,7 @@ def test_simplified_186_inventory_roles() -> None:
         ChartOfAccountsTemplateType.SIMPLIFIED_186
     )
 
-    assert profile.count == 8
+    assert profile.count == 9
 
     assert dict(
         profile.role_to_code
@@ -101,6 +103,8 @@ def test_simplified_186_inventory_roles() -> None:
             "91",
         AccountingAccountRole.PAYROLL_NET_PAYABLE:
             "66",
+        AccountingAccountRole.PAYROLL_DEDUCTION_PAYABLE:
+            "68",
         AccountingAccountRole.PAYROLL_PIT_PAYABLE:
             "64",
         AccountingAccountRole.PAYROLL_MILITARY_LEVY_PAYABLE:

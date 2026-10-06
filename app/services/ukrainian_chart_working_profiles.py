@@ -70,6 +70,8 @@ GENERAL_291_WORKING_PROFILE = (
 
             AccountingAccountRole.PAYROLL_NET_PAYABLE:
                 "66",
+            AccountingAccountRole.PAYROLL_DEDUCTION_PAYABLE:
+                "68",
 
             AccountingAccountRole.PAYROLL_PIT_PAYABLE:
                 "64",
@@ -103,6 +105,8 @@ SIMPLIFIED_186_WORKING_PROFILE = (
 
             AccountingAccountRole.PAYROLL_NET_PAYABLE:
                 "66",
+            AccountingAccountRole.PAYROLL_DEDUCTION_PAYABLE:
+                "68",
 
             AccountingAccountRole.PAYROLL_PIT_PAYABLE:
                 "64",

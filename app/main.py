@@ -199,6 +199,7 @@ from app.api.v1.payroll import router as payroll_router
 from app.api.v1.payroll_statutory import router as payroll_statutory_router
 from app.api.v1 import payroll_calculations as payroll_calculations_api
 from app.api.v1 import payroll_advances
+from app.api.v1 import payroll_deductions
 app.include_router(employees_router, prefix="/api/v1")
 app.include_router(employment_structure_router, prefix="/api/v1")
 app.include_router(employee_salary_rates_router, prefix="/api/v1")
@@ -222,3 +223,4 @@ app.include_router(payroll_opening_router, prefix='/api/v1')
 from app.api.v1.payroll_supplements import router as payroll_supplements_router
 app.include_router(payroll_supplements_router, prefix='/api/v1')
 app.include_router(payroll_advances.router, prefix="/api/v1")
+app.include_router(payroll_deductions.router, prefix="/api/v1")

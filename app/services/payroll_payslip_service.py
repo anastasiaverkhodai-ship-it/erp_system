@@ -7,6 +7,8 @@ from app.services.payroll_mutation_guard import serialized_payroll_mutation
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.payroll_deduction_result_service import calculate_payroll_deduction_result
+
 from app.models import (
     Employee,
     EmploymentContract,
@@ -16,6 +18,8 @@ from app.models import (
     PayrollPayslipLine,
     PayrollStatutoryResult,
     PayrollStatutoryResultLine,
+    PayrollDeductionResult,
+    PayrollDeductionResultLine,
 )
 
 
@@ -280,6 +284,90 @@ async def generate_payroll_payslip(
     )
     net_amount = Decimal(statutory_result.net_amount)
 
+    deduction_result = await session.scalar(
+        select(PayrollDeductionResult).where(
+            PayrollDeductionResult.company_id == company_id,
+            PayrollDeductionResult.payroll_calculation_id
+            == calculation.id,
+        )
+    )
+
+    if deduction_result is None:
+        deduction_result = await calculate_payroll_deduction_result(
+            session,
+            company_id=company_id,
+            payroll_calculation_id=calculation.id,
+            calculated_by=actor_user_id,
+        )
+
+    if deduction_result is not None:
+        if (
+            deduction_result.payroll_statutory_result_id
+            != statutory_result.id
+        ):
+            raise PayrollPayslipValidationError(
+                "deduction result does not belong to "
+                "payroll statutory result"
+            )
+
+        if (
+            deduction_result.employment_contract_id
+            != calculation.employment_contract_id
+        ):
+            raise PayrollPayslipValidationError(
+                "deduction result employment contract mismatch"
+            )
+
+        if (
+            str(deduction_result.currency_code).upper()
+            != statutory_currency
+        ):
+            raise PayrollPayslipValidationError(
+                "deduction result currency mismatch"
+            )
+
+        if (
+            Decimal(deduction_result.statutory_net_amount)
+            != net_amount
+        ):
+            raise PayrollPayslipValidationError(
+                "deduction result statutory net mismatch"
+            )
+
+        non_statutory_deduction_amount = Decimal(
+            deduction_result.deduction_amount
+        )
+        final_payable_amount = Decimal(
+            deduction_result.final_payable_amount
+        )
+
+        if (
+            net_amount - non_statutory_deduction_amount
+            != final_payable_amount
+        ):
+            raise PayrollPayslipValidationError(
+                "deduction result final payable does not reconcile"
+            )
+
+        deduction_lines = list(
+            (
+                await session.scalars(
+                    select(PayrollDeductionResultLine)
+                    .where(
+                        PayrollDeductionResultLine.company_id
+                        == company_id,
+                        PayrollDeductionResultLine
+                        .payroll_deduction_result_id
+                        == deduction_result.id,
+                    )
+                    .order_by(
+                        PayrollDeductionResultLine.line_no,
+                        PayrollDeductionResultLine.id,
+                    )
+                )
+            ).all()
+        )
+
     if gross_amount != statutory_gross_amount:
         raise PayrollPayslipValidationError(
             "payroll calculation gross amount does not match "
@@ -316,6 +404,15 @@ async def generate_payroll_payslip(
             employer_contribution_amount
         ),
         net_amount=net_amount,
+        payroll_deduction_result_id=(
+            deduction_result.id
+            if deduction_result is not None
+            else None
+        ),
+        non_statutory_deduction_amount=(
+            non_statutory_deduction_amount
+        ),
+        final_payable_amount=final_payable_amount,
         generated_by=actor_user_id,
     )
 
@@ -340,6 +437,7 @@ async def generate_payroll_payslip(
                 source_line.id
             ),
             source_payroll_statutory_result_line_id=None,
+            source_payroll_deduction_result_line_id=None,
         )
         session.add(line)
         line_no += 1
@@ -379,6 +477,28 @@ async def generate_payroll_payslip(
             ).upper(),
             source_payroll_calculation_line_id=None,
             source_payroll_statutory_result_line_id=(
+                source_line.id
+            ),
+            source_payroll_deduction_result_line_id=None,
+        )
+        session.add(line)
+        line_no += 1
+
+    for source_line in deduction_lines:
+        line = PayrollPayslipLine(
+            company_id=company_id,
+            payroll_payslip_id=payslip.id,
+            line_no=line_no,
+            line_kind="non_statutory_deduction",
+            component_code=source_line.deduction_type,
+            description=source_line.source_reference,
+            amount=Decimal(source_line.amount),
+            currency_code=str(
+                source_line.currency_code
+            ).upper(),
+            source_payroll_calculation_line_id=None,
+            source_payroll_statutory_result_line_id=None,
+            source_payroll_deduction_result_line_id=(
                 source_line.id
             ),
         )

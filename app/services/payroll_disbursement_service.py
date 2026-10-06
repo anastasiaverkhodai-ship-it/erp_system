@@ -19,6 +19,8 @@ from app.models.payroll import PayrollCalculation, PayrollPeriod
 from app.models.payroll_disbursement import PayrollDisbursement
 from app.models.payroll_advance import PayrollAdvance
 from app.models.payroll_statutory import PayrollStatutoryResult
+from app.models.payroll_deduction_result import PayrollDeductionResult
+from app.services.payroll_deduction_result_service import calculate_payroll_deduction_result
 from app.services.accounting_account_role_resolver import (
     AccountingAccountRoleResolutionError,
     resolve_company_account_roles,
@@ -91,11 +93,29 @@ async def create_payroll_disbursement(
             raise PayrollDisbursementSourceStateError('Disbursement cancelled; use a new request key')
         requested_amount = amount
         if requested_amount is None:
-            requested_amount = await db.scalar(select(PayrollStatutoryResult.net_amount).where(
-                PayrollStatutoryResult.company_id == company_id,
-                PayrollStatutoryResult.payroll_calculation_id == payroll_calculation_id))
+            requested_amount = await db.scalar(
+                select(
+                    PayrollDeductionResult.final_payable_amount
+                ).where(
+                    PayrollDeductionResult.company_id
+                    == company_id,
+                    PayrollDeductionResult.payroll_calculation_id
+                    == payroll_calculation_id,
+                )
+            )
+            if requested_amount is None:
+                requested_amount = await db.scalar(
+                    select(
+                        PayrollStatutoryResult.net_amount
+                    ).where(
+                        PayrollStatutoryResult.company_id
+                        == company_id,
+                        PayrollStatutoryResult.payroll_calculation_id
+                        == payroll_calculation_id,
+                    )
+                )
         if (existing.bank_account_id != bank_account_id or existing.payment_date != payment_date
-            or (requested_amount is None or Decimal(existing.amount) != requested_amount)):
+            or (requested_amount is None or Decimal(existing.amount) != Decimal(requested_amount))):
             raise PayrollDisbursementSourceStateError(
                 'Existing disbursement has different bank account or payment date')
         return existing
@@ -186,7 +206,67 @@ async def create_payroll_disbursement(
             "Payroll and bank account currencies must match"
         )
 
-    amount = Decimal(statutory.net_amount) if amount is None else Decimal(amount)
+    deduction_result = await db.scalar(
+        select(PayrollDeductionResult).where(
+            PayrollDeductionResult.company_id == company_id,
+            PayrollDeductionResult.payroll_calculation_id
+            == calculation.id,
+        )
+    )
+
+    if deduction_result is None:
+        deduction_result = await calculate_payroll_deduction_result(
+            db,
+            company_id=company_id,
+            payroll_calculation_id=calculation.id,
+            calculated_by=created_by,
+        )
+
+    if deduction_result is not None:
+        if (
+            deduction_result.payroll_statutory_result_id
+            != statutory.id
+        ):
+            raise PayrollDisbursementSourceStateError(
+                "Payroll deduction result statutory provenance mismatch"
+            )
+
+        if (
+            deduction_result.employment_contract_id
+            != calculation.employment_contract_id
+        ):
+            raise PayrollDisbursementSourceStateError(
+                "Payroll deduction result contract mismatch"
+            )
+
+        if (
+            str(deduction_result.currency_code).upper()
+            != str(calculation.currency_code).upper()
+        ):
+            raise PayrollDisbursementCurrencyError(
+                "Payroll deduction result currency mismatch"
+            )
+
+        if (
+            Decimal(deduction_result.statutory_net_amount)
+            != Decimal(statutory.net_amount)
+        ):
+            raise PayrollDisbursementSourceStateError(
+                "Payroll deduction result statutory net mismatch"
+            )
+
+        payable_ceiling = Decimal(
+            deduction_result.final_payable_amount
+        )
+    else:
+        payable_ceiling = Decimal(statutory.net_amount)
+
+    amount = (
+        payable_ceiling
+        if amount is None
+        else Decimal(amount)
+    )
+
     if not amount.is_finite() or amount != amount.quantize(Decimal('0.01')):
         raise PayrollDisbursementSourceStateError('Disbursement amount must be finite money')
     if amount <= Decimal("0.00"):
@@ -240,12 +320,12 @@ async def create_payroll_disbursement(
         Decimal(reserved)
         + advance_reserved
         + amount
-        > Decimal(statutory.net_amount)
+        > payable_ceiling
     ):
 
         raise PayrollDisbursementSourceStateError(
-            "Disbursement exceeds remaining net payroll "
-            "after payroll advance offset"
+            "Disbursement exceeds remaining employee payable "
+            "after payroll deductions and payroll advance offset"
         )
     key_owner = await db.scalar(select(PayrollDisbursement.id).where(
         PayrollDisbursement.company_id == company_id, PayrollDisbursement.request_key == key))
