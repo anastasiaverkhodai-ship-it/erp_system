@@ -31,6 +31,7 @@ class JournalEntry(Base):
 
     payroll_calculation_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     payroll_disbursement_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    payroll_advance_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     tax_invoice_correction_line_id: Mapped[int | None] = mapped_column(Integer,nullable=True)
 
@@ -44,6 +45,30 @@ class JournalEntry(Base):
             name="fk_je_company_payroll_disbursement",
             ondelete="RESTRICT",
             use_alter=True,
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "payroll_advance_id"],
+            [
+                "payroll_advances.company_id",
+                "payroll_advances.id",
+            ],
+            name="fk_je_company_payroll_advance",
+            ondelete="RESTRICT",
+            use_alter=True,
+        ),
+        Index(
+            "ix_je_payroll_advance",
+            "payroll_advance_id",
+        ),
+        Index(
+            "uq_je_original_payroll_advance",
+            "company_id",
+            "payroll_advance_id",
+            unique=True,
+            postgresql_where=text(
+                "payroll_advance_id IS NOT NULL "
+                "AND reversal_of_id IS NULL"
+            ),
         ),
         Index(
             "ix_je_payroll_disbursement",
@@ -83,7 +108,7 @@ class JournalEntry(Base):
                 "AND reversal_of_id IS NULL"
             ),
         ),
-        CheckConstraint('fixed_asset_commissioning_id IS NULL OR num_nonnulls(year_end_closing_id,document_id,payment_id,payment_settlement_allocation_id,tax_recognition_event_id,sales_recognition_event_id,vat_advance_bridge_event_id,input_vat_fulfillment_bridge_event_id,supplier_advance_clearing_event_id,customer_advance_clearing_event_id,sales_return_recognition_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_ma_replay_event_id,sales_return_cost_restoration_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_return_input_vat_credit_correction_event_id,purchase_value_correction_vat_adjustment_event_id,purchase_value_correction_input_vat_credit_correction_event_id,opening_balance_id,tax_invoice_correction_line_id) = 0', name="ck_je_commissioning_exclusive"),
+        CheckConstraint('fixed_asset_commissioning_id IS NULL OR num_nonnulls(payroll_advance_id,year_end_closing_id,document_id,payment_id,payment_settlement_allocation_id,tax_recognition_event_id,sales_recognition_event_id,vat_advance_bridge_event_id,input_vat_fulfillment_bridge_event_id,supplier_advance_clearing_event_id,customer_advance_clearing_event_id,sales_return_recognition_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_ma_replay_event_id,sales_return_cost_restoration_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_return_input_vat_credit_correction_event_id,purchase_value_correction_vat_adjustment_event_id,purchase_value_correction_input_vat_credit_correction_event_id,opening_balance_id,tax_invoice_correction_line_id) = 0', name="ck_je_commissioning_exclusive"),
         CheckConstraint('year_end_closing_id IS NULL OR num_nonnulls(fixed_asset_commissioning_id,document_id,payment_id,payment_settlement_allocation_id,tax_recognition_event_id,sales_recognition_event_id,vat_advance_bridge_event_id,input_vat_fulfillment_bridge_event_id,supplier_advance_clearing_event_id,customer_advance_clearing_event_id,sales_return_recognition_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_ma_replay_event_id,sales_return_cost_restoration_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_return_input_vat_credit_correction_event_id,purchase_value_correction_vat_adjustment_event_id,purchase_value_correction_input_vat_credit_correction_event_id,opening_balance_id,tax_invoice_correction_line_id) = 0', name="ck_je_year_end_exclusive"),
         ForeignKeyConstraint(["company_id", "year_end_closing_id"],
             ["year_end_closings.company_id", "year_end_closings.id"],
@@ -1635,12 +1660,16 @@ class JournalEntry(Base):
             ),
         ),
         CheckConstraint(
-            'payroll_calculation_id IS NULL OR num_nonnulls(payroll_disbursement_id,customer_advance_clearing_event_id,document_id,fixed_asset_commissioning_id,input_vat_fulfillment_bridge_event_id,opening_balance_id,payment_id,payment_settlement_allocation_id,purchase_return_input_vat_credit_correction_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_input_vat_credit_correction_event_id,purchase_value_correction_ma_replay_event_id,purchase_value_correction_vat_adjustment_event_id,sales_recognition_event_id,sales_return_cost_restoration_event_id,sales_return_recognition_event_id,supplier_advance_clearing_event_id,tax_invoice_correction_line_id,tax_recognition_event_id,vat_advance_bridge_event_id,year_end_closing_id) = 0',
+            'payroll_calculation_id IS NULL OR num_nonnulls(payroll_advance_id,payroll_disbursement_id,customer_advance_clearing_event_id,document_id,fixed_asset_commissioning_id,input_vat_fulfillment_bridge_event_id,opening_balance_id,payment_id,payment_settlement_allocation_id,purchase_return_input_vat_credit_correction_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_input_vat_credit_correction_event_id,purchase_value_correction_ma_replay_event_id,purchase_value_correction_vat_adjustment_event_id,sales_recognition_event_id,sales_return_cost_restoration_event_id,sales_return_recognition_event_id,supplier_advance_clearing_event_id,tax_invoice_correction_line_id,tax_recognition_event_id,vat_advance_bridge_event_id,year_end_closing_id) = 0',
             name="ck_je_payroll_calculation_exclusive",
         ),
         CheckConstraint(
-            'payroll_disbursement_id IS NULL OR num_nonnulls(payroll_calculation_id,customer_advance_clearing_event_id,document_id,fixed_asset_commissioning_id,input_vat_fulfillment_bridge_event_id,opening_balance_id,payment_id,payment_settlement_allocation_id,purchase_return_input_vat_credit_correction_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_input_vat_credit_correction_event_id,purchase_value_correction_ma_replay_event_id,purchase_value_correction_vat_adjustment_event_id,sales_recognition_event_id,sales_return_cost_restoration_event_id,sales_return_recognition_event_id,supplier_advance_clearing_event_id,tax_invoice_correction_line_id,tax_recognition_event_id,vat_advance_bridge_event_id,year_end_closing_id) = 0',
+            'payroll_disbursement_id IS NULL OR num_nonnulls(payroll_advance_id,payroll_calculation_id,customer_advance_clearing_event_id,document_id,fixed_asset_commissioning_id,input_vat_fulfillment_bridge_event_id,opening_balance_id,payment_id,payment_settlement_allocation_id,purchase_return_input_vat_credit_correction_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_input_vat_credit_correction_event_id,purchase_value_correction_ma_replay_event_id,purchase_value_correction_vat_adjustment_event_id,sales_recognition_event_id,sales_return_cost_restoration_event_id,sales_return_recognition_event_id,supplier_advance_clearing_event_id,tax_invoice_correction_line_id,tax_recognition_event_id,vat_advance_bridge_event_id,year_end_closing_id) = 0',
             name="ck_je_payroll_disbursement_exclusive",
+        ),
+        CheckConstraint(
+            'payroll_advance_id IS NULL OR num_nonnulls(payroll_calculation_id,payroll_disbursement_id,customer_advance_clearing_event_id,document_id,fixed_asset_commissioning_id,input_vat_fulfillment_bridge_event_id,opening_balance_id,payment_id,payment_settlement_allocation_id,purchase_return_input_vat_credit_correction_event_id,purchase_return_recognition_event_id,purchase_return_vat_adjustment_event_id,purchase_value_correction_fifo_impact_event_id,purchase_value_correction_input_vat_credit_correction_event_id,purchase_value_correction_ma_replay_event_id,purchase_value_correction_vat_adjustment_event_id,sales_recognition_event_id,sales_return_cost_restoration_event_id,sales_return_recognition_event_id,supplier_advance_clearing_event_id,tax_invoice_correction_line_id,tax_recognition_event_id,vat_advance_bridge_event_id,year_end_closing_id) = 0',
+            name="ck_je_payroll_advance_exclusive",
         ),
 )
 

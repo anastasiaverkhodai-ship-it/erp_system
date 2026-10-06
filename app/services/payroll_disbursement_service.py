@@ -17,6 +17,7 @@ from app.models.journal_entry import JournalEntry, JournalEntryStatus
 from app.models.journal_entry_line import JournalEntryLine
 from app.models.payroll import PayrollCalculation, PayrollPeriod
 from app.models.payroll_disbursement import PayrollDisbursement
+from app.models.payroll_advance import PayrollAdvance
 from app.models.payroll_statutory import PayrollStatutoryResult
 from app.services.accounting_account_role_resolver import (
     AccountingAccountRoleResolutionError,
@@ -202,8 +203,50 @@ async def create_payroll_disbursement(
             PayrollDisbursement.payroll_calculation_id == calculation.id,
             PayrollDisbursement.cancelled_at.is_(None),
             or_(JournalEntry.id.is_(None), JournalEntry.status != JournalEntryStatus.REVERSED)))
-    if Decimal(reserved) + amount > Decimal(statutory.net_amount):
-        raise PayrollDisbursementSourceStateError('Disbursement exceeds remaining net payroll')
+    advance_reserved = await db.scalar(
+        select(
+            func.coalesce(
+                func.sum(PayrollAdvance.paid_amount),
+                0,
+            )
+        )
+        .outerjoin(
+            JournalEntry,
+            and_(
+                JournalEntry.company_id
+                == PayrollAdvance.company_id,
+                JournalEntry.payroll_advance_id
+                == PayrollAdvance.id,
+                JournalEntry.reversal_of_id.is_(None),
+            ),
+        )
+        .where(
+            PayrollAdvance.company_id == company_id,
+            PayrollAdvance.payroll_period_id
+            == calculation.payroll_period_id,
+            PayrollAdvance.employment_contract_id
+            == calculation.employment_contract_id,
+            or_(
+                JournalEntry.id.is_(None),
+                JournalEntry.status
+                != JournalEntryStatus.REVERSED,
+            ),
+        )
+    )
+
+    advance_reserved = Decimal(advance_reserved or 0)
+
+    if (
+        Decimal(reserved)
+        + advance_reserved
+        + amount
+        > Decimal(statutory.net_amount)
+    ):
+
+        raise PayrollDisbursementSourceStateError(
+            "Disbursement exceeds remaining net payroll "
+            "after payroll advance offset"
+        )
     key_owner = await db.scalar(select(PayrollDisbursement.id).where(
         PayrollDisbursement.company_id == company_id, PayrollDisbursement.request_key == key))
     if key_owner is not None:

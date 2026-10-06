@@ -199,3 +199,5 @@ from app.models.payroll_disbursement import PayrollDisbursement
 from app.models.employment_event import EmploymentEvent
 from app.models.payroll_opening import PayrollOpeningPackage, PayrollOpeningDebt, PayrollEarningsHistory, PayrollLeaveOpening
 from app.models.payroll_supplement import PayrollSupplement
+
+from app.models.payroll_advance import PayrollAdvance
