@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.payroll_mutation_guard import serialized_payroll_mutation
+
 from datetime import UTC, datetime
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -79,6 +81,7 @@ async def list_payroll_deduction_result_lines(
     )
 
 
+@serialized_payroll_mutation(PayrollDeductionResultError)
 async def calculate_payroll_deduction_result(
     db: AsyncSession,
     *,

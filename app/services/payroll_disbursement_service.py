@@ -91,29 +91,7 @@ async def create_payroll_disbursement(
     if existing is not None:
         if existing.cancelled_at is not None:
             raise PayrollDisbursementSourceStateError('Disbursement cancelled; use a new request key')
-        requested_amount = amount
-        if requested_amount is None:
-            requested_amount = await db.scalar(
-                select(
-                    PayrollDeductionResult.final_payable_amount
-                ).where(
-                    PayrollDeductionResult.company_id
-                    == company_id,
-                    PayrollDeductionResult.payroll_calculation_id
-                    == payroll_calculation_id,
-                )
-            )
-            if requested_amount is None:
-                requested_amount = await db.scalar(
-                    select(
-                        PayrollStatutoryResult.net_amount
-                    ).where(
-                        PayrollStatutoryResult.company_id
-                        == company_id,
-                        PayrollStatutoryResult.payroll_calculation_id
-                        == payroll_calculation_id,
-                    )
-                )
+        requested_amount = existing.amount if amount is None else amount
         if (existing.bank_account_id != bank_account_id or existing.payment_date != payment_date
             or (requested_amount is None or Decimal(existing.amount) != Decimal(requested_amount))):
             raise PayrollDisbursementSourceStateError(
@@ -261,18 +239,18 @@ async def create_payroll_disbursement(
     else:
         payable_ceiling = Decimal(statutory.net_amount)
 
-    amount = (
-        payable_ceiling
-        if amount is None
-        else Decimal(amount)
-    )
-
-    if not amount.is_finite() or amount != amount.quantize(Decimal('0.01')):
-        raise PayrollDisbursementSourceStateError('Disbursement amount must be finite money')
-    if amount <= Decimal("0.00"):
-        raise PayrollDisbursementSourceStateError(
-            "Payroll net amount must be positive"
-        )
+    if deduction_result is not None:
+        deduction_journal = await db.scalar(select(JournalEntry).where(
+            JournalEntry.company_id == company_id,
+            JournalEntry.payroll_deduction_result_id == deduction_result.id,
+            JournalEntry.reversal_of_id.is_(None)))
+        if deduction_journal is not None and deduction_journal.status == JournalEntryStatus.REVERSED:
+            reversed_date = await db.scalar(select(JournalEntry.entry_date).where(
+                JournalEntry.company_id == company_id, JournalEntry.reversal_of_id == deduction_journal.id,
+                JournalEntry.status == JournalEntryStatus.POSTED))
+            if reversed_date is None or payment_date < reversed_date:
+                raise PayrollDisbursementSourceStateError('Disbursement cannot precede deduction reversal')
+            payable_ceiling = Decimal(statutory.net_amount)
 
     reserved = await db.scalar(select(func.coalesce(func.sum(PayrollDisbursement.amount), 0))
         .outerjoin(JournalEntry, and_(
@@ -314,7 +292,25 @@ async def create_payroll_disbursement(
         )
     )
 
-    advance_reserved = Decimal(advance_reserved or 0)
+    # A later reversal cannot finance a backdated disbursement.
+    from sqlalchemy.orm import aliased
+    original_advance = aliased(JournalEntry)
+    late_reversed = await db.scalar(select(func.coalesce(func.sum(PayrollAdvance.paid_amount), 0))
+        .join(original_advance, and_(original_advance.company_id == company_id,
+            original_advance.payroll_advance_id == PayrollAdvance.id, original_advance.reversal_of_id.is_(None)))
+        .join(JournalEntry, and_(JournalEntry.company_id == company_id,
+            JournalEntry.reversal_of_id == original_advance.id, JournalEntry.status == JournalEntryStatus.POSTED))
+        .where(PayrollAdvance.company_id == company_id,
+            PayrollAdvance.payroll_period_id == calculation.payroll_period_id,
+            PayrollAdvance.employment_contract_id == calculation.employment_contract_id,
+            original_advance.status == JournalEntryStatus.REVERSED, JournalEntry.entry_date > payment_date))
+    advance_reserved = Decimal(advance_reserved or 0) + Decimal(late_reversed or 0)
+
+    amount = payable_ceiling - Decimal(reserved) - advance_reserved if amount is None else Decimal(amount)
+    if not amount.is_finite() or amount != amount.quantize(Decimal('0.01')):
+        raise PayrollDisbursementSourceStateError('Disbursement amount must be finite money')
+    if amount <= 0:
+        raise PayrollDisbursementSourceStateError('No positive remaining payroll amount to disburse')
 
     if (
         Decimal(reserved)

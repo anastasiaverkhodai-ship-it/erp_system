@@ -50,7 +50,27 @@ async def employee_payroll_balance(db, *, company_id:int, employee_id:int, as_of
     for payout in payouts:
         if payout.reversed_on is None or payout.reversed_on>as_of:
             totals(payout.currency_code)['paid_net']+=payout.amount
+    # Journal dates, including reversal dates, preserve historical balances.
+    from app.models.payroll_advance import PayrollAdvance
+    from app.models.payroll_deduction_result import PayrollDeductionResult
+    for model, source_field, amount_field, total_field in (
+        (PayrollAdvance, JournalEntry.payroll_advance_id, PayrollAdvance.paid_amount, 'advance_paid'),
+        (PayrollDeductionResult, JournalEntry.payroll_deduction_result_id,
+         PayrollDeductionResult.deduction_amount, 'deducted_amount'),
+    ):
+        entries = (await db.execute(select(JournalEntry, model.currency_code, amount_field)
+            .join(model, and_(model.company_id == company_id, model.id == source_field))
+            .join(EmploymentContract, and_(EmploymentContract.company_id == company_id,
+                EmploymentContract.id == model.employment_contract_id))
+            .where(JournalEntry.company_id == company_id, EmploymentContract.employee_id == employee_id,
+                JournalEntry.status.in_(('posted', 'reversed')), JournalEntry.entry_date <= as_of))).all()
+        for journal, currency, amount in entries:
+            target = totals(currency)
+            target[total_field] = target.get(total_field, Decimal(0)) + (
+                -amount if journal.reversal_of_id is not None else amount)
     for row in currencies.values():
-        row['balance']=None if issues else row['opening_amount']+row['accrued_net']-row['paid_net']
+        row.setdefault('advance_paid', Decimal(0))
+        row.setdefault('deducted_amount', Decimal(0))
+        row['balance']=None if issues else row['opening_amount']+row['accrued_net']-row['paid_net']-row['advance_paid']-row['deducted_amount']
     return dict(company_id=company_id,employee_id=employee_id,as_of=as_of,complete=not issues,
         issues=sorted(set(issues)),balances=[currencies[key] for key in sorted(currencies)])

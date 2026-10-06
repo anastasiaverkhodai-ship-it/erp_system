@@ -73,6 +73,7 @@ async def get_payroll_advance(
     ).scalar_one_or_none()
 
 
+@serialized_payroll_mutation(PayrollAdvanceSourceStateError)
 async def create_payroll_advance(
     db: AsyncSession,
     *,
@@ -95,6 +96,12 @@ async def create_payroll_advance(
     )
 
     if existing is not None:
+        requested = (bank_account_id, Decimal(advance_percentage), _money(calculation_base_amount),
+                     _money(minimum_due_amount), currency_code.upper(), payment_date)
+        stored = (existing.bank_account_id, existing.advance_percentage, existing.calculation_base_amount,
+                  existing.minimum_due_amount, existing.currency_code, existing.payment_date)
+        if requested != stored:
+            raise PayrollAdvanceSourceStateError('Existing advance has different request data')
         return existing
 
     period = (
@@ -127,6 +134,13 @@ async def create_payroll_advance(
         raise PayrollAdvanceNotFoundError(
             "Employment contract not found"
         )
+
+    if not period.start_date <= payment_date <= period.end_date:
+        raise PayrollAdvanceSourceStateError('Advance payment date must be within its payroll period')
+    if contract.status == 'cancelled' or payment_date < contract.start_date or (
+        contract.end_date is not None and payment_date > contract.end_date
+    ):
+        raise PayrollAdvanceSourceStateError('Advance payment date must be within active employment')
 
     bank = (
         await db.execute(

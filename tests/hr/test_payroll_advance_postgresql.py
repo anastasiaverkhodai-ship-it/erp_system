@@ -336,6 +336,16 @@ async def test_payroll_advance_real_postgresql_e2e():
                 )
 
                 assert repeated.id == original_advance_id
+                with pytest.raises(PayrollAdvanceSourceStateError, match='different request data'):
+                    await create_payroll_advance(db,company_id=company.id,payroll_period_id=period.id,
+                        employment_contract_id=contract.id,bank_account_id=bank.id,
+                        advance_percentage=Decimal('41'),calculation_base_amount=Decimal('10000'),
+                        minimum_due_amount=Decimal('3000'),currency_code='UAH',payment_date=payment_date,created_by=user.id)
+                from app.services.payroll_register_service import get_payroll_register
+                early_report = await get_payroll_register(db,company_id=company.id,payroll_period_id=period.id)
+                assert early_report.advances[0].status == 'draft'
+                assert early_report.advances[0].amount == Decimal('4000')
+
 
                 stored = await get_payroll_advance(
                     db,
@@ -413,6 +423,9 @@ async def test_payroll_advance_real_postgresql_e2e():
                 assert journal.reversal_of_id is None
 
                 original_journal_id = journal.id
+                from test_payroll_settlement_migrations import assert_history_preserved
+                await assert_history_preserved(db, 'b082b6582130_add_payroll_advance_foundation.py')
+
 
                 loaded_journal = await get_payroll_advance_journal(
                     db,
@@ -714,6 +727,12 @@ async def test_payroll_advance_real_postgresql_e2e():
                 assert Decimal(reversal_payable.credit) == Decimal("4000.00")
                 assert Decimal(reversal_bank.debit) == Decimal("4000.00")
                 assert Decimal(reversal_bank.credit) == Decimal("0.00")
+
+                with pytest.raises(PayrollDisbursementSourceStateError, match='remaining'):
+                    await create_payroll_disbursement(db,company_id=company.id,
+                        payroll_calculation_id=calculation.id,bank_account_id=bank.id,
+                        payment_date=date(2026,9,29),created_by=user.id,
+                        amount=Decimal('0.01'),request_key='before-advance-reversal')
 
                 restored = await create_payroll_disbursement(
                     db,

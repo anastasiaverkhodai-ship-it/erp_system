@@ -209,6 +209,8 @@ async def test_year_end_migration_roundtrip(year_engine):
         '13d4a7b8c003_partial_payroll_disbursements.py',
         '13d4a7b8c004_payroll_bank_reconciliation.py',
         '13d4a7b8c005_payroll_confirmation_chronology.py',
+        '83d21036fabe_repair_payroll_advance_journal_.py',
+        '383a1d9fd6a6_add_payroll_deduction_accounting_.py',
     ):
         spec=spec_from_file_location(filename, 'alembic/versions/' + filename)
         dependency=module_from_spec(spec);spec.loader.exec_module(dependency)

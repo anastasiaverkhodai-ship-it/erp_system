@@ -727,6 +727,32 @@ async def test_payroll_deduction_real_postgresql_e2e():
 
                 assert foreign_result is None
 
+                # Recognize the salary through the real posting service before settlement.
+                for code, kind, normal in [('92', 'expense', 'debit'), ('64', 'liability', 'credit'), ('65', 'liability', 'credit')]:
+                    db.add(Account(company_id=company.id, code=code, name='Payroll integration',
+                        account_type=kind, normal_balance=normal, is_system=True, is_active=True, is_postable=True))
+                await db.flush()
+                from app.services.payroll_accounting_service import generate_and_post_payroll_journal_entry
+                await generate_and_post_payroll_journal_entry(db, company_id=company.id,
+                    payroll_calculation_id=calculation.id, created_by=user.id)
+
+                from fastapi import HTTPException
+                accounting_period = await db.scalar(select(AccountingPeriod).where(
+                    AccountingPeriod.company_id==company.id,AccountingPeriod.year==2026,AccountingPeriod.month==9))
+                accounting_period.status = 'closed'
+                accounting_period.is_locked = True
+                await db.flush()
+                with pytest.raises(HTTPException) as closed:
+                    await generate_and_post_payroll_deduction_journal(db,company_id=company.id,
+                        payroll_deduction_result_id=result.id,created_by=user.id)
+                assert closed.value.status_code == 409
+                assert await db.scalar(select(JournalEntry.id).where(JournalEntry.company_id==company.id,
+                    JournalEntry.payroll_deduction_result_id==result.id)) is None
+                await db.refresh(accounting_period)
+                accounting_period.status = 'open'
+                accounting_period.is_locked = False
+                await db.flush()
+
                 journal = (
                     await generate_and_post_payroll_deduction_journal(
                         db,
@@ -745,6 +771,9 @@ async def test_payroll_deduction_real_postgresql_e2e():
                 assert journal.reversal_of_id is None
 
                 original_journal_id = journal.id
+                from test_payroll_settlement_migrations import assert_history_preserved
+                await assert_history_preserved(db, '383a1d9fd6a6_add_payroll_deduction_accounting_.py')
+
 
                 journal_repeat = (
                     await generate_and_post_payroll_deduction_journal(
@@ -894,7 +923,7 @@ async def test_payroll_deduction_real_postgresql_e2e():
                         bank_account_id=bank.id,
                         payment_date=date(2026, 9, 30),
                         created_by=user.id,
-                        amount=combined_remaining,
+                        amount=None,
                         request_key=(
                             "deduction-advance-final-"
                             + uuid4().hex[:8]
@@ -932,12 +961,54 @@ async def test_payroll_deduction_real_postgresql_e2e():
                             ),
                         )
 
+                from app.services.payroll_employee_balance_service import employee_payroll_balance
+                from app.services.payroll_register_service import get_payroll_register
+                from app.services.payroll_disbursement_service import generate_and_post_payroll_disbursement_journal
+                report = await get_payroll_register(db, company_id=company.id, payroll_period_id=period.id)
+                row = report.rows[0]
+                assert report.complete, report
+                assert row.advance_paid_amount == Decimal('4000')
+                assert row.deduction_posted_amount == Decimal('654')
+                assert row.final_payable_amount == Decimal('7046')
+                assert row.recognized_balance == Decimal('3046')
+                assert row.available_to_pay == 0  # Remaining amount is reserved by the draft.
+                repeated = await create_payroll_disbursement(db,company_id=company.id,
+                    payroll_calculation_id=calculation.id,bank_account_id=bank.id,
+                    payment_date=disbursement.payment_date,created_by=user.id,
+                    request_key=disbursement.request_key)
+                assert repeated.id == disbursement.id
+                await generate_and_post_payroll_disbursement_journal(db,company_id=company.id,
+                    payroll_disbursement_id=disbursement.id,created_by=user.id)
+                balance = await employee_payroll_balance(db,company_id=company.id,
+                    employee_id=employee.id,as_of=date(2026,9,30))
+                assert balance['complete'] and balance['balances'][0]['balance'] == 0, balance
+                from app.services.payroll_cash_bank_gl_control_service import reconcile_payroll_advance_sources
+                control = await reconcile_payroll_advance_sources(db,company_id=company.id,
+                    date_from=date(2026,9,1),date_to=date(2026,9,30))
+                assert all(item.matched for item in control)
+                assert sum(item.expected_amount for item in control) == Decimal('-4000')
+                bank_gl.is_system = True
+                for code, kind, normal in [('371','asset','debit'),('681','liability','credit')]:
+                    db.add(Account(company_id=company.id,code=code,name='Bank control integration',
+                        account_type=kind,normal_balance=normal,is_system=True,is_active=True,is_postable=True))
+                await db.flush()
+                from app.services.cash_bank_gl_control_service import reconcile_cash_bank_gl
+                combined = await reconcile_cash_bank_gl(db,company_id=company.id,
+                    date_from=date(2026,9,1),date_to=date(2026,9,30))
+                assert combined.matched and combined.unattributed_journal_ids == [], combined
+                assert combined.expected_amount == combined.posted_amount == Decimal('-7046')
+                from app.services.payroll_deduction_service import PayrollDeductionConflictError
+                with pytest.raises(PayrollDeductionConflictError, match='already calculated'):
+                    await create_payroll_deduction_instruction(db,company_id=company.id,created_by=user.id,
+                        data=fixed_payload.model_copy(update={'request_key':'late-deduction'}))
+
+
                 reversal = (
                     await reverse_payroll_deduction_journal(
                         db,
                         company_id=company.id,
                         payroll_deduction_result_id=result.id,
-                        reversal_date=date(2026, 9, 30),
+                        reversal_date=date(2026, 10, 5),
                         reversed_by=user.id,
                     )
                 )
@@ -956,6 +1027,29 @@ async def test_payroll_deduction_real_postgresql_e2e():
                 await db.refresh(journal)
 
                 assert journal.status == "reversed"
+                historical = await employee_payroll_balance(db,company_id=company.id,
+                    employee_id=employee.id,as_of=date(2026,9,30))
+                current = await employee_payroll_balance(db,company_id=company.id,
+                    employee_id=employee.id,as_of=date(2026,10,5))
+                assert historical['balances'][0]['balance'] == 0
+                assert current['balances'][0]['balance'] == Decimal('654')
+                refreshed = await get_payroll_register(db,company_id=company.id,payroll_period_id=period.id)
+                assert refreshed.rows[0].recognized_balance == Decimal('654')
+                assert refreshed.rows[0].available_to_pay == Decimal('654')
+                with pytest.raises(PayrollDisbursementSourceStateError, match='precede deduction reversal'):
+                    await create_payroll_disbursement(db,company_id=company.id,payroll_calculation_id=calculation.id,
+                        bank_account_id=bank.id,payment_date=date(2026,9,30),created_by=user.id,
+                        request_key='backdated-after-deduction-reversal')
+                restored_deduction = await create_payroll_disbursement(db,company_id=company.id,
+                    payroll_calculation_id=calculation.id,bank_account_id=bank.id,
+                    payment_date=date(2026,10,5),created_by=user.id,request_key='restored-deduction')
+                assert restored_deduction.amount == Decimal('654')
+                await generate_and_post_payroll_disbursement_journal(db,company_id=company.id,
+                    payroll_disbursement_id=restored_deduction.id,created_by=user.id)
+                settled = await employee_payroll_balance(db,company_id=company.id,
+                    employee_id=employee.id,as_of=date(2026,10,5))
+                assert settled['balances'][0]['balance'] == 0
+
 
                 reversal_lines = (
                     await db.execute(

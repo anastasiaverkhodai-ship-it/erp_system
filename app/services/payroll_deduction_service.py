@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.payroll_mutation_guard import serialized_payroll_mutation
+
 from datetime import UTC, date, datetime
 
 from sqlalchemy import and_, select
@@ -69,6 +71,7 @@ async def list_payroll_deduction_instructions(
     return list((await db.scalars(query)).all())
 
 
+@serialized_payroll_mutation(PayrollDeductionError)
 async def create_payroll_deduction_instruction(
     db: AsyncSession,
     *,
@@ -103,6 +106,18 @@ async def create_payroll_deduction_instruction(
                 "request_key already exists with different deduction data"
             )
         return existing
+
+    from app.models.payroll_deduction_result import PayrollDeductionResult
+    from app.models.payroll import PayrollCalculation, PayrollPeriod
+    frozen = await db.scalar(select(PayrollDeductionResult.id)
+        .join(PayrollCalculation, PayrollCalculation.id == PayrollDeductionResult.payroll_calculation_id)
+        .join(PayrollPeriod, PayrollPeriod.id == PayrollCalculation.payroll_period_id)
+        .where(PayrollDeductionResult.company_id == company_id,
+            PayrollDeductionResult.employment_contract_id == data.employment_contract_id,
+            PayrollPeriod.end_date >= data.effective_from,
+            PayrollPeriod.end_date <= (data.effective_to or date.max)).limit(1))
+    if frozen is not None:
+        raise PayrollDeductionConflictError('Deduction period already calculated; use a correction')
 
     contract = await db.scalar(
         select(EmploymentContract).where(

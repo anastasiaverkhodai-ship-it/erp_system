@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.payroll_mutation_guard import serialized_payroll_mutation
+
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -7,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.journal_entry import JournalEntry, JournalEntryStatus
-from app.models.payroll import PayrollCalculation
+from app.models.payroll import PayrollCalculation, PayrollPeriod
 from app.models.payroll_deduction_result import PayrollDeductionResult
 from app.services.accounting_account_role_resolver import (
     AccountingAccountRoleResolutionError,
@@ -50,6 +52,7 @@ async def get_payroll_deduction_journal(
     )
 
 
+@serialized_payroll_mutation(PayrollDeductionAccountingError)
 async def generate_and_post_payroll_deduction_journal(
     db: AsyncSession,
     *,
@@ -63,6 +66,8 @@ async def generate_and_post_payroll_deduction_journal(
         payroll_deduction_result_id=payroll_deduction_result_id,
     )
     if existing is not None:
+        if existing.status != JournalEntryStatus.POSTED:
+            raise PayrollDeductionAccountingConflictError('Deduction journal is not active; use a correction')
         return existing
 
     result = await db.scalar(
@@ -126,21 +131,26 @@ async def generate_and_post_payroll_deduction_journal(
         AccountingAccountRole.PAYROLL_DEDUCTION_PAYABLE
     ]
 
+    period = await db.scalar(select(PayrollPeriod).where(
+        PayrollPeriod.company_id == company_id, PayrollPeriod.id == calculation.payroll_period_id))
+    if period is None:
+        raise PayrollDeductionAccountingNotFoundError('Payroll period not found')
+
     amount = amount.quantize(Decimal("0.01"))
     now = datetime.utcnow()
 
     entry = JournalEntry(
         company_id=company_id,
         payroll_deduction_result_id=result.id,
-        entry_date=calculation.calculated_at.date(),
+        entry_date=period.end_date,
         description=(
             "Payroll non-statutory deduction liability "
             f"for payroll calculation {calculation.id}"
         ),
-        status=JournalEntryStatus.POSTED,
+        status=JournalEntryStatus.DRAFT,
         created_by=created_by,
         created_at=now,
-        posted_at=now,
+
     )
 
     entry.lines = [
@@ -162,10 +172,14 @@ async def generate_and_post_payroll_deduction_journal(
         ),
     ]
 
-    db.add(entry)
-    await db.flush()
-
-    return entry
+    from app.services.accounting_posting import post_journal_entry, AccountingPostingError
+    try:
+        async with db.begin_nested():
+            db.add(entry)
+            await db.flush()
+            return await post_journal_entry(db, company_id, entry.id)
+    except AccountingPostingError as exc:
+        raise PayrollDeductionAccountingConflictError(str(exc)) from exc
 
 
 async def reverse_payroll_deduction_journal(

@@ -51,7 +51,8 @@ async def lock_payroll_journal_company(db, company_id, journal_entry_id):
     """Also cover direct journal endpoints, using the same lock ordering."""
     from app.models.journal_entry import JournalEntry
     source = (await db.execute(select(
-        JournalEntry.payroll_calculation_id, JournalEntry.payroll_disbursement_id
+        JournalEntry.payroll_calculation_id, JournalEntry.payroll_disbursement_id,
+        JournalEntry.payroll_advance_id, JournalEntry.payroll_deduction_result_id
     ).where(JournalEntry.company_id == company_id,
             JournalEntry.id == journal_entry_id))).first()
     if source is not None and any(value is not None for value in source):
@@ -70,6 +71,23 @@ async def require_posted_payroll_accrual(db, *, company_id, disbursement, error_
     ).execution_options(populate_existing=True))
     if accrual is None:
         raise error_type('Post payroll accrual before its disbursement')
+    from app.models.payroll_deduction_result import PayrollDeductionResult
+    deduction = await db.scalar(select(PayrollDeductionResult).where(
+        PayrollDeductionResult.company_id == company_id,
+        PayrollDeductionResult.payroll_calculation_id == disbursement.payroll_calculation_id))
+    if deduction is not None and deduction.deduction_amount > 0:
+        posting = await db.scalar(select(JournalEntry).where(
+            JournalEntry.company_id == company_id,
+            JournalEntry.payroll_deduction_result_id == deduction.id,
+            JournalEntry.reversal_of_id.is_(None)))
+        if posting is not None and posting.status == JournalEntryStatus.REVERSED:
+            reversal_date = await db.scalar(select(JournalEntry.entry_date).where(
+                JournalEntry.company_id == company_id, JournalEntry.reversal_of_id == posting.id,
+                JournalEntry.status == JournalEntryStatus.POSTED))
+            if reversal_date is None or reversal_date > disbursement.payment_date:
+                raise error_type('Disbursement cannot precede deduction reversal')
+        elif posting is None or posting.status != JournalEntryStatus.POSTED or posting.entry_date > disbursement.payment_date:
+            raise error_type('Post payroll deductions before the final disbursement')
     if disbursement.payment_date < accrual.entry_date:
         raise error_type('Final payroll disbursement cannot predate accrual; use an advance')
 
@@ -87,3 +105,11 @@ async def ensure_no_posted_payroll_disbursement(db, *, company_id, calculation_i
     ).limit(1))
     if payout is not None:
         raise error_type('Reverse payroll disbursement before reversing its accrual')
+    from app.models.payroll_deduction_result import PayrollDeductionResult
+    deduction = await db.scalar(select(JournalEntry.id).join(PayrollDeductionResult,
+        PayrollDeductionResult.id == JournalEntry.payroll_deduction_result_id).where(
+            JournalEntry.company_id == company_id, PayrollDeductionResult.company_id == company_id,
+            PayrollDeductionResult.payroll_calculation_id == calculation_id,
+            JournalEntry.reversal_of_id.is_(None), JournalEntry.status == JournalEntryStatus.POSTED).limit(1))
+    if deduction is not None:
+        raise error_type('Reverse payroll deductions before reversing their accrual')

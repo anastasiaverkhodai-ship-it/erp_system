@@ -100,6 +100,9 @@ async def reconcile_cash_bank_gl(db, *, company_id, date_from, date_to):
     from app.services.payroll_cash_bank_gl_control_service import reconcile_payroll_bank_sources
     sources.extend(await reconcile_payroll_bank_sources(db, company_id=company_id,
         date_from=date_from, date_to=date_to))
+    from app.services.payroll_cash_bank_gl_control_service import reconcile_payroll_advance_sources
+    sources.extend(await reconcile_payroll_advance_sources(db, company_id=company_id,
+        date_from=date_from, date_to=date_to))
     money_accounts=select(BankAccount.accounting_account_id).where(BankAccount.company_id==company_id).union(
         select(CashDesk.accounting_account_id).where(CashDesk.company_id==company_id))
     # Expose unexplained manual movements. Opening GL is a separate migration workflow.
@@ -108,6 +111,7 @@ async def reconcile_cash_bank_gl(db, *, company_id, date_from, date_to):
         JournalEntry.entry_date.between(date_from,date_to),JournalEntry.payment_id.is_(None),
         JournalEntry.opening_balance_id.is_(None),
         JournalEntry.payroll_disbursement_id.is_(None),
+        JournalEntry.payroll_advance_id.is_(None),
         or_(JournalEntryLine.account_id.in_(money_accounts),JournalEntryLine.account_id==ids[Role.BANK_CURRENT_UAH])
     ).distinct().order_by(JournalEntry.id))).all())
     expected=sum((s.expected_amount for s in sources),Decimal(0))

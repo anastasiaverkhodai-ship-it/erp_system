@@ -7,7 +7,7 @@ from app.models.journal_entry import JournalEntry
 from app.models.payroll import PayrollPeriod, PayrollInput, PayrollCalculation
 from app.models.payroll_statutory import PayrollStatutoryResult
 from app.models.payroll_disbursement import PayrollDisbursement
-from app.schemas.payroll_register import PayrollRegister, PayrollRegisterRow
+from app.schemas.payroll_register import PayrollRegister, PayrollRegisterRow, PayrollRegisterAdvance
 from app.services.payroll_period_service import PayrollPeriodNotFoundError, PayrollPeriodError
 
 
@@ -44,6 +44,28 @@ async def get_payroll_register(db, *, company_id: int, payroll_period_id: int):
     by_calculation = {}
     for payout in payouts:
         by_calculation.setdefault(payout.payroll_calculation_id, []).append(payout)
+    from app.models.payroll_advance import PayrollAdvance
+    from app.models.payroll_deduction_result import PayrollDeductionResult
+    advances = (await db.execute(select(PayrollAdvance, JournalEntry)
+        .outerjoin(JournalEntry, and_(JournalEntry.company_id == company_id,
+            JournalEntry.payroll_advance_id == PayrollAdvance.id, JournalEntry.reversal_of_id.is_(None)))
+        .where(PayrollAdvance.company_id == company_id, PayrollAdvance.payroll_period_id == period.id))).all()
+    advance_by_contract = {}
+    for advance, entry in advances:
+        advance_by_contract[advance.employment_contract_id] = (advance, entry)
+    deductions = (await db.execute(select(PayrollDeductionResult, JournalEntry)
+        .outerjoin(JournalEntry, and_(JournalEntry.company_id == company_id,
+            JournalEntry.payroll_deduction_result_id == PayrollDeductionResult.id,
+            JournalEntry.reversal_of_id.is_(None)))
+        .where(PayrollDeductionResult.company_id == company_id,
+            PayrollDeductionResult.payroll_calculation_id.in_(calculation_ids)))).all() if calculation_ids else []
+    deduction_by_calculation = {result.payroll_calculation_id: (result, entry) for result, entry in deductions}
+    from app.models.payroll_deduction import PayrollDeductionInstruction
+    instruction_contracts = set((await db.scalars(select(PayrollDeductionInstruction.employment_contract_id)
+        .where(PayrollDeductionInstruction.company_id == company_id,
+            PayrollDeductionInstruction.effective_from <= period.end_date,
+            (PayrollDeductionInstruction.effective_to.is_(None) |
+             (PayrollDeductionInstruction.effective_to >= period.end_date))))).all())
     rows = []
     for source, contract, calc, statutory, journal in records:
         issues = []
@@ -69,11 +91,39 @@ async def get_payroll_register(db, *, company_id: int, payroll_period_id: int):
             else:
                 reserved += payout.amount
         net = statutory.net_amount if statutory else None
-        balance = (net if status == 'posted' else Decimal(0)) - paid if net is not None else None
-        available = max(Decimal(0), balance - reserved) if balance is not None else None
+        advance_paid = advance_reserved = deduction_posted = Decimal(0)
+        advance_data = advance_by_contract.get(contract.id)
+        if advance_data:
+            advance, advance_entry = advance_data
+            if currency is not None and advance.currency_code != currency:
+                issues.append('advance_currency_mismatch')
+            if advance_entry is not None and advance_entry.status == 'posted':
+                advance_paid = advance.paid_amount
+            elif advance_entry is None or advance_entry.status != 'reversed':
+                advance_reserved = advance.paid_amount
+        deduction_data = deduction_by_calculation.get(calc.id if calc else None)
+        deduction_amount = Decimal(0)
+        deduction_reversed = False
+        if deduction_data:
+            deduction, deduction_entry = deduction_data
+            deduction_amount = deduction.deduction_amount
+            if deduction.statutory_net_amount != net or deduction.currency_code != currency:
+                issues.append('deduction_result_mismatch')
+            if deduction_entry is not None and deduction_entry.status == 'posted':
+                deduction_posted = deduction_amount
+            elif deduction_entry is not None and deduction_entry.status == 'reversed':
+                deduction_reversed = True
+            elif deduction_amount:
+                issues.append('deduction_not_posted')
+        missing_deduction = contract.id in instruction_contracts and deduction_data is None
+        if missing_deduction:
+            issues.append('deduction_result_missing')
+        final_payable = net - (Decimal(0) if deduction_reversed else deduction_amount) if net is not None and not missing_deduction else None
+        balance = (net if status == 'posted' else Decimal(0)) - paid - advance_paid - deduction_posted if net is not None else None
+        available = max(Decimal(0), final_payable - paid - reserved - advance_paid - advance_reserved) if final_payable is not None else None
         if balance is not None and balance < 0:
             issues.append('paid_exceeds_recognized_net')
-        if net is not None and paid + reserved > net:
+        if final_payable is not None and paid + reserved + advance_paid + advance_reserved > final_payable:
             issues.append('reserved_exceeds_net')
         rows.append(PayrollRegisterRow(payroll_input_id=source.id,
             employment_contract_id=contract.id, employee_id=contract.employee_id,
@@ -82,7 +132,13 @@ async def get_payroll_register(db, *, company_id: int, payroll_period_id: int):
             employee_withholding_amount=statutory.employee_withholding_amount if statutory else None,
             employer_contribution_amount=statutory.employer_contribution_amount if statutory else None,
             net_amount=net, accrual_status=status, paid_amount=paid, reserved_amount=reserved,
-            recognized_balance=balance, available_to_pay=available, issues=issues))
+            advance_paid_amount=advance_paid, advance_reserved_amount=advance_reserved,
+            deduction_amount=None if missing_deduction else deduction_amount, deduction_posted_amount=deduction_posted,
+            final_payable_amount=final_payable, recognized_balance=balance, available_to_pay=available, issues=issues))
     return PayrollRegister(company_id=company_id, payroll_period_id=period.id,
         period_status=str(getattr(period.status, 'value', period.status)),
+        advances=[PayrollRegisterAdvance(id=advance.id, employment_contract_id=advance.employment_contract_id,
+            payment_date=advance.payment_date,currency_code=advance.currency_code,amount=advance.paid_amount,
+            status=str(getattr(entry.status, 'value', entry.status)) if entry is not None else 'draft')
+            for advance, entry in advances],
         complete=bool(rows) and all(not row.issues for row in rows), rows=rows)
