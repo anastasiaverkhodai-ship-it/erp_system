@@ -5,6 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -271,6 +272,57 @@ class PayrollStatutoryResultLine(Base):
         nullable=False,
     )
 
+    source_tax_profile_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    source_base_rule_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    gross_base_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),
+        nullable=False,
+        default=Decimal("0"),
+        server_default="0",
+    )
+
+    benefit_amount_applied: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),
+        nullable=False,
+        default=Decimal("0"),
+        server_default="0",
+    )
+
+    minimum_base_amount_applied: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 2),
+        nullable=True,
+    )
+
+    maximum_base_amount_applied: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 2),
+        nullable=True,
+    )
+
+    exemption_applied: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
+    base_rule_code: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    base_rule_version: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
     rate_effective_from: Mapped[date] = mapped_column(
         Date,
         nullable=False,
@@ -305,6 +357,28 @@ class PayrollStatutoryResultLine(Base):
             ],
             name="fk_payroll_statutory_lines_company_rate",
             ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "source_tax_profile_id"],
+            [
+                "payroll_employee_tax_profiles.company_id",
+                "payroll_employee_tax_profiles.id",
+            ],
+            name=(
+                "fk_payroll_statutory_result_lines_"
+                "company_tax_profile"
+            ),
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "source_base_rule_id"],
+            [
+                "payroll_statutory_base_rules.company_id",
+                "payroll_statutory_base_rules.id",
+            ],
+            name=(
+                "fk_payroll_statutory_result_lines_"
+                "company_base_rule"
+            ),
         ),
         UniqueConstraint(
             "company_id",

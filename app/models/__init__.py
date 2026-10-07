@@ -209,3 +209,10 @@ from app.models.payroll_sick_leave import (
     PayrollSickLeaveCalculation,
     PayrollSickLeaveCalculationSource,
 )
+
+from app.models.payroll_tax import (
+    PayrollEmployeeTaxProfile,
+    PayrollStatutoryBaseMode,
+    PayrollStatutoryBaseRule,
+    PayrollTaxProfileCategory,
+)

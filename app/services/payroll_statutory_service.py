@@ -10,6 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.payroll import PayrollCalculation
 from app.models.payroll import PayrollPeriod
+from app.models.employment_contract import EmploymentContract
+from app.models.payroll_tax import (
+    PayrollEmployeeTaxProfile,
+    PayrollStatutoryBaseRule,
+)
 from app.models.payroll_statutory import (
     PayrollStatutoryComponent,
     PayrollStatutoryRate,
@@ -210,6 +215,221 @@ async def resolve_statutory_rate(
     return obj
 
 
+
+async def resolve_payroll_employee_tax_profile(
+    session: AsyncSession,
+    *,
+    company_id: int,
+    employee_id: int,
+    employment_contract_id: int,
+    effective_date: date,
+) -> PayrollEmployeeTaxProfile | None:
+    rows = list(
+        (
+            await session.scalars(
+                select(PayrollEmployeeTaxProfile)
+                .where(
+                    PayrollEmployeeTaxProfile.company_id == company_id,
+                    PayrollEmployeeTaxProfile.employee_id == employee_id,
+                    PayrollEmployeeTaxProfile.employment_contract_id
+                    == employment_contract_id,
+                    PayrollEmployeeTaxProfile.effective_from
+                    <= effective_date,
+                    or_(
+                        PayrollEmployeeTaxProfile.effective_to.is_(None),
+                        PayrollEmployeeTaxProfile.effective_to
+                        >= effective_date,
+                    ),
+                )
+                .order_by(
+                    PayrollEmployeeTaxProfile.effective_from.desc(),
+                    PayrollEmployeeTaxProfile.id.desc(),
+                )
+            )
+        ).all()
+    )
+
+    if len(rows) > 1:
+        raise PayrollStatutoryValidationError(
+            "overlapping payroll employee tax profiles"
+        )
+
+    return rows[0] if rows else None
+
+
+async def resolve_payroll_statutory_base_rule(
+    session: AsyncSession,
+    *,
+    company_id: int,
+    component: PayrollStatutoryComponent,
+    employment_kind: str,
+    tax_profile_category: str | None,
+    effective_date: date,
+) -> PayrollStatutoryBaseRule | None:
+    rows = list(
+        (
+            await session.scalars(
+                select(PayrollStatutoryBaseRule)
+                .where(
+                    PayrollStatutoryBaseRule.company_id == company_id,
+                    PayrollStatutoryBaseRule.component
+                    == component.value,
+                    PayrollStatutoryBaseRule.effective_from
+                    <= effective_date,
+                    or_(
+                        PayrollStatutoryBaseRule.effective_to.is_(None),
+                        PayrollStatutoryBaseRule.effective_to
+                        >= effective_date,
+                    ),
+                    or_(
+                        PayrollStatutoryBaseRule.employment_kind.is_(None),
+                        PayrollStatutoryBaseRule.employment_kind
+                        == employment_kind,
+                    ),
+                    or_(
+                        PayrollStatutoryBaseRule.tax_profile_category.is_(None),
+                        PayrollStatutoryBaseRule.tax_profile_category
+                        == tax_profile_category,
+                    ),
+                )
+            )
+        ).all()
+    )
+
+    if not rows:
+        return None
+
+    def specificity(
+        rule: PayrollStatutoryBaseRule,
+    ) -> tuple[int, date, int]:
+        score = (
+            (2 if rule.employment_kind is not None else 0)
+            + (
+                1
+                if rule.tax_profile_category is not None
+                else 0
+            )
+        )
+        return score, rule.effective_from, rule.id
+
+    rows.sort(key=specificity, reverse=True)
+
+    best = rows[0]
+    best_score = specificity(best)[0]
+
+    same_selector = [
+        row
+        for row in rows[1:]
+        if specificity(row)[0] == best_score
+        and row.employment_kind == best.employment_kind
+        and row.tax_profile_category
+        == best.tax_profile_category
+    ]
+
+    if same_selector:
+        raise PayrollStatutoryValidationError(
+            "overlapping payroll statutory base rules"
+        )
+
+    return best
+
+
+def calculate_statutory_component_base(
+    *,
+    gross_amount: Decimal,
+    profile: PayrollEmployeeTaxProfile | None,
+    rule: PayrollStatutoryBaseRule | None,
+) -> tuple[
+    Decimal,
+    Decimal,
+    Decimal | None,
+    Decimal | None,
+    bool,
+]:
+    gross = round_money(gross_amount)
+
+    if rule is None:
+        return (
+            gross,
+            Decimal("0.00"),
+            None,
+            None,
+            False,
+        )
+
+    profile_category = (
+        profile.category
+        if profile is not None
+        else None
+    )
+
+    exemption_applied = bool(
+        rule.exemption_applies
+        and profile_category == "exempt"
+    )
+
+    if exemption_applied:
+        return (
+            Decimal("0.00"),
+            Decimal("0.00"),
+            (
+                round_money(rule.minimum_base_amount)
+                if rule.minimum_base_amount is not None
+                else None
+            ),
+            (
+                round_money(rule.maximum_base_amount)
+                if rule.maximum_base_amount is not None
+                else None
+            ),
+            True,
+        )
+
+    benefit_amount = Decimal("0.00")
+    base_amount = gross
+
+    if (
+        rule.base_mode == "gross_after_benefit"
+        and profile_category == "benefit_eligible"
+    ):
+        benefit_amount = round_money(
+            Decimal(rule.benefit_amount)
+        )
+
+        base_amount = round_money(
+            max(
+                Decimal("0.00"),
+                gross - benefit_amount,
+            )
+        )
+
+    minimum_base = (
+        round_money(Decimal(rule.minimum_base_amount))
+        if rule.minimum_base_amount is not None
+        else None
+    )
+
+    maximum_base = (
+        round_money(Decimal(rule.maximum_base_amount))
+        if rule.maximum_base_amount is not None
+        else None
+    )
+
+    if minimum_base is not None:
+        base_amount = max(base_amount, minimum_base)
+
+    if maximum_base is not None:
+        base_amount = min(base_amount, maximum_base)
+
+    return (
+        round_money(base_amount),
+        benefit_amount,
+        minimum_base,
+        maximum_base,
+        False,
+    )
+
+
 async def get_statutory_result(
     session: AsyncSession,
     *,
@@ -394,7 +614,35 @@ async def calculate_payroll_statutory_result(
         PayrollStatutoryComponent.UNIFIED_SOCIAL_CONTRIBUTION,
     )
 
-    rates: list[PayrollStatutoryRate] = []
+    contract = await session.scalar(
+        select(EmploymentContract).where(
+            EmploymentContract.id
+            == calculation.employment_contract_id,
+            EmploymentContract.company_id
+            == company_id,
+        )
+    )
+
+    if contract is None:
+        raise PayrollStatutoryNotFoundError(
+            "Employment contract not found"
+        )
+
+    profile = await resolve_payroll_employee_tax_profile(
+        session,
+        company_id=company_id,
+        employee_id=contract.employee_id,
+        employment_contract_id=contract.id,
+        effective_date=effective_date,
+    )
+
+    profile_category = (
+        profile.category
+        if profile is not None
+        else None
+    )
+
+    line_payloads = []
 
     for component in components:
         rate_obj = await resolve_statutory_rate(
@@ -403,23 +651,30 @@ async def calculate_payroll_statutory_result(
             component=component,
             effective_date=effective_date,
         )
-        rates.append(rate_obj)
 
-    line_payloads: list[
-        tuple[
-            PayrollStatutoryComponent,
-            PayrollStatutoryRate,
-            Decimal,
-        ]
-    ] = []
+        base_rule = await resolve_payroll_statutory_base_rule(
+            session,
+            company_id=company_id,
+            component=component,
+            employment_kind=contract.employment_kind,
+            tax_profile_category=profile_category,
+            effective_date=effective_date,
+        )
 
-    for component, rate_obj in zip(
-        components,
-        rates,
-        strict=True,
-    ):
+        (
+            component_base,
+            benefit_amount,
+            minimum_base,
+            maximum_base,
+            exemption_applied,
+        ) = calculate_statutory_component_base(
+            gross_amount=gross_amount,
+            profile=profile,
+            rule=base_rule,
+        )
+
         amount = calculate_component_amount(
-            base_amount=gross_amount,
+            base_amount=component_base,
             rate=Decimal(rate_obj.rate),
         )
 
@@ -428,13 +683,20 @@ async def calculate_payroll_statutory_result(
                 component,
                 rate_obj,
                 amount,
+                component_base,
+                benefit_amount,
+                minimum_base,
+                maximum_base,
+                exemption_applied,
+                base_rule,
             )
         )
 
     employee_withholding_amount = sum(
         (
-            amount
-            for component, _, amount in line_payloads
+            payload[2]
+            for payload in line_payloads
+            for component in (payload[0],)
             if component
             in {
                 PayrollStatutoryComponent.PERSONAL_INCOME_TAX,
@@ -446,8 +708,9 @@ async def calculate_payroll_statutory_result(
 
     employer_contribution_amount = sum(
         (
-            amount
-            for component, _, amount in line_payloads
+            payload[2]
+            for payload in line_payloads
+            for component in (payload[0],)
             if component
             == PayrollStatutoryComponent.UNIFIED_SOCIAL_CONTRIBUTION
         ),
@@ -494,18 +757,53 @@ async def calculate_payroll_statutory_result(
         line_payloads,
         start=1,
     ):
-        component, rate_obj, amount = payload
+        (
+            component,
+            rate_obj,
+            amount,
+            component_base,
+            benefit_amount,
+            minimum_base,
+            maximum_base,
+            exemption_applied,
+            base_rule,
+        ) = payload
 
         line = PayrollStatutoryResultLine(
             company_id=company_id,
             payroll_statutory_result_id=result.id,
             line_no=line_no,
             component=component.value,
-            base_amount=gross_amount,
+            base_amount=component_base,
             rate=Decimal(rate_obj.rate),
             amount=amount,
             currency_code=currency_code,
             source_rate_id=rate_obj.id,
+            source_tax_profile_id=(
+                profile.id
+                if profile is not None
+                else None
+            ),
+            source_base_rule_id=(
+                base_rule.id
+                if base_rule is not None
+                else None
+            ),
+            gross_base_amount=gross_amount,
+            benefit_amount_applied=benefit_amount,
+            minimum_base_amount_applied=minimum_base,
+            maximum_base_amount_applied=maximum_base,
+            exemption_applied=exemption_applied,
+            base_rule_code=(
+                base_rule.rule_code
+                if base_rule is not None
+                else None
+            ),
+            base_rule_version=(
+                base_rule.rule_version
+                if base_rule is not None
+                else None
+            ),
             rate_effective_from=(
                 rate_obj.effective_from
             ),
