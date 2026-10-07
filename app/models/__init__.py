@@ -216,3 +216,4 @@ from app.models.payroll_tax import (
     PayrollStatutoryBaseRule,
     PayrollTaxProfileCategory,
 )
+from app.models.payroll_correction import PayrollCorrection

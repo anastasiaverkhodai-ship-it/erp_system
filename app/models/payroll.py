@@ -223,6 +223,7 @@ class PayrollInput(Base):
         nullable=False,
     )
 
+
     employment_contract_id: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -437,7 +438,8 @@ class PayrollCalculation(Base):
             "company_id",
             "payroll_period_id",
             "employment_contract_id",
-            name="uq_payroll_calculations_company_period_contract",
+            "revision",
+            name="uq_payroll_calculations_company_period_contract_revision",
         ),
         ForeignKeyConstraint(
             ["company_id", "payroll_period_id"],
@@ -491,6 +493,13 @@ class PayrollCalculation(Base):
     payroll_period_id: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
+    )
+
+    revision: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
     )
 
     payroll_input_id: Mapped[int] = mapped_column(
