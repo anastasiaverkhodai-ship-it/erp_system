@@ -546,6 +546,15 @@ class PayrollCalculationLine(Base):
         ForeignKeyConstraint(['company_id','source_supplement_id'],
             ['payroll_supplements.company_id','payroll_supplements.id'],
             name='fk_payroll_calculation_line_supplement',ondelete='RESTRICT'),
+        ForeignKeyConstraint(
+            ["company_id", "source_vacation_calculation_id"],
+            [
+                "payroll_vacation_calculations.company_id",
+                "payroll_vacation_calculations.id",
+            ],
+            name="fk_payroll_calculation_line_vacation",
+            ondelete="RESTRICT",
+        ),
         UniqueConstraint(
             "company_id",
             "id",
@@ -578,12 +587,12 @@ class PayrollCalculationLine(Base):
             name="ck_payroll_calculation_lines_quantity_nonnegative",
         ),
         CheckConstraint(
-            "(line_type IN ('salary','supplement') AND rate >= 0) "
+            "(line_type IN ('salary','supplement','vacation_pay') AND rate >= 0) "
             "OR line_type = 'manual_adjustment'",
             name="ck_payroll_calculation_lines_rate_nonnegative",
         ),
         CheckConstraint(
-            "(line_type IN ('salary','supplement') AND amount >= 0) "
+            "(line_type IN ('salary','supplement','vacation_pay') AND amount >= 0) "
             "OR line_type = 'manual_adjustment'",
             name="ck_payroll_calculation_lines_amount_by_type",
         ),
@@ -592,7 +601,12 @@ class PayrollCalculationLine(Base):
             name="ck_payroll_calculation_line_supplement_source",
         ),
         CheckConstraint(
-            "line_type IN ('salary','manual_adjustment','supplement')",
+            "(line_type = 'vacation_pay') = "
+            "(source_vacation_calculation_id IS NOT NULL)",
+            name="ck_payroll_calculation_line_vacation_source",
+        ),
+        CheckConstraint(
+            "line_type IN ('salary','manual_adjustment','supplement','vacation_pay')",
             name="ck_payroll_calculation_lines_type",
         ),
         CheckConstraint(
@@ -620,6 +634,11 @@ class PayrollCalculationLine(Base):
     )
 
     source_supplement_id: Mapped[int | None] = mapped_column(Integer,nullable=True)
+
+    source_vacation_calculation_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
 
     line_no: Mapped[int] = mapped_column(Integer, nullable=False)
 

@@ -204,3 +204,4 @@ from app.models.payroll_advance import PayrollAdvance
 
 from app.models.payroll_deduction import PayrollDeductionInstruction
 from app.models.payroll_deduction_result import PayrollDeductionResult, PayrollDeductionResultLine
+from app.models.payroll_vacation import PayrollVacationCalculation, PayrollVacationCalculationSource

@@ -562,10 +562,21 @@ async def calculate_payroll_input(
         return existing
 
     from app.services.payroll_supplement_service import derive_supplement_lines, PayrollSupplementError
+    from app.services.payroll_vacation_service import derive_vacation_pay_lines, PayrollVacationError
     try:
         supplement_lines,allowed_extra=await derive_supplement_lines(db,company_id=company_id,
             payroll_input=payroll_input,period=period,salary_slices=salary_slices)
     except PayrollSupplementError as exc:
+        raise PayrollCalculationDerivationError(str(exc)) from exc
+
+    try:
+        vacation_lines = await derive_vacation_pay_lines(
+            db,
+            company_id=company_id,
+            payroll_input=payroll_input,
+            period=period,
+        )
+    except PayrollVacationError as exc:
         raise PayrollCalculationDerivationError(str(exc)) from exc
 
     currency_code, gross_amount, derived_lines = (
@@ -580,6 +591,12 @@ async def calculate_payroll_input(
         line['line_no']=len(derived_lines)+1
         derived_lines.append(line)
         gross_amount+=line['amount']
+
+    for line in vacation_lines:
+        line['line_no']=len(derived_lines)+1
+        derived_lines.append(line)
+        gross_amount+=line['amount']
+
     gross_amount=_money(gross_amount)
 
     calculation = PayrollCalculation(
