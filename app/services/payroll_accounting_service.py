@@ -360,6 +360,9 @@ async def generate_and_post_payroll_journal_entry(
         payroll_calculation_id=payroll_calculation_id,
     )
 
+    from app.services.payroll_revision_service import require_current_calculation
+    await require_current_calculation(db, calculation=calculation, error_type=PayrollAccountingSourceStateError)
+
     if calculation.currency_code != "UAH":
         raise PayrollAccountingCurrencyError(
             "Payroll accounting currently supports "

@@ -129,6 +129,10 @@ async def post_journal_entry(
             "Journal entry not found"
         )
 
+    if journal_entry.reversal_of_id is None:
+        from app.services.payroll_revision_service import require_current_journal_calculation
+        await require_current_journal_calculation(db, journal=journal_entry, error_type=AccountingPostingError)
+
     if journal_entry.payroll_disbursement_id is not None:
         from app.models.payroll_disbursement import PayrollDisbursement
         disbursement = await db.scalar(select(PayrollDisbursement).where(

@@ -20,12 +20,13 @@ async def get_payroll_register(db, *, company_id: int, payroll_period_id: int):
         PayrollPeriod.id == payroll_period_id).execution_options(populate_existing=True))
     if company is None or period is None:
         raise PayrollPeriodNotFoundError('Payroll period not found')
+    from app.services.payroll_revision_service import current_calculation_filter
     records = (await db.execute(select(PayrollInput, EmploymentContract, PayrollCalculation,
                                       PayrollStatutoryResult, JournalEntry)
         .join(EmploymentContract, and_(EmploymentContract.company_id == company_id,
               EmploymentContract.id == PayrollInput.employment_contract_id))
         .outerjoin(PayrollCalculation, and_(PayrollCalculation.company_id == company_id,
-                   PayrollCalculation.payroll_input_id == PayrollInput.id))
+                   PayrollCalculation.payroll_input_id == PayrollInput.id, current_calculation_filter()))
         .outerjoin(PayrollStatutoryResult, and_(PayrollStatutoryResult.company_id == company_id,
                    PayrollStatutoryResult.payroll_calculation_id == PayrollCalculation.id))
         .outerjoin(JournalEntry, and_(JournalEntry.company_id == company_id,

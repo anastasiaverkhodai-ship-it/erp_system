@@ -137,6 +137,7 @@ async def generate_payroll_regulatory_report(
     if report.status == PayrollRegulatoryReportStatus.GENERATED.value:
         return report
 
+    from app.services.payroll_revision_service import current_calculation_filter
     calculations = (
         await db.scalars(
             select(PayrollCalculation)
@@ -144,6 +145,7 @@ async def generate_payroll_regulatory_report(
                 PayrollCalculation.company_id == company_id,
                 PayrollCalculation.payroll_period_id
                 == report.payroll_period_id,
+                current_calculation_filter(),
             )
             .order_by(
                 PayrollCalculation.employment_contract_id,

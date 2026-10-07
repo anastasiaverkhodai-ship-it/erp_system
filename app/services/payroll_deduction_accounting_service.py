@@ -101,6 +101,9 @@ async def generate_and_post_payroll_deduction_journal(
             "Payroll calculation not found"
         )
 
+    from app.services.payroll_revision_service import require_current_calculation
+    await require_current_calculation(db, calculation=calculation, error_type=PayrollDeductionAccountingConflictError)
+
     if (
         calculation.employment_contract_id
         != result.employment_contract_id

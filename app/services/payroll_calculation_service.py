@@ -144,10 +144,12 @@ async def get_payroll_calculation_for_input(
     company_id: int,
     payroll_input_id: int,
 ) -> PayrollCalculation | None:
+    from app.services.payroll_revision_service import current_calculation_filter
     result = await db.execute(
         select(PayrollCalculation).where(
             PayrollCalculation.company_id == company_id,
             PayrollCalculation.payroll_input_id == payroll_input_id,
+            current_calculation_filter(),
         )
     )
     return result.scalar_one_or_none()

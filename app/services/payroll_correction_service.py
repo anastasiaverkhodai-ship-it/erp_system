@@ -100,6 +100,27 @@ async def create_payroll_correction_link(
             "Replacement payroll calculation must be the next revision"
         )
 
+    if original.payroll_input_id != replacement.payroll_input_id or original.currency_code != replacement.currency_code:
+        raise PayrollCorrectionSourceStateError('Correction must preserve payroll input and currency')
+    from app.services.payroll_revision_service import require_current_calculation
+    await require_current_calculation(db, calculation=original, error_type=PayrollCorrectionSourceStateError)
+    from app.models.journal_entry import JournalEntry
+    from app.models.payroll_disbursement import PayrollDisbursement
+    from app.models.payroll_deduction_result import PayrollDeductionResult
+    active_journal = await db.scalar(select(JournalEntry.id).where(
+        JournalEntry.company_id == company_id, JournalEntry.status != 'reversed',
+        JournalEntry.reversal_of_id.is_(None),
+        (JournalEntry.payroll_calculation_id == original.id) |
+        JournalEntry.payroll_deduction_result_id.in_(select(PayrollDeductionResult.id).where(
+            PayrollDeductionResult.company_id == company_id,
+            PayrollDeductionResult.payroll_calculation_id == original.id))).limit(1))
+    active_payout = await db.scalar(select(PayrollDisbursement.id).where(
+        PayrollDisbursement.company_id == company_id,
+        PayrollDisbursement.payroll_calculation_id == original.id,
+        PayrollDisbursement.cancelled_at.is_(None), PayrollDisbursement.reversed_on.is_(None)).limit(1))
+    if active_journal is not None or active_payout is not None:
+        raise PayrollCorrectionSourceStateError('Reverse or cancel original postings and payouts before linking correction')
+
     replacement_used = await db.scalar(
         select(PayrollCorrection.id).where(
             PayrollCorrection.company_id == company_id,

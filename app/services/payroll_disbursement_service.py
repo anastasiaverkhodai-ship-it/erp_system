@@ -111,6 +111,9 @@ async def create_payroll_disbursement(
             "Payroll calculation not found"
         )
 
+    from app.services.payroll_revision_service import require_current_calculation
+    await require_current_calculation(db, calculation=calculation, error_type=PayrollDisbursementSourceStateError)
+
     statutory = (
         await db.execute(
             select(PayrollStatutoryResult).where(

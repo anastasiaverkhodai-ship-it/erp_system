@@ -186,8 +186,9 @@ async def _seed_identity(session):
     return company, user, employee, contract
 
 
+@pytest.mark.parametrize("cross_month", [False, True])
 @pytest.mark.asyncio
-async def test_payroll_vacation_real_postgresql_e2e():
+async def test_payroll_vacation_real_postgresql_e2e(cross_month):
     engine = create_async_engine(
         _postgres_url(),
         pool_pre_ping=True,
@@ -210,8 +211,8 @@ async def test_payroll_vacation_real_postgresql_e2e():
                     company_id=company.id,
                     employment_contract_id=contract.id,
                     leave_type=LeaveType.ANNUAL,
-                    start_date=date(2026, 9, 21),
-                    end_date=date(2026, 9, 25),
+                    start_date=date(2026, 9, 29) if cross_month else date(2026, 9, 21),
+                    end_date=date(2026, 10, 3) if cross_month else date(2026, 9, 25),
                     status=LeaveRequestStatus.APPROVED,
                     requested_by=user.id,
                     approved_by=user.id,
@@ -326,6 +327,16 @@ async def test_payroll_vacation_real_postgresql_e2e():
 
                 assert vacation_count == 1
 
+                from types import SimpleNamespace
+                from app.services.payroll_vacation_service import derive_vacation_pay_lines
+                combined = Decimal(0)
+                for begin, end in ((date(2026,9,1),date(2026,9,30)), (date(2026,10,1),date(2026,10,31))):
+                    rows = await derive_vacation_pay_lines(db,company_id=company.id,
+                        payroll_input=SimpleNamespace(employment_contract_id=contract.id),
+                        period=SimpleNamespace(start_date=begin,end_date=end))
+                    combined += sum(row['amount'] for row in rows)
+                assert combined == vacation.vacation_pay_amount, 'Cross-month payroll repeats full leave amount'
+
                 period = PayrollPeriod(
                     company_id=company.id,
                     year=2026,
@@ -414,11 +425,11 @@ async def test_payroll_vacation_real_postgresql_e2e():
                     vacation_line.source_vacation_calculation_id
                     == vacation.id
                 )
-                assert Decimal(vacation_line.quantity) == Decimal("5.0000")
+                assert Decimal(vacation_line.quantity) == Decimal(2 if cross_month else 5)
                 assert Decimal(vacation_line.rate) == Decimal("200.0000")
-                assert Decimal(vacation_line.amount) == Decimal("1000.00")
+                assert Decimal(vacation_line.amount) == Decimal("400.00" if cross_month else "1000.00")
                 assert Decimal(calculation.gross_amount) == Decimal(
-                    "1000.00"
+                    "400.00" if cross_month else "1000.00"
                 )
 
                 foreign_company = Company(

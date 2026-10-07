@@ -140,59 +140,26 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        """
-        ALTER TABLE payroll_calculation_lines
-        DROP CONSTRAINT IF EXISTS ck_payroll_calculation_lines_amount
-        """
+    # Restore the exact parent names and expressions so the preceding vacation
+    # migration can also be rolled back. Do not leave renamed rate/amount checks.
+    for name in (
+        "ck_payroll_calculation_lines_amount",
+        "ck_payroll_calculation_lines_amount_by_type",
+        "ck_payroll_calculation_lines_rate",
+        "ck_payroll_calculation_lines_rate_nonnegative",
+    ):
+        op.execute(f"ALTER TABLE payroll_calculation_lines DROP CONSTRAINT IF EXISTS {name}")
+    op.create_check_constraint(
+        "ck_payroll_calculation_lines_amount_by_type",
+        "payroll_calculation_lines",
+        "(line_type IN ('salary','supplement','vacation_pay') AND amount >= 0) "
+        "OR line_type = 'manual_adjustment'",
     )
-
-    op.execute(
-        """
-        ALTER TABLE payroll_calculation_lines
-        ADD CONSTRAINT ck_payroll_calculation_lines_amount
-        CHECK (
-            (
-                line_type IN (
-                    'salary',
-                    'supplement',
-                    'vacation_pay'
-                )
-                AND amount >= 0
-            )
-            OR line_type = 'manual_adjustment'
-        )
-        """
-    )
-
-    op.execute(
-        """
-        ALTER TABLE payroll_calculation_lines
-        DROP CONSTRAINT IF EXISTS ck_payroll_calculation_lines_rate
-        """
-    )
-
-    op.execute(
-        """
-        ALTER TABLE payroll_calculation_lines
-        ADD CONSTRAINT ck_payroll_calculation_lines_rate
-        CHECK (
-            (
-                line_type IN (
-                    'salary',
-                    'supplement',
-                    'vacation_pay'
-                )
-                AND rate IS NOT NULL
-                AND rate >= 0
-            )
-            OR
-            (
-                line_type = 'manual_adjustment'
-                AND (rate IS NULL OR rate >= 0)
-            )
-        )
-        """
+    op.create_check_constraint(
+        "ck_payroll_calculation_lines_rate_nonnegative",
+        "payroll_calculation_lines",
+        "(line_type IN ('salary','supplement','vacation_pay') AND rate >= 0) "
+        "OR line_type = 'manual_adjustment'",
     )
 
     op.execute(

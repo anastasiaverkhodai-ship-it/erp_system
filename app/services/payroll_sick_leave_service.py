@@ -357,8 +357,8 @@ async def derive_sick_pay_lines(
     payroll_input,
     period,
 ) -> list[dict]:
-    result = await db.scalars(
-        select(PayrollSickLeaveCalculation)
+    result = await db.execute(
+        select(PayrollSickLeaveCalculation, LeaveRequest)
         .join(
             LeaveRequest,
             (
@@ -386,16 +386,23 @@ async def derive_sick_pay_lines(
 
     lines: list[dict] = []
 
-    for row in rows:
+    from app.services.payroll_leave_allocation import allocate_leave_amount
+    for row, leave in rows:
+        if Decimal((leave.end_date - leave.start_date).days + 1) != row.sick_days:
+            raise PayrollSickLeaveDerivationError('Leave dates changed after calculation; use a correction')
+        allocated_days, allocated_amount = allocate_leave_amount(
+            start=leave.start_date, end=leave.end_date,
+            period_start=period.start_date, period_end=period.end_date,
+            amount=row.sick_pay_amount)
         lines.append(
             {
                 "line_type": "sick_pay",
                 "description": (
                     f"Sick leave {row.benefit_case_code}"
                 ),
-                "quantity": row.sick_days,
+                "quantity": Decimal(allocated_days),
                 "rate": row.daily_benefit_amount,
-                "amount": row.sick_pay_amount,
+                "amount": allocated_amount,
                 "currency_code": row.currency_code,
                 "salary_rate_type": None,
                 "source_salary_rate_id": None,

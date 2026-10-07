@@ -311,8 +311,8 @@ async def derive_vacation_pay_lines(
     payroll_input,
     period,
 ) -> list[dict]:
-    result = await db.scalars(
-        select(PayrollVacationCalculation)
+    result = await db.execute(
+        select(PayrollVacationCalculation, LeaveRequest)
         .join(
             LeaveRequest,
             (
@@ -347,13 +347,20 @@ async def derive_vacation_pay_lines(
 
     lines: list[dict] = []
 
-    for row in rows:
+    from app.services.payroll_leave_allocation import allocate_leave_amount
+    for row, leave in rows:
+        if Decimal((leave.end_date - leave.start_date).days + 1) != row.leave_days:
+            raise PayrollVacationDerivationError('Leave dates changed after calculation; use a correction')
+        allocated_days, allocated_amount = allocate_leave_amount(
+            start=leave.start_date, end=leave.end_date,
+            period_start=period.start_date, period_end=period.end_date,
+            amount=row.vacation_pay_amount)
         lines.append(
             {
                 "line_type": "vacation_pay",
-                "quantity": row.leave_days,
+                "quantity": Decimal(allocated_days),
                 "rate": row.average_daily_amount,
-                "amount": row.vacation_pay_amount,
+                "amount": allocated_amount,
                 "currency_code": row.currency_code,
                 "source_salary_rate_id": None,
                 "source_supplement_id": None,

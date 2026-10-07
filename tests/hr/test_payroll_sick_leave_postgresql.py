@@ -187,8 +187,9 @@ async def _seed_identity(session):
 
 
 
+@pytest.mark.parametrize("cross_month", [False, True])
 @pytest.mark.asyncio
-async def test_payroll_sick_leave_real_postgresql_e2e():
+async def test_payroll_sick_leave_real_postgresql_e2e(cross_month):
     engine = create_async_engine(
         _postgres_url(),
         pool_pre_ping=True,
@@ -211,8 +212,8 @@ async def test_payroll_sick_leave_real_postgresql_e2e():
                     company_id=company.id,
                     employment_contract_id=contract.id,
                     leave_type=LeaveType.SICK,
-                    start_date=date(2026, 9, 21),
-                    end_date=date(2026, 9, 30),
+                    start_date=date(2026, 9, 26) if cross_month else date(2026, 9, 21),
+                    end_date=date(2026, 10, 5) if cross_month else date(2026, 9, 30),
                     status=LeaveRequestStatus.APPROVED,
                     requested_by=user.id,
                     approved_by=user.id,
@@ -340,6 +341,16 @@ async def test_payroll_sick_leave_real_postgresql_e2e():
 
                 assert same.id == sick.id
 
+                from types import SimpleNamespace
+                from app.services.payroll_sick_leave_service import derive_sick_pay_lines
+                combined = Decimal(0)
+                for begin, end in ((date(2026,9,1),date(2026,9,30)), (date(2026,10,1),date(2026,10,31))):
+                    rows = await derive_sick_pay_lines(db,company_id=company.id,
+                        payroll_input=SimpleNamespace(employment_contract_id=contract.id),
+                        period=SimpleNamespace(start_date=begin,end_date=end))
+                    combined += sum(row['amount'] for row in rows)
+                assert combined == sick.sick_pay_amount, 'Cross-month payroll repeats full leave amount'
+
                 period = PayrollPeriod(
                     company_id=company.id,
                     year=2026,
@@ -429,16 +440,16 @@ async def test_payroll_sick_leave_real_postgresql_e2e():
                     == sick.id
                 )
                 assert Decimal(sick_line.quantity) == Decimal(
-                    "10.0000"
+                    5 if cross_month else 10
                 )
                 assert Decimal(sick_line.rate) == Decimal(
                     "80.0000"
                 )
                 assert Decimal(sick_line.amount) == Decimal(
-                    "800.00"
+                    "400.00" if cross_month else "800.00"
                 )
                 assert Decimal(calculation.gross_amount) == Decimal(
-                    "800.00"
+                    "400.00" if cross_month else "800.00"
                 )
 
                 foreign_company = Company(

@@ -102,9 +102,24 @@ async def test_migration_replaces_checks(employee_engine):
     spec = importlib.util.spec_from_file_location('supplement_migration', Path('alembic/versions/13d4a7b8c008_payroll_earning_supplements.py'))
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
+    later = []
+    for name in ('3ac48a42b2b7_add_vacation_payroll_line_provenance',
+                 '521ef6b24c56_add_sick_leave_payroll_line_provenance',
+                 'ce93fa6854e9_align_sick_leave_payroll_line_checks',
+                 '02ea1abea587_align_payroll_manual_adjustment_checks',
+                 '840d5bc18de3_allow_signed_manual_adjustment_rate',
+                 '5a4dbbc494b5_align_payroll_line_base_checks'):
+        later_spec = importlib.util.spec_from_file_location(name, Path('alembic/versions') / (name + '.py'))
+        module = importlib.util.module_from_spec(later_spec)
+        later_spec.loader.exec_module(module)
+        later.append(module)
     async with employee_engine.begin() as conn:
         def roundtrip(sync):
             with Operations.context(MigrationContext.configure(sync)):
+                # The fixture represents the current schema; unwind dependent
+                # provenance migrations before testing the older supplement step.
+                for module in reversed(later):
+                    module.downgrade()
                 migration.downgrade()
                 migration.upgrade()
         await conn.run_sync(roundtrip)
@@ -112,6 +127,16 @@ async def test_migration_replaces_checks(employee_engine):
         for name in ('type','rate_nonnegative','amount_by_type'):
             assert 'supplement' in checks['ck_payroll_calculation_lines_'+name]
         assert 'source_supplement_id' in checks['ck_payroll_calculation_line_supplement_source']
+        def restore(sync):
+            with Operations.context(MigrationContext.configure(sync)):
+                for module in later:
+                    module.upgrade()
+        await conn.run_sync(restore)
+        checks = dict((await conn.execute(text("SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='payroll_calculation_lines'::regclass AND contype='c'"))).all())
+        assert 'sick_pay' in checks['ck_payroll_calculation_lines_type']
+        assert 'source_sick_leave_calculation_id' in checks['ck_payroll_calculation_line_sick_source']
+        assert 'ck_payroll_calculation_lines_rate_nonnegative' not in checks
+
 
 
 def test_attendance_elapsed_time_matches_night_window_across_clock_change():

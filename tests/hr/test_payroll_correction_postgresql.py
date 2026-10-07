@@ -356,10 +356,33 @@ async def test_payroll_correction_revision_contract_real_postgresql():
             db.add(replacement)
             await db.flush()
 
+            from app.services.payroll_calculation_service import get_payroll_calculation_for_input
+            from app.services.payroll_revision_service import require_current_calculation
+            async def current():
+                return await get_payroll_calculation_for_input(db, company_id=company_id, payroll_input_id=payroll_input.id)
+            assert (await current()).id == original.id
+            with pytest.raises(PayrollCorrectionSourceStateError):
+                await require_current_calculation(db, calculation=replacement, error_type=PayrollCorrectionSourceStateError)
+
             request_key = (
                 f"pg-e2e-correction-"
                 f"{original.id}-{replacement.id}"
             )
+
+            from app.models.journal_entry import JournalEntry
+            pending_journal = JournalEntry(**_required_values(JournalEntry, {
+                "company_id": company_id, "created_by": actor_id,
+                "entry_date": period.end_date,
+                "payroll_calculation_id": original.id, "status": "draft"}))
+            db.add(pending_journal)
+            await db.flush()
+            with pytest.raises(PayrollCorrectionSourceStateError, match="Reverse or cancel"):
+                await create_payroll_correction_link(db, company_id=company_id,
+                    original_payroll_calculation_id=original.id,
+                    replacement_payroll_calculation_id=replacement.id,
+                    request_key=request_key, reason="13.13 PostgreSQL correction E2E", created_by=actor_id)
+            await db.delete(pending_journal)
+            await db.flush()
 
             correction = await create_payroll_correction_link(
                 db,
@@ -384,6 +407,9 @@ async def test_payroll_correction_revision_contract_real_postgresql():
             )
 
             assert replacement.revision == 2
+            assert (await current()).id == replacement.id
+            with pytest.raises(PayrollCorrectionSourceStateError):
+                await require_current_calculation(db, calculation=original, error_type=PayrollCorrectionSourceStateError)
 
             same = await create_payroll_correction_link(
                 db,
@@ -468,6 +494,38 @@ async def test_payroll_correction_revision_contract_real_postgresql():
                     reason="missing original",
                     created_by=actor_id,
                 )
+
+            assert (await current()).id == replacement.id
+
+            from app.services.payroll_register_service import get_payroll_register
+            register = await get_payroll_register(db, company_id=company_id, payroll_period_id=period.id)
+            assert [row.payroll_calculation_id for row in register.rows] == [replacement.id]
+            from app.services.payroll_regulatory_report_service import (
+                create_payroll_regulatory_report, generate_payroll_regulatory_report,
+                list_payroll_regulatory_report_rows)
+            report = await create_payroll_regulatory_report(db, company_id=company_id,
+                payroll_period_id=period.id, report_kind='d1', created_by=actor_id)
+            await generate_payroll_regulatory_report(db, company_id=company_id,
+                payroll_regulatory_report_id=report.id, generated_by=actor_id)
+            report_rows = await list_payroll_regulatory_report_rows(db, company_id=company_id,
+                payroll_regulatory_report_id=report.id)
+            assert [row.payroll_calculation_id for row in report_rows] == [replacement.id]
+            from app.services.payroll_disbursement_service import (
+                create_payroll_disbursement, PayrollDisbursementSourceStateError)
+            with pytest.raises(PayrollDisbursementSourceStateError, match="superseded"):
+                await create_payroll_disbursement(db, company_id=company_id,
+                    payroll_calculation_id=original.id, bank_account_id=2147483647,
+                    payment_date=period.end_date, amount=Decimal('1.00'),
+                    request_key='superseded-payout', created_by=actor_id)
+            from app.services.accounting_posting import post_journal_entry, AccountingPostingError
+            stale_journal = JournalEntry(**_required_values(JournalEntry, {
+                "company_id": company_id, "created_by": actor_id,
+                "entry_date": period.end_date,
+                "payroll_calculation_id": original.id, "status": "draft"}))
+            db.add(stale_journal)
+            await db.flush()
+            with pytest.raises(AccountingPostingError, match="superseded"):
+                await post_journal_entry(db, company_id=company_id, journal_entry_id=stale_journal.id)
 
             original_id = original.id
             replacement_id = replacement.id
