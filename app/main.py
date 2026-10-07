@@ -196,6 +196,7 @@ from app.api.v1.employee_salary_rates import router as employee_salary_rates_rou
 from app.api.v1.time_attendance import router as time_attendance_router
 from app.api.v1.leave_requests import router as leave_requests_router
 from app.api.v1.payroll import router as payroll_router
+from app.api.v1.payroll_regulatory_reports import router as payroll_regulatory_reports_router
 from app.api.v1.payroll_statutory import router as payroll_statutory_router
 from app.api.v1 import payroll_calculations as payroll_calculations_api
 from app.api.v1 import payroll_advances
@@ -206,6 +207,7 @@ app.include_router(employee_salary_rates_router, prefix="/api/v1")
 app.include_router(time_attendance_router, prefix="/api/v1")
 app.include_router(leave_requests_router, prefix="/api/v1")
 app.include_router(payroll_router, prefix="/api/v1")
+app.include_router(payroll_regulatory_reports_router, prefix="/api/v1")
 app.include_router(payroll_calculations_api.router, prefix="/api/v1")
 app.include_router(payroll_statutory_router, prefix="/api/v1")
 

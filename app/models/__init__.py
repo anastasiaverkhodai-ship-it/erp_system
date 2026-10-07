@@ -217,3 +217,10 @@ from app.models.payroll_tax import (
     PayrollTaxProfileCategory,
 )
 from app.models.payroll_correction import PayrollCorrection
+
+from app.models.payroll_regulatory_report import (
+    PayrollRegulatoryReport,
+    PayrollRegulatoryReportKind,
+    PayrollRegulatoryReportRow,
+    PayrollRegulatoryReportStatus,
+)
