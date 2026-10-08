@@ -35,6 +35,9 @@ class PayrollStatutoryRate(Base):
 
     company_id: Mapped[int] = mapped_column(Integer, nullable=False)
 
+    employee_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_reference: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
     component: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
@@ -74,6 +77,10 @@ class PayrollStatutoryRate(Base):
     )
 
     __table_args__ = (
+        ForeignKeyConstraint(['company_id', 'employee_id'], ['employees.company_id', 'employees.id'],
+            name='fk_payroll_statutory_rate_employee', ondelete='RESTRICT'),
+        CheckConstraint("employee_id IS NULL OR (source_reference IS NOT NULL AND length(trim(source_reference)) > 0)",
+            name='ck_payroll_statutory_rate_evidence'),
         ForeignKeyConstraint(
             ["company_id"],
             ["companies.id"],

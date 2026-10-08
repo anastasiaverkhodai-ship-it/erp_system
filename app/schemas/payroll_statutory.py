@@ -9,6 +9,9 @@ from app.models.payroll_statutory import PayrollStatutoryComponent
 
 
 class PayrollStatutoryRateCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    employee_id: int | None = Field(default=None, gt=0)
+    source_reference: str | None = Field(default=None, min_length=1, max_length=500)
     component: PayrollStatutoryComponent
     rate: Decimal = Field(
         ge=Decimal("0"),
@@ -23,6 +26,8 @@ class PayrollStatutoryRateRead(BaseModel):
 
     id: int
     company_id: int
+    employee_id: int | None = None
+    source_reference: str | None = None
     component: PayrollStatutoryComponent
     rate: Decimal
     effective_from: date

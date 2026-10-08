@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
+from app.services.payroll_mutation_guard import serialized_payroll_mutation, ensure_payroll_source_editable
+from app.services.payroll_leave_request_guard import number, require_same_leave_request
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -114,6 +117,7 @@ async def list_vacation_calculation_sources(
     return list(result)
 
 
+@serialized_payroll_mutation(PayrollVacationConflictError)
 async def calculate_vacation_pay(
     db: AsyncSession,
     *,
@@ -134,7 +138,19 @@ async def calculate_vacation_pay(
         leave_request_id=leave_request_id,
     )
 
+    values = dict(
+        reference_period_start=reference_period_start, reference_period_end=reference_period_end,
+        eligible_earnings=number(eligible_earnings, '.01', PayrollVacationDerivationError),
+        eligible_days=number(eligible_days, '.01', PayrollVacationDerivationError),
+        rule_code=rule_code.strip(), rule_version=rule_version.strip(),
+    )
+    if Decimal(eligible_days) != values['eligible_days']:
+        raise PayrollVacationDerivationError('Day quantities support at most two decimal places')
     if existing is not None:
+        saved_sources = await list_vacation_calculation_sources(db, company_id=company_id,
+            vacation_calculation_id=existing.id) if sources is not None else []
+        require_same_leave_request(existing, values, requested_sources=sources,
+            saved_sources=saved_sources, error_type=PayrollVacationConflictError)
         return existing
 
     leave_request = await db.scalar(
@@ -158,6 +174,11 @@ async def calculate_vacation_pay(
         raise PayrollVacationConflictError(
             "Vacation pay requires annual leave"
         )
+
+    await ensure_payroll_source_editable(db, company_id=company_id,
+        contract_id=leave_request.employment_contract_id,
+        date_from=leave_request.start_date, date_to=leave_request.end_date,
+        error_type=PayrollVacationConflictError)
 
     if reference_period_end < reference_period_start:
         raise PayrollVacationDerivationError(

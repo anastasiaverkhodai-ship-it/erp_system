@@ -80,7 +80,17 @@ async def create_statutory_rate(
     effective_from: date,
     effective_to: date | None,
     actor_user_id: int,
+    employee_id: int | None = None,
+    source_reference: str | None = None,
 ) -> PayrollStatutoryRate:
+    if employee_id is not None:
+        from app.models.employee import Employee
+        employee = await session.scalar(select(Employee.id).where(
+            Employee.company_id == company_id, Employee.id == employee_id))
+        if employee is None:
+            raise PayrollStatutoryNotFoundError('Employee not found in this company')
+        if not source_reference or not source_reference.strip():
+            raise PayrollStatutoryValidationError('Individual statutory rate requires supporting evidence')
     validate_rate_window(
         effective_from=effective_from,
         effective_to=effective_to,
@@ -96,6 +106,7 @@ async def create_statutory_rate(
         .where(
             PayrollStatutoryRate.company_id
             == company_id,
+            PayrollStatutoryRate.employee_id == employee_id,
             PayrollStatutoryRate.component
             == component.value,
             PayrollStatutoryRate.effective_from
@@ -126,6 +137,8 @@ async def create_statutory_rate(
 
     obj = PayrollStatutoryRate(
         company_id=company_id,
+        employee_id=employee_id,
+        source_reference=source_reference.strip() if source_reference else None,
         component=component.value,
         rate=rate,
         effective_from=effective_from,
@@ -173,47 +186,42 @@ async def list_statutory_rates(
 
 
 async def resolve_statutory_rate(
-    session: AsyncSession,
-    *,
-    company_id: int,
-    component: PayrollStatutoryComponent,
-    effective_date: date,
+    session: AsyncSession, *, company_id: int, component: PayrollStatutoryComponent,
+    effective_date: date, employee_id: int | None = None,
 ) -> PayrollStatutoryRate:
-    stmt = (
-        select(PayrollStatutoryRate)
-        .where(
-            PayrollStatutoryRate.company_id
-            == company_id,
-            PayrollStatutoryRate.component
-            == component.value,
-            PayrollStatutoryRate.effective_from
-            <= effective_date,
-            or_(
-                PayrollStatutoryRate.effective_to
-                .is_(None),
-                PayrollStatutoryRate.effective_to
-                >= effective_date,
-            ),
-        )
-        .order_by(
-            PayrollStatutoryRate.effective_from.desc(),
-            PayrollStatutoryRate.id.desc(),
-        )
-        .limit(1)
-    )
+    rows = list((await session.scalars(select(PayrollStatutoryRate).where(
+        PayrollStatutoryRate.company_id == company_id,
+        PayrollStatutoryRate.component == component.value,
+        PayrollStatutoryRate.effective_from <= effective_date,
+        or_(PayrollStatutoryRate.effective_to.is_(None), PayrollStatutoryRate.effective_to >= effective_date),
+        or_(PayrollStatutoryRate.employee_id.is_(None), PayrollStatutoryRate.employee_id == employee_id),
+    ))).all())
+    preferred = [row for row in rows if employee_id is not None and row.employee_id == employee_id]
+    candidates = preferred or [row for row in rows if row.employee_id is None]
+    if not candidates:
+        raise PayrollStatutoryNotFoundError('no statutory rate applies on ' + effective_date.isoformat())
+    if len(candidates) > 1:
+        raise PayrollStatutoryValidationError('overlapping statutory rates on ' + effective_date.isoformat())
+    return candidates[0]
 
-    obj = (
-        await session.execute(stmt)
-    ).scalar_one_or_none()
 
-    if obj is None:
-        raise PayrollStatutoryNotFoundError(
-            "no statutory rate applies on "
-            f"{effective_date.isoformat()}"
-        )
+async def require_uniform_individual_rate_window(session, *, company_id, employee_id,
+                                                 date_from, date_to):
+    """Do not apply a new individual rate to income earned before its evidence.
 
-    return obj
-
+    Dated income allocation is required for a window crossing a rate boundary.
+    Until that allocation is supplied, rejecting is safer than taxing the entire
+    month using its last day's rate.
+    """
+    rows = (await session.scalars(select(PayrollStatutoryRate).where(
+        PayrollStatutoryRate.company_id == company_id,
+        PayrollStatutoryRate.employee_id == employee_id,
+        PayrollStatutoryRate.effective_from <= date_to,
+        or_(PayrollStatutoryRate.effective_to.is_(None), PayrollStatutoryRate.effective_to >= date_from),
+    ))).all()
+    for row in rows:
+        if row.effective_from > date_from or (row.effective_to is not None and row.effective_to < date_to):
+            raise PayrollStatutoryValidationError('Individual tax rate changes within the income period; dated income allocation is required')
 
 
 async def resolve_payroll_employee_tax_profile(
@@ -628,6 +636,11 @@ async def calculate_payroll_statutory_result(
             "Employment contract not found"
         )
 
+    await require_uniform_individual_rate_window(session, company_id=company_id,
+        employee_id=contract.employee_id,
+        date_from=max(payroll_period.start_date, contract.start_date),
+        date_to=min(payroll_period.end_date, contract.end_date or payroll_period.end_date))
+
     profile = await resolve_payroll_employee_tax_profile(
         session,
         company_id=company_id,
@@ -650,6 +663,7 @@ async def calculate_payroll_statutory_result(
             company_id=company_id,
             component=component,
             effective_date=effective_date,
+            employee_id=contract.employee_id,
         )
 
         base_rule = await resolve_payroll_statutory_base_rule(

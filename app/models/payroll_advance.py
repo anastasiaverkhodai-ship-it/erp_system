@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -123,6 +124,7 @@ class PayrollAdvance(Base):
 
     currency_code: Mapped[str] = mapped_column(String(3), nullable=False)
     payment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    calculation_snapshot_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_by: Mapped[int] = mapped_column(
         Integer,

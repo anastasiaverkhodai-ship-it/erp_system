@@ -627,6 +627,7 @@ async def list_payroll_inputs(
     *,
     company_id: int,
     payroll_period_id: int,
+    contract_id: int | None = None,
 ) -> list[PayrollInput]:
     await _require_payroll_period(
         db,
@@ -639,6 +640,7 @@ async def list_payroll_inputs(
         .where(
             PayrollInput.company_id == company_id,
             PayrollInput.payroll_period_id == payroll_period_id,
+            PayrollInput.employment_contract_id == contract_id if contract_id is not None else True,
         )
         .order_by(
             PayrollInput.employment_contract_id,

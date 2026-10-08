@@ -22,7 +22,7 @@ from app.services.payroll_advance_service import (
     reverse_payroll_advance_journal,
     generate_and_post_payroll_advance_journal,
     PayrollAdvanceError,
-    create_payroll_advance,
+
     get_payroll_advance,
 )
 
@@ -30,6 +30,8 @@ from app.services.payroll_advance_service import (
 from app.services.payroll_advance_basis_service import (
     derive_payroll_advance_basis, PayrollAdvanceBasisError,
 )
+
+from app.services.payroll_automatic_advance_service import create_automatic_payroll_advance
 
 router = APIRouter(tags=["payroll-advances"])
 
@@ -75,16 +77,13 @@ async def create_company_payroll_advance(
     current_user: User = Depends(require_company_permission("employees.manage")),
 ):
     try:
-        advance = await create_payroll_advance(
+        advance = await create_automatic_payroll_advance(
             db,
             company_id=company_id,
             payroll_period_id=payload.payroll_period_id,
             employment_contract_id=payload.employment_contract_id,
             bank_account_id=payload.bank_account_id,
             advance_percentage=payload.advance_percentage,
-            calculation_base_amount=payload.calculation_base_amount,
-            minimum_due_amount=payload.minimum_due_amount,
-            currency_code=payload.currency_code,
             payment_date=payload.payment_date,
             created_by=current_user.id,
         )

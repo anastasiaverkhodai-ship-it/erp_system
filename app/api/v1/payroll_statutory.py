@@ -16,7 +16,7 @@ from app.services.payroll_statutory_service import (
     calculate_payroll_statutory_result,
     list_statutory_rates,
     create_statutory_rate,
-    get_statutory_result,
+    get_statutory_result_for_calculation,
     list_statutory_result_lines,
 )
 
@@ -70,7 +70,7 @@ async def calculate_company_payroll_statutory_result(
             db,
             company_id=company_id,
             payroll_calculation_id=payroll_calculation_id,
-            calculated_by=current_user.id,
+            actor_user_id=current_user.id,
         )
 
         await db.commit()
@@ -131,8 +131,13 @@ async def create_company_payroll_statutory_rate(
         row = await create_statutory_rate(
             db,
             company_id=company_id,
-            data=data,
-            created_by=current_user.id,
+            employee_id=data.employee_id,
+            source_reference=data.source_reference,
+            component=data.component,
+            rate=data.rate,
+            effective_from=data.effective_from,
+            effective_to=data.effective_to,
+            actor_user_id=current_user.id,
         )
 
         await db.commit()
@@ -170,11 +175,14 @@ async def get_company_payroll_statutory_result(
     ),
 ):
     try:
-        return await get_statutory_result(
+        result = await get_statutory_result_for_calculation(
             db,
             company_id=company_id,
             payroll_calculation_id=payroll_calculation_id,
         )
+        if result is None:
+            raise HTTPException(status_code=404, detail="Payroll statutory result not found")
+        return result
     except PayrollStatutoryError as exc:
         _raise_statutory_http(exc)
 
@@ -193,10 +201,13 @@ async def list_company_payroll_statutory_result_lines(
     ),
 ):
     try:
+        result = await get_statutory_result_for_calculation(
+            db, company_id=company_id, payroll_calculation_id=payroll_calculation_id,
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="Payroll statutory result not found")
         return await list_statutory_result_lines(
-            db,
-            company_id=company_id,
-            payroll_calculation_id=payroll_calculation_id,
+            db, company_id=company_id, statutory_result_id=result.id,
         )
     except PayrollStatutoryError as exc:
         _raise_statutory_http(exc)

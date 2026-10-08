@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
+from app.services.payroll_mutation_guard import serialized_payroll_mutation, ensure_payroll_source_editable
+from app.services.payroll_leave_request_guard import number, require_same_leave_request
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -118,6 +121,7 @@ async def list_sick_leave_calculation_sources(
     return list(result)
 
 
+@serialized_payroll_mutation(PayrollSickLeaveConflictError)
 async def calculate_sick_leave_pay(
     db: AsyncSession,
     *,
@@ -144,7 +148,29 @@ async def calculate_sick_leave_pay(
         leave_request_id=leave_request_id,
     )
 
+    values = dict(
+        reference_period_start=reference_period_start, reference_period_end=reference_period_end,
+        eligible_earnings=number(eligible_earnings, '.01', PayrollSickLeaveDerivationError),
+        eligible_days=number(eligible_days, '.01', PayrollSickLeaveDerivationError),
+        rule_code=rule_code.strip(), rule_version=rule_version.strip(),
+        benefit_case_code=benefit_case_code.strip(),
+        insurance_service_months=int(insurance_service_months),
+        benefit_percent=number(benefit_percent, '.0001', PayrollSickLeaveDerivationError),
+        limited_service_rule_applied=bool(limited_service_rule_applied),
+        employer_days=number(employer_days, '.01', PayrollSickLeaveDerivationError),
+        insurer_days=number(insurer_days, '.01', PayrollSickLeaveDerivationError),
+    )
+    if Decimal(eligible_days) != values['eligible_days']:
+        raise PayrollSickLeaveDerivationError('Day quantities support at most two decimal places')
+    if Decimal(employer_days) != values['employer_days']:
+        raise PayrollSickLeaveDerivationError('Day quantities support at most two decimal places')
+    if Decimal(insurer_days) != values['insurer_days']:
+        raise PayrollSickLeaveDerivationError('Day quantities support at most two decimal places')
     if existing is not None:
+        saved_sources = await list_sick_leave_calculation_sources(db, company_id=company_id,
+            sick_leave_calculation_id=existing.id) if sources is not None else []
+        require_same_leave_request(existing, values, requested_sources=sources,
+            saved_sources=saved_sources, error_type=PayrollSickLeaveConflictError)
         return existing
 
     leave_request = await db.scalar(
@@ -168,6 +194,11 @@ async def calculate_sick_leave_pay(
         raise PayrollSickLeaveConflictError(
             "Sick leave pay requires sick leave"
         )
+
+    await ensure_payroll_source_editable(db, company_id=company_id,
+        contract_id=leave_request.employment_contract_id,
+        date_from=leave_request.start_date, date_to=leave_request.end_date,
+        error_type=PayrollSickLeaveConflictError)
 
     if reference_period_end < reference_period_start:
         raise PayrollSickLeaveDerivationError(
