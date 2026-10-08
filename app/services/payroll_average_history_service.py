@@ -28,7 +28,8 @@ class PayrollAverageHistoryNotFoundError(PayrollAverageHistoryError):
 
 
 RULE_CODE = 'UA_VACATION_VERIFIED_HISTORY'
-RULE_VERSION = '1-calendar-4928-IX'
+RULE_VERSION = '2-calendar-4928-IX'
+SUPPORTED_SAVED_VERSIONS = {'1-calendar-4928-IX', RULE_VERSION}
 # Full days covered by Law 2136-IX and the verified extension 4928-IX.
 # Do not assume later extensions. Historical eligible days come from imports.
 CALENDAR_RULE_START = date(2022, 3, 24)
@@ -140,9 +141,9 @@ async def calculate_vacation_from_history(db, *, company_id, leave_request_id,
     existing = await get_vacation_calculation_for_leave(db, company_id=company_id,
         leave_request_id=leave_request_id)
     if existing is not None:
-        if (existing.rule_code, existing.rule_version, existing.reference_period_start,
-            existing.reference_period_end) != (RULE_CODE, RULE_VERSION, reference_period_start or existing.reference_period_start,
-                                               reference_period_end or existing.reference_period_end):
+        if (existing.rule_code != RULE_CODE or existing.rule_version not in SUPPORTED_SAVED_VERSIONS
+            or existing.reference_period_start != (reference_period_start or existing.reference_period_start)
+            or existing.reference_period_end != (reference_period_end or existing.reference_period_end)):
             raise PayrollVacationConflictError('Existing vacation calculation has different request data; use a correction')
         return existing
     basis = await derive_leave_average_history(db, company_id=company_id,
@@ -162,7 +163,7 @@ async def calculate_vacation_from_history(db, *, company_id, leave_request_id,
 
 
 async def _erp_vacation_source(db, *, company_id, contract_id, calculation, period, month, month_end):
-    """Ordinary salary months only; do not guess bonus or absence treatment."""
+    """Classify dated earnings and verify paid leave against its saved source."""
     if period.status != 'finalized' or period.start_date != month or period.end_date != month_end:
         raise PayrollAverageHistoryError('ERP source requires a finalized complete payroll month')
     if not CALENDAR_RULE_START <= month <= month_end <= CALENDAR_RULE_END:
@@ -172,7 +173,7 @@ async def _erp_vacation_source(db, *, company_id, contract_id, calculation, peri
     lines = list((await db.scalars(select(PayrollCalculationLine).where(
         PayrollCalculationLine.company_id == company_id,
         PayrollCalculationLine.payroll_calculation_id == calculation.id))).all())
-    if not lines or any(line.line_type != 'salary' for line in lines):
+    if not lines or any(line.line_type not in {'salary', 'supplement', 'vacation_pay', 'sick_pay'} for line in lines):
         raise PayrollAverageHistoryError('ERP non-salary earnings require an explicit average-pay classification')
     earnings = sum((Decimal(line.amount) for line in lines), Decimal(0))
     if earnings != calculation.gross_amount or any(line.currency_code != 'UAH' for line in lines):
@@ -181,8 +182,13 @@ async def _erp_vacation_source(db, *, company_id, contract_id, calculation, peri
         LeaveRequest.company_id == company_id, LeaveRequest.employment_contract_id == contract_id,
         LeaveRequest.status == LeaveRequestStatus.APPROVED,
         LeaveRequest.start_date <= month_end, LeaveRequest.end_date >= month))).all())
-    if any(leave.leave_type != LeaveType.UNPAID for leave in leaves):
-        raise PayrollAverageHistoryError('ERP paid or other absences require an explicit average-pay classification')
+    if any(leave.leave_type not in {LeaveType.UNPAID, LeaveType.ANNUAL, LeaveType.SICK} for leave in leaves):
+        raise PayrollAverageHistoryError('ERP other absences require an explicit average-pay classification')
+    await _verify_paid_leave_lines(db, company_id=company_id, contract_id=contract_id,
+        leaves=leaves, lines=lines, month=month, month_end=month_end)
+    excluded_earnings = await _excluded_supplement_earnings(db, company_id=company_id,
+        calculation=calculation, lines=lines, month=month, month_end=month_end)
+    earnings -= excluded_earnings
     from app.models.time_attendance import AttendanceRecord as Attendance
     if await db.scalar(select(Attendance.id).where(Attendance.company_id == company_id,
         Attendance.employment_contract_id == contract_id, Attendance.work_date >= month,
@@ -190,6 +196,8 @@ async def _erp_vacation_source(db, *, company_id, contract_id, calculation, peri
         raise PayrollAverageHistoryError('Unclassified absence in ERP reference month')
     excluded = set()
     for leave in leaves:
+        if leave.leave_type != LeaveType.UNPAID:
+            continue
         day = max(month, leave.start_date)
         while day <= min(month_end, leave.end_date):
             excluded.add(day)
@@ -200,4 +208,70 @@ async def _erp_vacation_source(db, *, company_id, contract_id, calculation, peri
     return dict(source_type='payroll_calculation', source_id=calculation.id,
         source_period_start=month, source_period_end=month_end,
         earnings_amount=earnings, eligible_days=days,
-        source_reference=f'ERP payroll calculation {calculation.id}, revision {calculation.revision}')
+        source_reference=(f'ERP payroll calculation {calculation.id}, revision {calculation.revision}; '
+                          f'average rule {RULE_VERSION}; excluded one-off earnings {excluded_earnings:.2f}'))
+
+
+async def _excluded_supplement_earnings(db, *, company_id, calculation, lines, month, month_end):
+    from app.models.payroll_supplement import PayrollSupplement
+    excluded = Decimal(0)
+    seen = set()
+    for line in lines:
+        if line.line_type != 'supplement':
+            continue
+        source = await db.scalar(select(PayrollSupplement).where(
+            PayrollSupplement.company_id == company_id, PayrollSupplement.id == line.source_supplement_id,
+            PayrollSupplement.payroll_input_id == calculation.payroll_input_id))
+        if source is None or source.cancelled_at is not None or source.id in seen:
+            raise PayrollAverageHistoryError('Missing, cancelled or duplicated supplement source')
+        seen.add(source.id)
+        if not month <= source.work_date <= month_end or not source.source_reference.strip():
+            raise PayrollAverageHistoryError('Supplement needs an attributed earning month')
+        if source.kind in {'holiday_bonus', 'hardship'}:
+            if Decimal(line.amount) != Decimal(source.amount):
+                raise PayrollAverageHistoryError('One-off supplement differs from its source amount')
+            excluded += Decimal(line.amount)
+        elif source.kind not in {'night', 'overtime', 'rest_day', 'regular_extra'}:
+            raise PayrollAverageHistoryError('Performance bonus requires allocation over its earning period')
+    return excluded
+
+
+async def _verify_paid_leave_lines(db, *, company_id, contract_id, leaves, lines, month, month_end):
+    from app.models.payroll_vacation import PayrollVacationCalculation
+    from app.models.payroll_sick_leave import PayrollSickLeaveCalculation
+    from app.services.payroll_leave_allocation import allocate_leave_amount
+    expected = {}
+    occupied = set()
+    for leave in leaves:
+        current = max(month, leave.start_date)
+        while current <= min(month_end, leave.end_date):
+            if current in occupied:
+                raise PayrollAverageHistoryError('Overlapping approved absences in reference month')
+            occupied.add(current)
+            current += timedelta(days=1)
+        if leave.leave_type == LeaveType.UNPAID:
+            continue
+        vacation = leave.leave_type == LeaveType.ANNUAL
+        model = PayrollVacationCalculation if vacation else PayrollSickLeaveCalculation
+        source = await db.scalar(select(model).where(model.company_id == company_id,
+            model.employment_contract_id == contract_id, model.leave_request_id == leave.id))
+        if source is None:
+            raise PayrollAverageHistoryError('Approved paid absence has no calculated pay source')
+        days = source.leave_days if vacation else source.sick_days
+        if days != (leave.end_date - leave.start_date).days + 1 or source.currency_code != 'UAH':
+            raise PayrollAverageHistoryError('Paid absence dates or currency differ from its saved calculation')
+        amount = source.vacation_pay_amount if vacation else source.sick_pay_amount
+        quantity, allocated = allocate_leave_amount(start=leave.start_date, end=leave.end_date,
+            period_start=month, period_end=month_end, amount=amount)
+        expected[('vacation_pay' if vacation else 'sick_pay', source.id)] = (Decimal(quantity), allocated)
+    actual = {}
+    for line in lines:
+        if line.line_type not in {'vacation_pay', 'sick_pay'}:
+            continue
+        source_id = line.source_vacation_calculation_id if line.line_type == 'vacation_pay' else line.source_sick_leave_calculation_id
+        key = (line.line_type, source_id)
+        if key in actual:
+            raise PayrollAverageHistoryError('Duplicate paid absence in reference calculation')
+        actual[key] = (Decimal(line.quantity), Decimal(line.amount))
+    if expected != actual:
+        raise PayrollAverageHistoryError('Paid absence lines do not reconcile to their monthly source allocation')
