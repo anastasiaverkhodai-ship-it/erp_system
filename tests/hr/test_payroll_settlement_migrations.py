@@ -16,7 +16,8 @@ async def test_settlement_migrations_roundtrip(employee_engine):
     modules = []
     for filename in ('b082b6582130_add_payroll_advance_foundation.py',
                      '83d21036fabe_repair_payroll_advance_journal_.py',
-                     '383a1d9fd6a6_add_payroll_deduction_accounting_.py'):
+                     '383a1d9fd6a6_add_payroll_deduction_accounting_.py',
+                     '13d4a7b8c009_payroll_advance_bank_reconciliation.py'):
         spec = importlib.util.spec_from_file_location(filename, Path('alembic/versions') / filename)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)

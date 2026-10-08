@@ -36,7 +36,10 @@ class BankStatementReconciliation(Base):
     __tablename__ = "bank_statement_reconciliations"
 
     __table_args__ = (
-        CheckConstraint("num_nonnulls(payment_id, payroll_disbursement_id) = 1", name="ck_bank_reconciliation_target"),
+        ForeignKeyConstraint(["company_id", "payroll_advance_id"],
+            ["payroll_advances.company_id", "payroll_advances.id"],
+            name="fk_bank_reconciliation_advance", ondelete="RESTRICT"),
+        CheckConstraint("num_nonnulls(payment_id, payroll_disbursement_id, payroll_advance_id) = 1", name="ck_bank_reconciliation_target"),
         ForeignKeyConstraint(["company_id", "payroll_disbursement_id"],
             ["payroll_disbursements.company_id", "payroll_disbursements.id"],
             name="fk_bank_reconciliation_payroll", ondelete="RESTRICT"),
@@ -149,6 +152,7 @@ class BankStatementReconciliation(Base):
     )
 
     payroll_disbursement_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    payroll_advance_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     matched_amount: Mapped[Decimal] = mapped_column(
         Numeric(
@@ -196,7 +200,10 @@ class BankStatementReconciliationActiveLink(Base):
     __tablename__ = "bank_statement_reconciliation_active_links"
 
     __table_args__ = (
-        CheckConstraint("num_nonnulls(payment_id, payroll_disbursement_id) = 1", name="ck_bank_reconciliation_link_target"),
+        ForeignKeyConstraint(["company_id", "payroll_advance_id"],
+            ["payroll_advances.company_id", "payroll_advances.id"],
+            name="fk_bank_reconciliation_link_advance", ondelete="RESTRICT"),
+        CheckConstraint("num_nonnulls(payment_id, payroll_disbursement_id, payroll_advance_id) = 1", name="ck_bank_reconciliation_link_target"),
         ForeignKeyConstraint(["company_id", "payroll_disbursement_id"],
             ["payroll_disbursements.company_id", "payroll_disbursements.id"],
             name="fk_bank_reconciliation_link_payroll", ondelete="RESTRICT"),
@@ -297,6 +304,7 @@ class BankStatementReconciliationActiveLink(Base):
     )
 
     payroll_disbursement_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    payroll_advance_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     reconciliation_id: Mapped[int] = mapped_column(
         Integer,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,7 @@ from app.core.database import get_db
 from app.models.user import User
 from app.schemas.journal_entry import JournalEntryResponse
 from app.schemas.payroll_advance import (
+    PayrollAdvanceBasisRead,
     PayrollAdvanceCreate,
     PayrollAdvanceRead,
 )
@@ -24,6 +26,10 @@ from app.services.payroll_advance_service import (
     get_payroll_advance,
 )
 
+
+from app.services.payroll_advance_basis_service import (
+    derive_payroll_advance_basis, PayrollAdvanceBasisError,
+)
 
 router = APIRouter(tags=["payroll-advances"])
 
@@ -43,7 +49,7 @@ async def read_payroll_advance(
     payroll_period_id: int,
     employment_contract_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("employees.read")),
 ):
     advance = await get_payroll_advance(
         db,
@@ -66,7 +72,7 @@ async def create_company_payroll_advance(
     company_id: int,
     payload: PayrollAdvanceCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_company_permission("employees.manage")),
 ):
     try:
         advance = await create_payroll_advance(
@@ -167,6 +173,73 @@ async def api_reverse_payroll_advance_journal(
     ) as exc:
         await db.rollback()
         raise _advance_http_error(exc) from exc
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.get(
+    "/companies/{company_id}/payroll-periods/{payroll_period_id}"
+    "/employment-contracts/{employment_contract_id}/advance-basis",
+    response_model=PayrollAdvanceBasisRead,
+)
+async def read_payroll_advance_basis(
+    company_id: int, payroll_period_id: int, employment_contract_id: int,
+    advance_percentage: Decimal = Query(gt=0, le=100),
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_company_permission("employees.read")),
+):
+    try:
+        return await derive_payroll_advance_basis(db, company_id=company_id,
+            payroll_period_id=payroll_period_id, employment_contract_id=employment_contract_id,
+            advance_percentage=advance_percentage)
+    except PayrollAdvanceBasisError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+from app.schemas.payroll_disbursement import PayrollBankMatchCreate
+from app.schemas.payroll_advance import PayrollAdvanceBankMatchRead
+from app.services.payroll_bank_reconciliation_service import (
+    reconcile_payroll_advance, unmatch_payroll_advance,
+)
+from app.services.bank_statement_reconciliation_service import BankStatementReconciliationError
+
+
+@router.post('/companies/{company_id}/payroll-advances/{payroll_advance_id}/bank-reconciliations',
+             response_model=PayrollAdvanceBankMatchRead)
+async def api_match_payroll_bank(company_id: int, payroll_advance_id: int,
+    payload: PayrollBankMatchCreate, db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_company_permission('payments.manage'))):
+    try:
+        event = await reconcile_payroll_advance(db, company_id=company_id,
+            payroll_advance_id=payroll_advance_id, created_by=actor.id,
+            **payload.model_dump())
+        await db.commit()
+        await db.refresh(event)
+        return event
+    except BankStatementReconciliationError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.post('/companies/{company_id}/payroll-advances/{payroll_advance_id}/bank-reconciliations/{reconciliation_id}/reverse',
+             response_model=PayrollAdvanceBankMatchRead)
+async def api_unmatch_payroll_bank(company_id: int, payroll_advance_id: int,
+    reconciliation_id: int, db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_company_permission('payments.manage'))):
+    try:
+        event = await unmatch_payroll_advance(db, company_id=company_id,
+            payroll_advance_id=payroll_advance_id,
+            reconciliation_id=reconciliation_id, reversed_by=actor.id)
+        await db.commit()
+        await db.refresh(event)
+        return event
+    except BankStatementReconciliationError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception:
         await db.rollback()
         raise

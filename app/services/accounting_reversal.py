@@ -469,6 +469,15 @@ async def reverse_journal_entry(
         if matched is not None:
             raise AccountingReversalError('Unmatch the bank statement before reversing payroll disbursement')
 
+    if original_entry.payroll_advance_id is not None:
+        from app.models.bank_statement_reconciliation import BankStatementReconciliationActiveLink
+        matched = await db.scalar(select(BankStatementReconciliationActiveLink.id).where(
+            BankStatementReconciliationActiveLink.company_id == company_id,
+            BankStatementReconciliationActiveLink.payroll_advance_id == original_entry.payroll_advance_id,
+        ).limit(1))
+        if matched is not None:
+            raise AccountingReversalError('Unmatch the bank statement before reversing payroll advance')
+
     depreciation_id = getattr(original_entry, "fixed_asset_depreciation_id", None)
     if depreciation_id is not None and db.info.get("fixed_asset_depreciation") != depreciation_id:
         raise AccountingReversalError("Use the fixed asset depreciation lifecycle")

@@ -422,6 +422,43 @@ async def test_payroll_advance_real_postgresql_e2e():
                 assert journal.payroll_disbursement_id is None
                 assert journal.reversal_of_id is None
 
+                from app.models.bank_statement import BankStatement
+                from app.models.bank_statement_line import BankStatementLine
+                from app.services.payroll_bank_reconciliation_service import reconcile_payroll_advance, unmatch_payroll_advance
+                from app.services.accounting_reversal import AccountingReversalError
+                from app.services.bank_statement_reconciliation_service import BankStatementReconciliationError
+                statement = BankStatement(**_required_values(BankStatement, {
+                    'company_id': company.id, 'bank_account_id': bank.id,
+                    'external_id': 'advance-statement', 'created_by': user.id}))
+                db.add(statement)
+                await db.flush()
+                bank_statement_line = BankStatementLine(**_required_values(BankStatementLine, {
+                    'company_id': company.id, 'bank_account_id': bank.id,
+                    'bank_statement_id': statement.id, 'external_line_id': 'advance-line',
+                    'amount': Decimal('-4000.00'), 'currency_code': 'UAH'}))
+                db.add(bank_statement_line)
+                await db.flush()
+                match_args = dict(company_id=company.id, payroll_advance_id=advance.id,
+                    bank_statement_line_id=bank_statement_line.id, matched_amount=Decimal('4000'),
+                    currency_code='UAH', created_by=user.id)
+                match = await reconcile_payroll_advance(db, **match_args)
+                assert match.payroll_advance_id == advance.id
+                assert match.payment_id is None and match.payroll_disbursement_id is None
+                assert (await reconcile_payroll_advance(db, **match_args)).id == match.id
+                with pytest.raises(BankStatementReconciliationError):
+                    await reconcile_payroll_advance(db, **{**match_args, 'matched_amount': Decimal('4001')})
+                with pytest.raises(BankStatementReconciliationError):
+                    await reconcile_payroll_advance(db, **{**match_args, 'company_id': foreign_company.id})
+                with pytest.raises(AccountingReversalError, match='Unmatch'):
+                    await reverse_payroll_advance_journal(db, company_id=company.id,
+                        payroll_advance_id=advance.id, reversal_date=payment_date, reversed_by=user.id)
+                unmatched = await unmatch_payroll_advance(db, company_id=company.id,
+                    payroll_advance_id=advance.id, reconciliation_id=match.id, reversed_by=user.id)
+                assert unmatched.payroll_advance_id == advance.id
+                assert unmatched.reversal_of_id == match.id
+                from test_payroll_settlement_migrations import assert_history_preserved
+                await assert_history_preserved(db, '13d4a7b8c009_payroll_advance_bank_reconciliation.py')
+
                 original_journal_id = journal.id
                 from test_payroll_settlement_migrations import assert_history_preserved
                 await assert_history_preserved(db, 'b082b6582130_add_payroll_advance_foundation.py')
