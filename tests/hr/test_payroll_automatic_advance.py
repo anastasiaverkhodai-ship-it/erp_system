@@ -63,7 +63,7 @@ async def test_automatic_advance_keeps_minimum_taxes_evidence_and_retry_snapshot
             employment_contract_id=employment.id,category='benefit_eligible',benefit_code='TEST',
             effective_from=date(2026,1,1),created_by=f['actor']))
         db.add(PayrollStatutoryBaseRule(company_id=f['company'],component=Component.PERSONAL_INCOME_TAX.value,
-            tax_profile_category='benefit_eligible',base_mode='gross_after_benefit',benefit_amount=Decimal('1000'),
+            tax_profile_category='benefit_eligible',base_mode='gross_after_benefit',benefit_income_limit=Decimal('20000'),benefit_amount=Decimal('1000'),
             rule_code='TEST-BENEFIT',rule_version='1',effective_from=date(2026,1,1),created_by=f['actor']))
         await db.flush()
         individual.effective_from=date(2026,9,10)

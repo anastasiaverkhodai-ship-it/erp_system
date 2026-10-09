@@ -591,40 +591,42 @@ async def test_payroll_advance_real_postgresql_e2e():
                     PayrollAdvanceSourceStateError,
                     match="finalized",
                 ):
-                    other_contract = EmploymentContract(
-                        **_required_values(
-                            EmploymentContract,
-                            {
-                                "company_id": company.id,
-                                "employee_id": employee.id,
-                                "contract_number": (
-                                    f"PA-FINAL-{uuid4().hex[:10]}"
-                                ),
-                                "contract_type": "standard",
-                                "work_arrangement": "full_time",
-                                "start_date": date(2026, 1, 1),
-                                "end_date": None,
-                                "status": "active",
-                                "created_by": user.id,
-                            },
+                    # Roll back the deliberately invalid extra contract with its rejected advance.
+                    async with db.begin_nested():
+                        other_contract = EmploymentContract(
+                            **_required_values(
+                                EmploymentContract,
+                                {
+                                    "company_id": company.id,
+                                    "employee_id": employee.id,
+                                    "contract_number": (
+                                        f"PA-FINAL-{uuid4().hex[:10]}"
+                                    ),
+                                    "contract_type": "standard",
+                                    "work_arrangement": "full_time",
+                                    "start_date": date(2026, 1, 1),
+                                    "end_date": None,
+                                    "status": "active",
+                                    "created_by": user.id,
+                                },
+                            )
                         )
-                    )
-                    db.add(other_contract)
-                    await db.flush()
+                        db.add(other_contract)
+                        await db.flush()
 
-                    await create_payroll_advance(
-                        db,
-                        company_id=company.id,
-                        payroll_period_id=period.id,
-                        employment_contract_id=other_contract.id,
-                        bank_account_id=bank.id,
-                        advance_percentage=Decimal("40"),
-                        calculation_base_amount=Decimal("10000.00"),
-                        minimum_due_amount=Decimal("0.00"),
-                        currency_code="UAH",
-                        payment_date=payment_date,
-                        created_by=user.id,
-                    )
+                        await create_payroll_advance(
+                            db,
+                            company_id=company.id,
+                            payroll_period_id=period.id,
+                            employment_contract_id=other_contract.id,
+                            bank_account_id=bank.id,
+                            advance_percentage=Decimal("40"),
+                            calculation_base_amount=Decimal("10000.00"),
+                            minimum_due_amount=Decimal("0.00"),
+                            currency_code="UAH",
+                            payment_date=payment_date,
+                            created_by=user.id,
+                        )
 
                 calculation = await calculate_payroll_input(
                     db,

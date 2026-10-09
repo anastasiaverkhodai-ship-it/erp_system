@@ -14,7 +14,7 @@ import app.models
 from app.core.config import settings
 from app.core.database import Base
 
-async def main():
+async def run_copy():
     name='erp_fa_copy_'+uuid.uuid4().hex[:12]
     url=make_url(settings.database_url)
     source=create_async_engine(url,poolclass=NullPool)
@@ -86,4 +86,25 @@ async def main():
                 await conn.execute(text(f'DROP DATABASE "{name}" WITH (FORCE)'))
             print('ISOLATED COPY REMOVED',flush=True)
         await admin.dispose()
-if __name__=='__main__':sys.exit(asyncio.run(main()))
+async def main():
+    # Each test schema contains hundreds of tables/indexes. Concurrent CREATE /
+    # DROP runs can exhaust the cluster's shared lock table even in separate DBs.
+    coordinator = create_async_engine(
+        make_url(settings.database_url).set(database='postgres'),
+        isolation_level='AUTOCOMMIT', poolclass=NullPool,
+    )
+    try:
+        async with coordinator.connect() as connection:
+            acquired = await connection.scalar(text('SELECT pg_try_advisory_lock(130015, 1)'))
+            if not acquired:
+                print('WAITING FOR ANOTHER POSTGRESQL REGRESSION RUN', flush=True)
+                await connection.execute(text('SELECT pg_advisory_lock(130015, 1)'))
+            # NullPool closes this session on exit, releasing its advisory lock
+            # after cleanup, including when the test process fails.
+            return await run_copy()
+    finally:
+        await coordinator.dispose()
+
+
+if __name__=='__main__':
+    sys.exit(asyncio.run(main()))

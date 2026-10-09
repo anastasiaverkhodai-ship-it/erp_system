@@ -233,6 +233,8 @@ class PayrollStatutoryResult(Base):
 
 
 class PayrollStatutoryResultLine(Base):
+    employee_gross_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    benefit_income_limit_applied: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     __tablename__ = "payroll_statutory_result_lines"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

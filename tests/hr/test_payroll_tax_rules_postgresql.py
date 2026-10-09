@@ -173,7 +173,7 @@ async def test_payroll_tax_rules_real_postgresql_e2e():
                         PayrollStatutoryComponent
                         .UNIFIED_SOCIAL_CONTRIBUTION
                     ),
-                    rate=Decimal("0.20"),
+                    rate=Decimal("0.22"),
                     effective_from=date(2026, 1, 1),
                     effective_to=None,
                     actor_user_id=user.id,
@@ -202,6 +202,7 @@ async def test_payroll_tax_rules_real_postgresql_e2e():
                     employment_kind="primary",
                     tax_profile_category="benefit_eligible",
                     base_mode="gross_after_benefit",
+                    benefit_income_limit=Decimal("20000"),
                     benefit_amount=Decimal("1000.00"),
                     minimum_base_amount=None,
                     maximum_base_amount=None,
@@ -407,7 +408,7 @@ async def test_payroll_tax_rules_real_postgresql_e2e():
                 ) == Decimal("12000.00")
                 assert Decimal(
                     usc_line.amount
-                ) == Decimal("2400.00")
+                ) == Decimal("2640.00")
                 assert usc_line.source_rate_id == usc.id
                 assert usc_line.source_base_rule_id == usc_rule.id
 
@@ -417,7 +418,7 @@ async def test_payroll_tax_rules_real_postgresql_e2e():
 
                 assert Decimal(
                     first.employer_contribution_amount
-                ) == Decimal("2400.00")
+                ) == Decimal("2640.00")
 
                 assert Decimal(first.net_amount) == Decimal(
                     "8700.00"

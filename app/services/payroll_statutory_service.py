@@ -636,6 +636,8 @@ async def calculate_payroll_statutory_result(
             "Employment contract not found"
         )
 
+    effective_date = min(payroll_period.end_date, contract.end_date or payroll_period.end_date)
+
     await require_uniform_individual_rate_window(session, company_id=company_id,
         employee_id=contract.employee_id,
         date_from=max(payroll_period.start_date, contract.start_date),
@@ -675,22 +677,13 @@ async def calculate_payroll_statutory_result(
             effective_date=effective_date,
         )
 
-        (
-            component_base,
-            benefit_amount,
-            minimum_base,
-            maximum_base,
-            exemption_applied,
-        ) = calculate_statutory_component_base(
-            gross_amount=gross_amount,
-            profile=profile,
-            rule=base_rule,
-        )
-
-        amount = calculate_component_amount(
-            base_amount=component_base,
-            rate=Decimal(rate_obj.rate),
-        )
+        from app.services.payroll_employee_tax_base_service import employee_component_base
+        base_values, allocated_amount, employee_metadata = await employee_component_base(session, company_id=company_id,
+            period=payroll_period, calculation=calculation, contract=contract,
+            component=component, rate=rate_obj.rate, profile=profile, rule=base_rule)
+        component_base, benefit_amount, minimum_base, maximum_base, exemption_applied = base_values
+        amount = (allocated_amount if allocated_amount is not None else calculate_component_amount(
+            base_amount=component_base, rate=Decimal(rate_obj.rate)))
 
         line_payloads.append(
             (
@@ -703,6 +696,7 @@ async def calculate_payroll_statutory_result(
                 maximum_base,
                 exemption_applied,
                 base_rule,
+                employee_metadata,
             )
         )
 
@@ -781,6 +775,7 @@ async def calculate_payroll_statutory_result(
             maximum_base,
             exemption_applied,
             base_rule,
+            employee_metadata,
         ) = payload
 
         line = PayrollStatutoryResultLine(
@@ -826,6 +821,8 @@ async def calculate_payroll_statutory_result(
             ),
         )
 
+        for field, value in employee_metadata.items():
+            setattr(line, field, value)
         session.add(line)
 
     await session.flush()

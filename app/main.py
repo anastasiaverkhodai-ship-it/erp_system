@@ -229,3 +229,6 @@ app.include_router(payroll_deductions.router, prefix="/api/v1")
 
 from app.api.v1.payroll_leave_pay import router as payroll_leave_pay_router
 app.include_router(payroll_leave_pay_router, prefix='/api/v1')
+
+from app.api.v1.payroll_tax_policy import router as payroll_tax_policy_router
+app.include_router(payroll_tax_policy_router, prefix='/api/v1')

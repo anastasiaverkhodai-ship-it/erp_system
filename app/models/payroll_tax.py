@@ -34,6 +34,8 @@ class PayrollStatutoryBaseMode(str, enum.Enum):
 
 
 class PayrollEmployeeTaxProfile(Base):
+    benefit_amount_override: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    benefit_income_limit_override: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     __tablename__ = "payroll_employee_tax_profiles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -90,6 +92,7 @@ class PayrollEmployeeTaxProfile(Base):
     )
 
     __table_args__ = (
+        CheckConstraint("(benefit_amount_override IS NULL AND benefit_income_limit_override IS NULL) OR (benefit_amount_override IS NOT NULL AND benefit_income_limit_override IS NOT NULL AND benefit_amount_override >= 0 AND benefit_income_limit_override > 0 AND category = 'benefit_eligible')", name="ck_payroll_profile_benefit_override"),
         ForeignKeyConstraint(
             ["company_id", "employee_id"],
             ["employees.company_id", "employees.id"],
@@ -184,6 +187,8 @@ class PayrollStatutoryBaseRule(Base):
         server_default="0",
     )
 
+    benefit_income_limit: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+
     minimum_base_amount: Mapped[Decimal | None] = mapped_column(
         Numeric(18, 2),
         nullable=True,
@@ -240,6 +245,7 @@ class PayrollStatutoryBaseRule(Base):
     )
 
     __table_args__ = (
+        CheckConstraint("benefit_income_limit IS NULL OR benefit_income_limit > 0", name="ck_payroll_rule_benefit_income_limit"),
         ForeignKeyConstraint(
             ["company_id"],
             ["companies.id"],

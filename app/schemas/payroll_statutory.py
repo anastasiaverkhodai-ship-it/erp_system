@@ -38,6 +38,11 @@ class PayrollStatutoryRateRead(BaseModel):
 
 
 class PayrollStatutoryResultLineRead(BaseModel):
+    employee_gross_amount: Decimal | None = None
+    benefit_income_limit_applied: Decimal | None = None
+    benefit_amount_applied: Decimal = Decimal(0)
+    source_tax_profile_id: int | None = None
+    source_base_rule_id: int | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int
