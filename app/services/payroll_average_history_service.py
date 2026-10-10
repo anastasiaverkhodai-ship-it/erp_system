@@ -28,8 +28,8 @@ class PayrollAverageHistoryNotFoundError(PayrollAverageHistoryError):
 
 
 RULE_CODE = 'UA_VACATION_VERIFIED_HISTORY'
-RULE_VERSION = '2-calendar-4928-IX'
-SUPPORTED_SAVED_VERSIONS = {'1-calendar-4928-IX', RULE_VERSION}
+RULE_VERSION = '3-hire-calendar-4928-IX'
+SUPPORTED_SAVED_VERSIONS = {'1-calendar-4928-IX', '2-calendar-4928-IX', RULE_VERSION}
 # Full days covered by Law 2136-IX and the verified extension 4928-IX.
 # Do not assume later extensions. Historical eligible days come from imports.
 CALENDAR_RULE_START = date(2022, 3, 24)
@@ -61,13 +61,20 @@ async def derive_leave_average_history(db, *, company_id, leave_request_id,
         raise PayrollAverageHistoryError('Supply both reference dates or neither')
     last = leave.start_date.replace(day=1) - timedelta(days=1)
     earliest = date(leave.start_date.year - 1, leave.start_date.month, 1)
-    start = reference_period_start or max(earliest, contract.start_date)
+    employment_start = contract.start_date
+    if leave.leave_type == LeaveType.ANNUAL and contract.start_date > earliest:
+        from app.services.payroll_reference_period_service import vacation_employment_month_start
+        employment_start = await vacation_employment_month_start(db,
+            company_id=company_id, contract=contract)
+    if leave.leave_type == LeaveType.SICK and employment_start.day != 1:
+        # Procedure 1266 uses completed calendar months; the first-working-day
+        # exception of vacation Procedure 100 does not apply to sick pay.
+        employment_start = next_month(employment_start)
+    start = reference_period_start or max(earliest, employment_start)
     end = reference_period_end or last
     if start.day != 1 or end != last or start < earliest or start > end:
         raise PayrollAverageHistoryError('Select complete months within the twelve months preceding leave')
-    if contract.start_date > earliest and contract.start_date.day != 1:
-        raise PayrollAverageHistoryError('Partial employment month requires a verified reference-period decision')
-    if start != max(earliest, contract.start_date):
+    if start != max(earliest, employment_start):
         raise PayrollAverageHistoryError('Reference window must include all applicable completed months')
     from app.services.payroll_revision_service import current_calculation_filter
     calculations = (await db.execute(select(PayrollCalculation, PayrollPeriod).join(PayrollPeriod,
@@ -173,7 +180,7 @@ async def _erp_vacation_source(db, *, company_id, contract_id, calculation, peri
     lines = list((await db.scalars(select(PayrollCalculationLine).where(
         PayrollCalculationLine.company_id == company_id,
         PayrollCalculationLine.payroll_calculation_id == calculation.id))).all())
-    if not lines or any(line.line_type not in {'salary', 'supplement', 'vacation_pay', 'sick_pay'} for line in lines):
+    if not lines or any(line.line_type not in {'salary', 'supplement', 'vacation_pay', 'sick_pay', 'minimum_wage'} for line in lines):
         raise PayrollAverageHistoryError('ERP non-salary earnings require an explicit average-pay classification')
     earnings = sum((Decimal(line.amount) for line in lines), Decimal(0))
     if earnings != calculation.gross_amount or any(line.currency_code != 'UAH' for line in lines):

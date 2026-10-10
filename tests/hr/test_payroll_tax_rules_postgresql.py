@@ -179,11 +179,16 @@ async def test_payroll_tax_rules_real_postgresql_e2e():
                     actor_user_id=user.id,
                 )
 
+                from payroll_verified_evidence_helper import verified_evidence
+                evidence = await verified_evidence(db, company_id=company.id,
+                    employee_id=employee.id, created_by=user.id,
+                    entitlement_type='benefit', entitlement_code='TEST-BENEFIT')
                 profile = PayrollEmployeeTaxProfile(
                     company_id=company.id,
                     employee_id=employee.id,
                     employment_contract_id=contract.id,
                     category="benefit_eligible",
+                    tax_evidence_id=evidence.id,
                     benefit_code="TEST-BENEFIT",
                     exemption_code=None,
                     effective_from=date(2026, 1, 1),
@@ -515,11 +520,15 @@ async def test_payroll_tax_rules_real_postgresql_e2e():
                 db.add(exempt_contract)
                 await db.flush()
 
+                exempt_evidence = await verified_evidence(db, company_id=company.id,
+                    employee_id=employee.id, created_by=user.id,
+                    entitlement_type='exemption', entitlement_code='TEST-EXEMPT')
                 exempt_profile = PayrollEmployeeTaxProfile(
                     company_id=company.id,
                     employee_id=employee.id,
                     employment_contract_id=exempt_contract.id,
                     category="exempt",
+                    tax_evidence_id=exempt_evidence.id,
                     benefit_code=None,
                     exemption_code="TEST-EXEMPT",
                     effective_from=date(2026, 1, 1),

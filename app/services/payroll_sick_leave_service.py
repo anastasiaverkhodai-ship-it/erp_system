@@ -148,6 +148,9 @@ async def calculate_sick_leave_pay(
         leave_request_id=leave_request_id,
     )
 
+    if (not isinstance(insurance_service_months, int)
+            or isinstance(insurance_service_months, bool) or insurance_service_months < 0):
+        raise PayrollSickLeaveDerivationError('Insurance service months must be a nonnegative integer')
     values = dict(
         reference_period_start=reference_period_start, reference_period_end=reference_period_end,
         eligible_earnings=number(eligible_earnings, '.01', PayrollSickLeaveDerivationError),
@@ -200,9 +203,9 @@ async def calculate_sick_leave_pay(
         date_from=leave_request.start_date, date_to=leave_request.end_date,
         error_type=PayrollSickLeaveConflictError)
 
-    if reference_period_end < reference_period_start:
+    if reference_period_end < reference_period_start or reference_period_end >= leave_request.start_date:
         raise PayrollSickLeaveDerivationError(
-            "Invalid sick leave reference period"
+            "Invalid sick leave reference period: earnings must precede incapacity"
         )
 
     earnings = _money(Decimal(eligible_earnings))
@@ -273,6 +276,19 @@ async def calculate_sick_leave_pay(
     daily_benefit = _average(
         average_daily * percent / Decimal("100")
     )
+
+    if limited_service_rule_applied:
+        # Law 1105, art. 12(4), and Procedure 1266: the ceiling applies to
+        # the benefit AFTER the insurance-service percentage, not the average.
+        # Saved calculations are returned above and retain their original values.
+        if not date(2026, 1, 1) <= leave_request.start_date <= date(2026, 12, 31):
+            raise PayrollSickLeaveDerivationError(
+                'Limited-service benefit requires a verified dated minimum wage')
+        if benefit_case_code.strip() != 'ORDINARY_TEMPORARY_INCAPACITY':
+            raise PayrollSickLeaveDerivationError(
+                'Limited-service cap requires a supported benefit case')
+        daily_ceiling = _money(Decimal('8647') / Decimal('30.44'))
+        daily_benefit = min(daily_benefit, daily_ceiling)
 
     employer_amount = _money(
         daily_benefit * employer_days_value

@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PayrollCalculationLineRead(BaseModel):
@@ -36,9 +36,23 @@ class PayrollCalculationRead(BaseModel):
     status: str
     currency_code: str
     gross_amount: Decimal
+    minimum_wage_assessment: dict | None = None
     calculated_by: int
     calculated_at: datetime
 
 
 class PayrollCalculationDetailRead(PayrollCalculationRead):
     lines: list[PayrollCalculationLineRead] = []
+
+
+class PayrollMinimumWageContext(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    full_time_norm_minutes: int = Field(gt=0)
+    norm_reference: str = Field(min_length=1,max_length=500)
+
+    @model_validator(mode='after')
+    def normalize_reference(self):
+        self.norm_reference = self.norm_reference.strip()
+        if not self.norm_reference:
+            raise ValueError('Norm reference cannot be blank')
+        return self

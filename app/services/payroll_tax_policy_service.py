@@ -109,7 +109,7 @@ async def end_tax_policy(db, *, company_id, policy_id, effective_to, profile):
     model = PayrollEmployeeTaxProfile if profile else PayrollStatutoryBaseRule
     row = await db.scalar(select(model).where(
         model.company_id == company_id, model.id == policy_id,
-    ).with_for_update())
+    ).with_for_update().execution_options(populate_existing=True))
     if row is None:
         raise Error('Tax policy not found in this company')
     if row.effective_to == effective_to:

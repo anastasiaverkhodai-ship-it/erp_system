@@ -6,6 +6,7 @@ from app.models.employment_contract import EmploymentContract
 from app.models.payroll import PayrollCalculation
 from app.models.payroll_statutory import PayrollStatutoryComponent as Component
 from app.services.payroll_revision_service import current_calculation_filter, require_current_calculation
+from app.services.payroll_usc_eligibility_service import qualifies_for_monthly_usc_floor
 
 
 async def require_uniform_base_policy(db, *, company_id, period, contract, component, profile, rule):
@@ -175,9 +176,8 @@ async def employee_component_base(db, *, company_id, period, calculation, contra
         if primary:
             employment,source,base_rule,values,tax_profile=primary[0]
             if base_rule and base_rule.minimum_base_amount is not None and not values[4] and Decimal(rate)==Decimal('.22'):
-                if employment.start_date>period.start_date or (employment.end_date and employment.end_date<period.end_date):
-                    raise Error('Partial-month primary employment requires dated USC minimum eligibility')
-                floor=Decimal(base_rule.minimum_base_amount);floor_contract=employment.id
+                if await qualifies_for_monthly_usc_floor(db, company_id=company_id, period=period, contract=employment):
+                    floor=Decimal(base_rule.minimum_base_amount);floor_contract=employment.id
         bases={e.id:Decimal(0) if v[4] else Decimal(c.gross_amount) for e,c,r,v,p in ordered}
         total=sum(bases.values(),Decimal(0))
         if 0<total<floor:
@@ -195,8 +195,8 @@ async def employee_component_base(db, *, company_id, period, calculation, contra
         if r and r.minimum_base_amount is not None and not v[4]:
             gross=Decimal(c.gross_amount)
             applies=(e.employment_kind=='primary' and Decimal(rate)==Decimal('.22') and gross>0)
-            if applies and (e.start_date>period.start_date or (e.end_date and e.end_date<period.end_date)):
-                raise Error('Partial-month primary employment requires dated USC minimum eligibility')
+            if applies:
+                applies = await qualifies_for_monthly_usc_floor(db, company_id=company_id, period=period, contract=e)
             if e.employment_kind is None and gross>0 and Decimal(rate)==Decimal('.22'):
                 raise Error('Classify primary employment before applying the USC minimum')
             base=max(gross,Decimal(r.minimum_base_amount)) if applies else gross

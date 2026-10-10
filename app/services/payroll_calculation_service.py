@@ -545,6 +545,7 @@ async def calculate_payroll_input(
     company_id: int,
     payroll_input_id: int,
     calculated_by: int,
+    minimum_wage_context: dict | None = None,
 ) -> PayrollCalculation:
     period, payroll_input, salary_slices = (
         await validate_calculation_source(
@@ -561,6 +562,8 @@ async def calculate_payroll_input(
     )
 
     if existing is not None:
+        if minimum_wage_context and (existing.minimum_wage_assessment or {}).get('request') != minimum_wage_context:
+            raise PayrollCalculationConflictError('Saved calculation has different minimum-wage context; use a correction')
         return existing
 
     from app.services.payroll_supplement_service import derive_supplement_lines, PayrollSupplementError
@@ -615,6 +618,17 @@ async def calculate_payroll_input(
         derived_lines.append(line)
         gross_amount+=line['amount']
 
+    from app.services.payroll_minimum_wage_service import derive_minimum_wage_assessment, MinimumWageError
+    try:
+        minimum_assessment, minimum_line = await derive_minimum_wage_assessment(
+            db, company_id=company_id, period=period, payroll_input=payroll_input,
+            salary_slices=salary_slices, lines=derived_lines, context=minimum_wage_context)
+    except MinimumWageError as exc:
+        raise PayrollCalculationDerivationError(str(exc)) from exc
+    if minimum_line is not None:
+        minimum_line['line_no'] = len(derived_lines)+1
+        derived_lines.append(minimum_line)
+        gross_amount += minimum_line['amount']
     gross_amount=_money(gross_amount)
 
     calculation = PayrollCalculation(
@@ -627,6 +641,7 @@ async def calculate_payroll_input(
         currency_code=currency_code,
         gross_amount=gross_amount,
         calculated_by=calculated_by,
+        minimum_wage_assessment=minimum_assessment,
     )
 
     db.add(calculation)

@@ -99,7 +99,17 @@ async def import_earnings_history(db, *, company_id, contract_id, data, created_
     if month_end<contract.start_date or (contract.end_date and data.month>contract.end_date):
         raise PayrollOpeningError('Historical month falls outside employment')
     employed_days=(min(month_end,contract.end_date or month_end)-max(data.month,contract.start_date)).days+1
-    if max(data.vacation_days,data.sick_days)>employed_days:
+    vacation_limit = employed_days
+    if data.vacation_days > employed_days and data.month == contract.start_date.replace(day=1):
+        from app.services.payroll_reference_period_service import vacation_employment_month_start
+        from app.services.payroll_average_history_service import PayrollAverageHistoryError
+        try:
+            first = await vacation_employment_month_start(db, company_id=company_id, contract=contract)
+        except PayrollAverageHistoryError as exc:
+            raise PayrollOpeningError(str(exc)) from exc
+        if first == data.month:
+            vacation_limit = (min(month_end, contract.end_date or month_end) - data.month).days + 1
+    if data.vacation_days > vacation_limit or data.sick_days > employed_days:
         raise PayrollOpeningError('Historical eligible days exceed employment days in month')
     other_cutover=await db.scalar(select(PayrollEarningsHistory.id).where(
         PayrollEarningsHistory.company_id==company_id,PayrollEarningsHistory.employment_contract_id==contract_id,

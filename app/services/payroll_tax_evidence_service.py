@@ -154,6 +154,7 @@ async def verify_tax_evidence(
             PayrollEmployeeTaxEvidence.id == evidence_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
 
     if row is None:

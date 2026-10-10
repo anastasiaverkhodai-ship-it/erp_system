@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.payroll_calculation import (
     PayrollCalculationLineRead,
+    PayrollMinimumWageContext,
     PayrollCalculationRead,
 )
 from app.services.payroll_calculation_service import (
@@ -95,6 +96,7 @@ async def list_period_payroll_calculations(
 async def calculate_company_payroll_input(
     company_id: int,
     payroll_input_id: int,
+    data: PayrollMinimumWageContext | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     _: User = Depends(
@@ -107,6 +109,7 @@ async def calculate_company_payroll_input(
             company_id=company_id,
             payroll_input_id=payroll_input_id,
             calculated_by=current_user.id,
+            minimum_wage_context=data.model_dump() if data else None,
         )
 
         await db.commit()

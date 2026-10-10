@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    JSON,
     Numeric,
     String,
     Text,
@@ -536,6 +537,8 @@ class PayrollCalculation(Base):
         nullable=False,
     )
 
+    minimum_wage_assessment: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
     calculated_by: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
@@ -606,13 +609,13 @@ class PayrollCalculationLine(Base):
             name="ck_payroll_calculation_lines_quantity_nonnegative",
         ),
         CheckConstraint(
-            "(line_type IN ('salary','supplement','vacation_pay','sick_pay') "
+            "(line_type IN ('salary','supplement','vacation_pay','sick_pay','minimum_wage') "
             "AND rate IS NOT NULL AND rate >= 0) OR "
             "(line_type = 'manual_adjustment' AND rate IS NOT NULL)",
             name="ck_payroll_calculation_lines_rate",
         ),
         CheckConstraint(
-            "(line_type IN ('salary','supplement','vacation_pay','sick_pay') "
+            "(line_type IN ('salary','supplement','vacation_pay','sick_pay','minimum_wage') "
             "AND amount >= 0) OR line_type = 'manual_adjustment'",
             name="ck_payroll_calculation_lines_amount",
         ),
@@ -632,7 +635,7 @@ class PayrollCalculationLine(Base):
             name="ck_payroll_calculation_line_sick_source",
         ),
         CheckConstraint(
-            "line_type IN ('salary','manual_adjustment','supplement','vacation_pay','sick_pay')",
+            "line_type IN ('salary','manual_adjustment','supplement','vacation_pay','sick_pay','minimum_wage')",
             name="ck_payroll_calculation_lines_type",
         ),
         CheckConstraint(
