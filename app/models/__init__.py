@@ -224,3 +224,7 @@ from app.models.payroll_regulatory_report import (
     PayrollRegulatoryReportRow,
     PayrollRegulatoryReportStatus,
 )
+
+
+# Payroll employee tax documentary evidence
+from app.models.payroll_employee_tax_evidence import PayrollEmployeeTaxEvidence
