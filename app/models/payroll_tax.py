@@ -91,7 +91,15 @@ class PayrollEmployeeTaxProfile(Base):
         onupdate=func.now(),
     )
 
+    tax_evidence_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["company_id", "tax_evidence_id"],
+            ["payroll_employee_tax_evidence.company_id", "payroll_employee_tax_evidence.id"],
+            name="fk_payroll_tax_profile_evidence",
+            ondelete="RESTRICT",
+        ),
         CheckConstraint("(benefit_amount_override IS NULL AND benefit_income_limit_override IS NULL) OR (benefit_amount_override IS NOT NULL AND benefit_income_limit_override IS NOT NULL AND benefit_amount_override >= 0 AND benefit_income_limit_override > 0 AND category = 'benefit_eligible')", name="ck_payroll_profile_benefit_override"),
         ForeignKeyConstraint(
             ["company_id", "employee_id"],

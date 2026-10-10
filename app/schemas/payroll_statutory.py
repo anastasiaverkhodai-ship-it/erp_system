@@ -10,6 +10,7 @@ from app.models.payroll_statutory import PayrollStatutoryComponent
 
 class PayrollStatutoryRateCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    tax_evidence_id: int | None = Field(default=None, gt=0)
     employee_id: int | None = Field(default=None, gt=0)
     source_reference: str | None = Field(default=None, min_length=1, max_length=500)
     component: PayrollStatutoryComponent
@@ -23,6 +24,7 @@ class PayrollStatutoryRateCreate(BaseModel):
 
 class PayrollStatutoryRateRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+    tax_evidence_id: int | None = None
 
     id: int
     company_id: int

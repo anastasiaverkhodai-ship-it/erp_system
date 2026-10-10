@@ -100,6 +100,7 @@ async def create_automatic_payroll_advance(db, *, company_id, payroll_period_id,
                     used += sum((Decimal(line['base_amount']) for line in prior_lines if line['component'] == component.value), Decimal(0))
                 base = min(base, max(Decimal(0), Decimal(rule.maximum_base_amount) - used))
             tax_lines.append(dict(component=component.value, source_rate_id=rate.id,
+                source_tax_evidence_id=rate.tax_evidence_id,
                 source_reference=rate.source_reference, rate=rate.rate, rate_effective_from=rate.effective_from,
                 rate_effective_to=rate.effective_to, base_amount=base, amount=money(base * rate.rate),
                 minimum_withholding=money(minimum_base * rate.rate),
@@ -114,6 +115,7 @@ async def create_automatic_payroll_advance(db, *, company_id, payroll_period_id,
         raise PayrollAdvanceSourceStateError('Statutory rates produce an invalid net advance')
     snapshot = dict(version=1, request=request, basis=basis, gross_amount=gross,
         employee_id=contract.employee_id, tax_profile_id=profile.id if profile else None,
+        tax_profile_evidence_id=profile.tax_evidence_id if profile else None,
         tax_lines=tax_lines, withholding_amount=withholding, net_amount=net,
         minimum_net_amount=minimum_net, social_benefit_applied=False)
     row = PayrollAdvance(company_id=company_id, payroll_period_id=period.id,

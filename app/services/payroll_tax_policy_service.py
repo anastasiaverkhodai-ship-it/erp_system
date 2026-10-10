@@ -7,6 +7,8 @@ from app.models.payroll import PayrollCalculation, PayrollPeriod
 from app.models.payroll_statutory import PayrollStatutoryResult
 from app.services.payroll_mutation_guard import serialized_payroll_mutation
 from app.services.payroll_statutory_service import PayrollStatutoryValidationError as Error
+from app.services.payroll_tax_evidence_binding_service import require_evidence_window
+from app.services.payroll_tax_evidence_service import PayrollTaxEvidenceError
 
 
 async def _unused_window(db,company_id,start,end,employee_id=None):
@@ -31,6 +33,47 @@ async def create_tax_profile(db,*,company_id,data,created_by):
         PayrollEmployeeTaxProfile.effective_from<=(data.effective_to or date.max),
         or_(PayrollEmployeeTaxProfile.effective_to.is_(None),PayrollEmployeeTaxProfile.effective_to>=data.effective_from)))).all())
     values=data.model_dump()
+
+    evidence_id = values.get("tax_evidence_id")
+    category = values["category"]
+
+    if category == "standard":
+        if evidence_id is not None:
+            raise Error(
+                "Standard tax profile must not reference special evidence"
+            )
+    else:
+        if evidence_id is None:
+            raise Error(
+                "Special tax profile requires verified documentary evidence"
+            )
+
+        entitlement_type = (
+            "benefit"
+            if category == "benefit_eligible"
+            else "exemption"
+        )
+
+        entitlement_code = (
+            values["benefit_code"]
+            if category == "benefit_eligible"
+            else values["exemption_code"]
+        )
+
+        try:
+            await require_evidence_window(
+                db,
+                company_id=company_id,
+                employee_id=contract.employee_id,
+                evidence_id=evidence_id,
+                entitlement_type=entitlement_type,
+                entitlement_code=entitlement_code,
+                effective_from=data.effective_from,
+                effective_to=data.effective_to,
+            )
+        except PayrollTaxEvidenceError as exc:
+            raise Error(str(exc)) from exc
+
     if len(rows)==1 and all(getattr(rows[0],key)==value for key,value in values.items()):
         return rows[0]
     if rows:

@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from test_employee_foundation import employee_engine
 from test_payroll_vacation_postgresql import _seed_identity
+from payroll_verified_evidence_helper import verified_evidence
 from app.models.employment_contract import EmploymentContract
 from app.models.payroll import PayrollPeriod, PayrollInput, PayrollCalculation
 from app.models.payroll_statutory import PayrollStatutoryComponent as Component, PayrollStatutoryResultLine as Line
@@ -95,8 +96,16 @@ async def test_employee_benefit_is_once_and_subject_to_aggregate_income(employee
     async with AsyncSession(employee_engine,expire_on_commit=False) as db:
         company,user,calcs=await setup_month(db,amounts,None,None)
         employment=await db.get(EmploymentContract,calcs[0].employment_contract_id)
+        evidence = await verified_evidence(
+            db,
+            company_id=company.id,
+            employee_id=employment.employee_id,
+            created_by=user.id,
+            entitlement_type='benefit',
+            entitlement_code='Signed entitlement',
+        )
         profile=PayrollEmployeeTaxProfile(company_id=company.id,employee_id=employment.employee_id,
-            employment_contract_id=employment.id,category='benefit_eligible',benefit_code='Signed entitlement',
+            employment_contract_id=employment.id,category='benefit_eligible',benefit_code='Signed entitlement',tax_evidence_id=evidence.id,
             effective_from=date(2026,1,1),created_by=user.id)
         db.add(profile)
         db.add(PayrollStatutoryBaseRule(company_id=company.id,component=Component.PERSONAL_INCOME_TAX.value,

@@ -76,7 +76,15 @@ class PayrollStatutoryRate(Base):
         onupdate=func.now(),
     )
 
+    tax_evidence_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["company_id", "tax_evidence_id"],
+            ["payroll_employee_tax_evidence.company_id", "payroll_employee_tax_evidence.id"],
+            name="fk_payroll_statutory_rate_evidence",
+            ondelete="RESTRICT",
+        ),
         ForeignKeyConstraint(['company_id', 'employee_id'], ['employees.company_id', 'employees.id'],
             name='fk_payroll_statutory_rate_employee', ondelete='RESTRICT'),
         CheckConstraint("employee_id IS NULL OR (source_reference IS NOT NULL AND length(trim(source_reference)) > 0)",

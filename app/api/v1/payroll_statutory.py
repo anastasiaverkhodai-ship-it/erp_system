@@ -133,6 +133,7 @@ async def create_company_payroll_statutory_rate(
             company_id=company_id,
             employee_id=data.employee_id,
             source_reference=data.source_reference,
+            tax_evidence_id=data.tax_evidence_id,
             component=data.component,
             rate=data.rate,
             effective_from=data.effective_from,

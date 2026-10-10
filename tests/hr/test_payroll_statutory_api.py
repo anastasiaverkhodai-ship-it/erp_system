@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from test_employee_foundation import employee_engine
 from test_employment_structure import setup, contract
+from payroll_verified_evidence_helper import verified_evidence
 from app.api.deps import get_current_user
 from app.api.v1 import payroll, payroll_statutory
 from app.core.database import get_db
@@ -45,6 +46,15 @@ async def test_statutory_and_input_routes_use_real_service_contracts(employee_en
             payroll_input_id=source.id, employment_contract_id=employment.id,
             gross_amount=Decimal('10000'), currency_code='UAH', calculated_by=f['actor'])
         db.add(calc)
+        evidence = await verified_evidence(
+            db,
+            company_id=f['company'],
+            employee_id=f['employee'],
+            created_by=f['actor'],
+            entitlement_type='individual_rate',
+            entitlement_code='unified_social_contribution',
+            valid_to=date(2026,12,31),
+        )
         await db.commit()
         api = FastAPI()
         api.include_router(payroll_statutory.router)
@@ -61,7 +71,7 @@ async def test_statutory_and_input_routes_use_real_service_contracts(employee_en
                 assert response.status_code == 201, response.text
             individual = await client.post(prefix+'/payroll-statutory-rates', json=dict(
                 component='unified_social_contribution', rate='.0841', employee_id=f['employee'],
-                source_reference='Disability evidence API-001', effective_from='2026-01-01', effective_to='2026-12-31'))
+                source_reference='Disability evidence API-001', tax_evidence_id=evidence.id, effective_from='2026-01-01', effective_to='2026-12-31'))
             assert individual.status_code == 201, individual.text
             for suffix in ('statutory', 'statutory/lines'):
                 missing = await client.get(prefix+f'/payroll-calculations/{calc.id}/{suffix}')

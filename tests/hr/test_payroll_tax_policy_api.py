@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from test_employee_foundation import employee_engine
 from test_payroll_vacation_postgresql import _seed_identity
+from payroll_verified_evidence_helper import verified_evidence
 from app.api.deps import get_current_user
 from app.api.v1.payroll_tax_policy import router
 from app.core.database import get_db
@@ -28,13 +29,22 @@ async def test_tax_policy_api_dates_entitlement_and_history(employee_engine):
         role=Role(name='tax-policy-manager');perms=[Permission(name='employees.read'),Permission(name='employees.manage')]
         db.add_all([role,*perms]);await db.flush()
         await db.execute(role_permissions.insert(),[dict(role_id=role.id,permission_id=p.id) for p in perms])
-        db.add(UserCompanyRole(company_id=ids[0],user_id=ids[1],role_id=role.id));await db.commit()
+        db.add(UserCompanyRole(company_id=ids[0],user_id=ids[1],role_id=role.id))
+        evidence = await verified_evidence(
+            db,
+            company_id=ids[0],
+            employee_id=ids[2],
+            created_by=ids[1],
+            entitlement_type='benefit',
+            entitlement_code='Application-001',
+        )
+        await db.commit()
         api=FastAPI();api.include_router(router)
         async def session():yield db
         api.dependency_overrides[get_db]=session
         api.dependency_overrides[get_current_user]=lambda:SimpleNamespace(id=ids[1])
         prefix=f'/companies/{ids[0]}'
-        profile=dict(employment_contract_id=ids[3],category='benefit_eligible',benefit_code='Application-001',
+        profile=dict(employment_contract_id=ids[3],category='benefit_eligible',benefit_code='Application-001',tax_evidence_id=evidence.id,
             benefit_amount_override='1600',benefit_income_limit_override='4000',effective_from='2026-01-01')
         rule=dict(component='personal_income_tax',tax_profile_category='benefit_eligible',base_mode='gross_after_benefit',
             benefit_amount='1000',benefit_income_limit='3000',rule_code='TEST',rule_version='1',effective_from='2026-01-01')

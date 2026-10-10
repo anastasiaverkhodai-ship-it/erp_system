@@ -16,6 +16,7 @@ class DatedPolicy(BaseModel):
         return self
 
 class TaxProfileCreate(DatedPolicy):
+    tax_evidence_id: int | None = Field(default=None, gt=0)
     employment_contract_id: int=Field(gt=0)
     category: Literal['standard','benefit_eligible','exempt']='standard'
     benefit_code: str | None=Field(default=None,min_length=1,max_length=64)
@@ -38,6 +39,7 @@ class TaxProfileCreate(DatedPolicy):
 class TaxProfileRead(BaseModel):
     # Creation validation must not make legacy, immutable profiles unreadable.
     model_config=ConfigDict(from_attributes=True)
+    tax_evidence_id: int | None = None
     id:int
     company_id:int
     employee_id:int

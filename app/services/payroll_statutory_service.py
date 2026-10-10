@@ -4,6 +4,8 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from app.services.payroll_mutation_guard import serialized_payroll_mutation
+from app.services.payroll_tax_evidence_binding_service import require_evidence_window
+from app.services.payroll_tax_evidence_service import PayrollTaxEvidenceError
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,6 +84,7 @@ async def create_statutory_rate(
     actor_user_id: int,
     employee_id: int | None = None,
     source_reference: str | None = None,
+    tax_evidence_id: int | None = None,
 ) -> PayrollStatutoryRate:
     if employee_id is not None:
         from app.models.employee import Employee
@@ -91,6 +94,36 @@ async def create_statutory_rate(
             raise PayrollStatutoryNotFoundError('Employee not found in this company')
         if not source_reference or not source_reference.strip():
             raise PayrollStatutoryValidationError('Individual statutory rate requires supporting evidence')
+    if employee_id is None:
+        if tax_evidence_id is not None:
+            raise PayrollStatutoryValidationError(
+                "General statutory rate must not reference employee evidence"
+            )
+    else:
+        if tax_evidence_id is None:
+            raise PayrollStatutoryValidationError(
+                "Individual statutory rate requires verified evidence"
+            )
+
+        if not source_reference or not source_reference.strip():
+            raise PayrollStatutoryValidationError(
+                "Individual statutory rate requires a source reference"
+            )
+
+        try:
+            await require_evidence_window(
+                session,
+                company_id=company_id,
+                employee_id=employee_id,
+                evidence_id=tax_evidence_id,
+                entitlement_type="individual_rate",
+                entitlement_code=component.value,
+                effective_from=effective_from,
+                effective_to=effective_to,
+            )
+        except PayrollTaxEvidenceError as exc:
+            raise PayrollStatutoryValidationError(str(exc)) from exc
+
     validate_rate_window(
         effective_from=effective_from,
         effective_to=effective_to,
@@ -139,6 +172,7 @@ async def create_statutory_rate(
         company_id=company_id,
         employee_id=employee_id,
         source_reference=source_reference.strip() if source_reference else None,
+        tax_evidence_id=tax_evidence_id,
         component=component.value,
         rate=rate,
         effective_from=effective_from,
@@ -202,7 +236,29 @@ async def resolve_statutory_rate(
         raise PayrollStatutoryNotFoundError('no statutory rate applies on ' + effective_date.isoformat())
     if len(candidates) > 1:
         raise PayrollStatutoryValidationError('overlapping statutory rates on ' + effective_date.isoformat())
-    return candidates[0]
+    selected = candidates[0]
+
+    if selected.employee_id is not None:
+        if selected.tax_evidence_id is None:
+            raise PayrollStatutoryValidationError(
+                "Individual statutory rate has no verified evidence binding"
+            )
+
+        try:
+            await require_evidence_window(
+                session,
+                company_id=company_id,
+                employee_id=selected.employee_id,
+                evidence_id=selected.tax_evidence_id,
+                entitlement_type="individual_rate",
+                entitlement_code=component.value,
+                effective_from=effective_date,
+                effective_to=effective_date,
+            )
+        except PayrollTaxEvidenceError as exc:
+            raise PayrollStatutoryValidationError(str(exc)) from exc
+
+    return selected
 
 
 async def require_uniform_individual_rate_window(session, *, company_id, employee_id,
@@ -262,7 +318,49 @@ async def resolve_payroll_employee_tax_profile(
             "overlapping payroll employee tax profiles"
         )
 
-    return rows[0] if rows else None
+    selected = rows[0] if rows else None
+
+    if selected is None:
+        return None
+
+    if selected.category == "standard":
+        if selected.tax_evidence_id is not None:
+            raise PayrollStatutoryValidationError(
+                "Standard tax profile has unexpected evidence binding"
+            )
+        return selected
+
+    if selected.tax_evidence_id is None:
+        raise PayrollStatutoryValidationError(
+            "Special tax profile has no verified evidence binding"
+        )
+
+    if selected.category == "benefit_eligible":
+        entitlement_type = "benefit"
+        entitlement_code = selected.benefit_code
+    elif selected.category == "exempt":
+        entitlement_type = "exemption"
+        entitlement_code = selected.exemption_code
+    else:
+        raise PayrollStatutoryValidationError(
+            "Unsupported tax profile category"
+        )
+
+    try:
+        await require_evidence_window(
+            session,
+            company_id=company_id,
+            employee_id=employee_id,
+            evidence_id=selected.tax_evidence_id,
+            entitlement_type=entitlement_type,
+            entitlement_code=entitlement_code,
+            effective_from=effective_date,
+            effective_to=effective_date,
+        )
+    except PayrollTaxEvidenceError as exc:
+        raise PayrollStatutoryValidationError(str(exc)) from exc
+
+    return selected
 
 
 async def resolve_payroll_statutory_base_rule(
