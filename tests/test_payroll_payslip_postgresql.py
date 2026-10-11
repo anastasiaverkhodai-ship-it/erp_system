@@ -302,6 +302,10 @@ async def test_payroll_payslip_snapshot_real_postgresql():
                     company_id=company.id,
                     payroll_input_id=payroll_input.id,
                     calculated_by=user.id,
+                    minimum_wage_context={
+                        'manual_adjustment_category': 'ordinary_salary',
+                        'manual_adjustment_reference': 'Correction of current-period salary: -500 UAH',
+                    },
                 )
                 await db.flush()
 

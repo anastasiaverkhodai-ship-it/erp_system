@@ -23,7 +23,7 @@ from app.services.payroll_supplement_service import create_payroll_supplement
 pytestmark=[pytest.mark.asyncio,pytest.mark.skipif(os.getenv('RUN_POSTGRES_E2E')!='1',reason='PostgreSQL required')]
 
 
-async def inputs(db,part_time=False, midmonth_part_time=False):
+async def inputs(db,part_time=False, midmonth_part_time=False, adjustment=D(0)):
     f,contract,schedule=await sources(db)
     if midmonth_part_time:
         from app.schemas.employment_event import EmploymentEventCreate
@@ -48,7 +48,8 @@ async def inputs(db,part_time=False, midmonth_part_time=False):
             actual_start_at=datetime(2026,9,day,9,tzinfo=ZoneInfo('Europe/Kyiv')),
             actual_end_at=datetime(2026,9,day,13 if part_time else (19 if day==1 else 17),tzinfo=ZoneInfo('Europe/Kyiv'))))
     source=await create_payroll_input(db,company_id=f['company'],payroll_period_id=period.id,
-        created_by=f['actor'],data=PayrollInputCreate(employment_contract_id=contract.id))
+        created_by=f['actor'],data=PayrollInputCreate(employment_contract_id=contract.id, manual_adjustment_amount=adjustment,
+            manual_adjustment_reason='Documented current-period correction' if adjustment else None))
     if not part_time:
         for kind,amount,minutes in [('bonus',D('1000'),0),('holiday_bonus',D('500'),0),('overtime',D('0'),120)]:
             await create_payroll_supplement(db,company_id=f['company'],payroll_input_id=source.id,created_by=f['actor'],
@@ -131,3 +132,31 @@ async def test_midmonth_work_arrangement_change_requires_documented_norm(employe
         with pytest.raises(PayrollCalculationDerivationError, match='documented full-time norm'):
             await calculate_payroll_input(db, company_id=f['company'], payroll_input_id=source.id,
                 calculated_by=f['actor'])
+
+
+@pytest.mark.parametrize('amount,category,expected_gross,expected_top_up',[
+    (D('-500'),'ordinary_salary',D('9283.36'),D('2147')),
+    (D('500'),'holiday_bonus',D('9783.36'),D('1647')),
+])
+async def test_documented_adjustment_classification_changes_only_eligible_basis(
+    employee_engine,amount,category,expected_gross,expected_top_up):
+    async with AsyncSession(employee_engine,expire_on_commit=False) as db:
+        f,source=await inputs(db,adjustment=amount)
+        args=dict(company_id=f['company'],payroll_input_id=source.id,calculated_by=f['actor'])
+        with pytest.raises(PayrollCalculationDerivationError,match='explicit minimum-wage classification'):
+            await calculate_payroll_input(db,**args)
+        context=dict(manual_adjustment_category=category,manual_adjustment_reference='Correction order 1')
+        result=await calculate_payroll_input(db,**args,minimum_wage_context=context)
+        assert result.gross_amount==expected_gross
+        assert D(result.minimum_wage_assessment['top_up'])==expected_top_up
+        assert result.minimum_wage_assessment['request']==context
+        with pytest.raises(PayrollCalculationConflictError,match='different minimum-wage context'):
+            await calculate_payroll_input(db,**args,minimum_wage_context=dict(context,manual_adjustment_reference='Another order'))
+
+
+async def test_adjustment_cannot_reduce_another_earning_category(employee_engine):
+    async with AsyncSession(employee_engine,expire_on_commit=False) as db:
+        f,source=await inputs(db,adjustment=D('-1500'))
+        with pytest.raises(PayrollCalculationDerivationError,match='exceeds the current-period earnings'):
+            await calculate_payroll_input(db,company_id=f['company'],payroll_input_id=source.id,calculated_by=f['actor'],
+                minimum_wage_context=dict(manual_adjustment_category='production_bonus',manual_adjustment_reference='Order'))

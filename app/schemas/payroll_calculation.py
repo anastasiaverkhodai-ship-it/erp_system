@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -46,13 +47,20 @@ class PayrollCalculationDetailRead(PayrollCalculationRead):
 
 
 class PayrollMinimumWageContext(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    full_time_norm_minutes: int = Field(gt=0)
-    norm_reference: str = Field(min_length=1,max_length=500)
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    full_time_norm_minutes: int | None = Field(default=None, gt=0, strict=True)
+    norm_reference: str | None = Field(default=None, min_length=1, max_length=500)
+    manual_adjustment_category: Literal[
+        'ordinary_salary', 'production_bonus', 'regular_allowance', 'indexation',
+        'night', 'overtime', 'hazardous', 'travelling', 'holiday_bonus',
+        'jubilee_bonus', 'hardship', 'reimbursement',
+    ] | None = None
+    manual_adjustment_reference: str | None = Field(default=None, min_length=1, max_length=500)
 
     @model_validator(mode='after')
-    def normalize_reference(self):
-        self.norm_reference = self.norm_reference.strip()
-        if not self.norm_reference:
-            raise ValueError('Norm reference cannot be blank')
+    def paired_evidence(self):
+        if (self.full_time_norm_minutes is None) != (self.norm_reference is None):
+            raise ValueError('Full-time norm and documentary reference must be supplied together')
+        if (self.manual_adjustment_category is None) != (self.manual_adjustment_reference is None):
+            raise ValueError('Adjustment category and documentary reference must be supplied together')
         return self

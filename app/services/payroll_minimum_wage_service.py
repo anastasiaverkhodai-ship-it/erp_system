@@ -80,6 +80,15 @@ def assess_minimum_wage(*, rate_type, minimum_rate, ordinary_worked_minutes,
     return MinimumWageAssessment(guarantee, included, excluded, max(Decimal('0.00'), guarantee-included))
 
 
+def normalize_minimum_wage_context(context):
+    from pydantic import ValidationError
+    from app.schemas.payroll_calculation import PayrollMinimumWageContext
+    try:
+        return PayrollMinimumWageContext.model_validate(context or {}).model_dump(exclude_none=True)
+    except ValidationError as exc:
+        raise MinimumWageError('Invalid minimum-wage context: ' + str(exc)) from exc
+
+
 async def derive_minimum_wage_assessment(db, *, company_id, period, payroll_input,
                                         salary_slices, lines, context=None):
     """Build a saved 2026 UAH assessment from attributed payroll earnings."""
@@ -88,7 +97,7 @@ async def derive_minimum_wage_assessment(db, *, company_id, period, payroll_inpu
     from app.models.employment_contract import EmploymentContract
     from app.models.payroll_supplement import PayrollSupplement
     from app.services.employment_event_service import employment_state_on, list_employment_events
-    context = context or {}
+    context = normalize_minimum_wage_context(context)
     if any(line['currency_code'] != 'UAH' for line in lines):
         return {'status': 'requires_uah_conversion', 'request': context}, None
     if not date(2026,1,1) <= period.start_date <= period.end_date <= date(2026,12,31):
@@ -119,6 +128,7 @@ async def derive_minimum_wage_assessment(db, *, company_id, period, payroll_inpu
     worked = sum(s.worked_minutes for s in salary_slices)
     extra_by_slice = {}
     earnings = []
+    adjustment = Decimal(0)
     supplements = {s.id:s for s in (await db.scalars(select(PayrollSupplement).where(
         PayrollSupplement.company_id == company_id,
         PayrollSupplement.payroll_input_id == payroll_input.id,
@@ -141,8 +151,12 @@ async def derive_minimum_wage_assessment(db, *, company_id, period, payroll_inpu
                 extra_by_slice[parts[0].id] = extra_by_slice.get(parts[0].id,0) + source.minutes
         elif kind in {'vacation_pay','sick_pay'}:
             earnings.append(MinimumWageEarning(kind,Decimal(line['amount'])))
+        elif kind == 'manual_adjustment':
+            if not context.get('manual_adjustment_category'):
+                raise MinimumWageError('Manual adjustment requires an explicit minimum-wage classification')
+            adjustment += Decimal(line['amount'])
         elif kind != 'salary':
-            raise MinimumWageError('Manual adjustment requires an explicit minimum-wage classification')
+            raise MinimumWageError('Unclassified earning line')
     salary_lines = [line for line in lines if line['line_type']=='salary']
     if len(salary_lines) != len(salary_slices):
         raise MinimumWageError('Salary lines do not match salary snapshots')
@@ -160,6 +174,17 @@ async def derive_minimum_wage_assessment(db, *, company_id, period, payroll_inpu
         earnings.append(MinimumWageEarning('ordinary_salary',Decimal(line['amount'])-extra_pay))
         earnings.append(MinimumWageEarning('overtime',extra_pay))
         worked -= extra
+    if context.get('manual_adjustment_category'):
+        if not any(line['line_type'] == 'manual_adjustment' for line in lines):
+            raise MinimumWageError('Adjustment classification has no matching earning line')
+        totals = {}
+        for earning in earnings:
+            totals[earning.category] = totals.get(earning.category, Decimal(0)) + earning.amount
+        category = context['manual_adjustment_category']
+        totals[category] = totals.get(category, Decimal(0)) + adjustment
+        if any(amount < 0 for amount in totals.values()):
+            raise MinimumWageError('Adjustment exceeds the current-period earnings in its category; use a correction')
+        earnings = [MinimumWageEarning(category, amount) for category, amount in totals.items()]
     rate = Decimal('8647') if rate_type=='monthly' else Decimal('52')
     result = assess_minimum_wage(rate_type=rate_type,minimum_rate=rate,
         ordinary_worked_minutes=worked,full_time_norm_minutes=norm,earnings=earnings)

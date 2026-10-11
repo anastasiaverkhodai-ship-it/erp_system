@@ -109,7 +109,7 @@ async def calculate_company_payroll_input(
             company_id=company_id,
             payroll_input_id=payroll_input_id,
             calculated_by=current_user.id,
-            minimum_wage_context=data.model_dump() if data else None,
+            minimum_wage_context=data.model_dump(exclude_none=True) if data else None,
         )
 
         await db.commit()

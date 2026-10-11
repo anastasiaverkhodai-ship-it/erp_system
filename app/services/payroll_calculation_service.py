@@ -547,6 +547,11 @@ async def calculate_payroll_input(
     calculated_by: int,
     minimum_wage_context: dict | None = None,
 ) -> PayrollCalculation:
+    from app.services.payroll_minimum_wage_service import normalize_minimum_wage_context, MinimumWageError
+    try:
+        minimum_wage_context = normalize_minimum_wage_context(minimum_wage_context)
+    except MinimumWageError as exc:
+        raise PayrollCalculationDerivationError(str(exc)) from exc
     period, payroll_input, salary_slices = (
         await validate_calculation_source(
             db,

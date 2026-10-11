@@ -59,3 +59,16 @@ def test_invalid_time_and_precision_rejected():
             assess(**kwargs)
     with pytest.raises(MinimumWageError,match='cent precision'):
         assess(earnings=[E('ordinary_salary',D('1.001'))])
+
+
+@pytest.mark.parametrize('context',[
+    {'full_time_norm_minutes':True,'norm_reference':'Order'},
+    {'full_time_norm_minutes':100},
+    {'manual_adjustment_category':'ordinary_salary'},
+    {'manual_adjustment_category':'ordinary_salary','manual_adjustment_reference':'  '},
+    {'manual_adjustment_category':'arbitrary','manual_adjustment_reference':'Order'},
+])
+def test_context_requires_documented_valid_classification(context):
+    from app.services.payroll_minimum_wage_service import normalize_minimum_wage_context
+    with pytest.raises(MinimumWageError):
+        normalize_minimum_wage_context(context)
