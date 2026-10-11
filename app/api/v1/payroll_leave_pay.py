@@ -66,3 +66,43 @@ async def read_vacation(company_id: int, leave_request_id: int,
     if row is None:
         raise HTTPException(status_code=404, detail='Vacation calculation not found')
     return await response(db, row)
+
+
+from app.schemas.payroll_leave_pay import SickCalculationRead
+from app.schemas.payroll_insurance_evidence import SickHistoryCalculationCreate
+from app.services.payroll_sick_history_service import calculate_sick_from_history
+from app.services.payroll_sick_leave_service import (
+    PayrollSickLeaveError, get_sick_leave_calculation_for_leave, list_sick_leave_calculation_sources,
+)
+from app.services.payroll_insurance_evidence_service import PayrollInsuranceEvidenceError
+
+
+async def sick_response(db,row):
+    await db.refresh(row)
+    result=SickCalculationRead.model_validate(row)
+    result.sources=[LeaveAverageSourceRead.model_validate(source) for source in
+        await list_sick_leave_calculation_sources(db,company_id=row.company_id,sick_leave_calculation_id=row.id)]
+    return result
+
+
+@router.post('/sick-calculation/from-history',response_model=SickCalculationRead)
+async def create_sick(company_id:int,leave_request_id:int,data:SickHistoryCalculationCreate,
+    db:AsyncSession=Depends(get_db),actor:User=Depends(require_company_permission('employees.manage'))):
+    try:
+        row=await calculate_sick_from_history(db,company_id=company_id,leave_request_id=leave_request_id,
+            insurance_evidence_id=data.insurance_evidence_id,calculated_by=actor.id)
+        result=await sick_response(db,row)
+        await db.commit()
+        return result
+    except (PayrollSickLeaveError,PayrollInsuranceEvidenceError,PayrollAverageHistoryError) as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@router.get('/sick-calculation',response_model=SickCalculationRead)
+async def read_sick(company_id:int,leave_request_id:int,db:AsyncSession=Depends(get_db),
+    actor:User=Depends(require_company_permission('employees.read'))):
+    row=await get_sick_leave_calculation_for_leave(db,company_id=company_id,leave_request_id=leave_request_id)
+    if row is None:
+        raise HTTPException(status_code=404,detail='Sick calculation not found')
+    return await sick_response(db,row)

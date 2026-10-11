@@ -52,3 +52,33 @@ class VacationCalculationRead(BaseModel):
     rule_code: str
     rule_version: str
     sources: list[LeaveAverageSourceRead] = Field(default_factory=list)
+
+
+class SickCalculationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    company_id: int
+    leave_request_id: int
+    employment_contract_id: int
+    benefit_case_code: str
+    reference_period_start: date
+    reference_period_end: date
+    eligible_earnings: Decimal
+    eligible_days: Decimal
+    sick_days: Decimal
+    average_daily_amount: Decimal
+    insurance_service_months: int
+    benefit_percent: Decimal
+    limited_service_rule_applied: bool
+    daily_benefit_amount: Decimal
+    employer_days: Decimal
+    insurer_days: Decimal
+    employer_amount: Decimal
+    insurer_amount: Decimal
+    sick_pay_amount: Decimal
+    currency_code: str
+    rule_code: str
+    rule_version: str
+    insurance_evidence_id: int | None
+    insurance_assessment: dict | None
+    sources: list[LeaveAverageSourceRead] = Field(default_factory=list)

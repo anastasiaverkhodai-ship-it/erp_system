@@ -108,14 +108,14 @@ async def derive_leave_average_history(db, *, company_id, leave_request_id,
         if row is None:
             if not matches:
                 raise PayrollAverageHistoryError('Incomplete earnings history: ' + month.isoformat())
-            if len(matches) != 1 or purpose != 'vacation':
+            if len(matches) != 1:
                 raise PayrollAverageHistoryError('ERP earnings require an unambiguous supported classification')
             calculation, period = matches[0]
             if histories and month < histories[0].cutover_date:
                 raise PayrollAverageHistoryError('ERP earnings precede the historical cutover date')
             sources.append(await _erp_vacation_source(db, company_id=company_id,
                 contract_id=contract.id, calculation=calculation, period=period,
-                month=month, month_end=month_end))
+                month=month, month_end=month_end, purpose=purpose))
             continue
         earnings = Decimal(getattr(row, purpose + '_earnings'))
         days = Decimal(getattr(row, purpose + '_days'))
@@ -169,7 +169,7 @@ async def calculate_vacation_from_history(db, *, company_id, leave_request_id,
         sources=basis['sources'])
 
 
-async def _erp_vacation_source(db, *, company_id, contract_id, calculation, period, month, month_end):
+async def _erp_vacation_source(db, *, company_id, contract_id, calculation, period, month, month_end, purpose="vacation"):
     """Classify dated earnings and verify paid leave against its saved source."""
     if period.status != 'finalized' or period.start_date != month or period.end_date != month_end:
         raise PayrollAverageHistoryError('ERP source requires a finalized complete payroll month')
@@ -194,7 +194,21 @@ async def _erp_vacation_source(db, *, company_id, contract_id, calculation, peri
     await _verify_paid_leave_lines(db, company_id=company_id, contract_id=contract_id,
         leaves=leaves, lines=lines, month=month, month_end=month_end)
     excluded_earnings = await _excluded_supplement_earnings(db, company_id=company_id,
-        calculation=calculation, lines=lines, month=month, month_end=month_end)
+        calculation=calculation, lines=lines, month=month, month_end=month_end, purpose=purpose)
+    if purpose == 'sick':
+        from app.models.payroll_statutory import PayrollStatutoryResult, PayrollStatutoryResultLine
+        tax = (await db.execute(select(PayrollStatutoryResult, PayrollStatutoryResultLine)
+            .join(PayrollStatutoryResultLine,
+                (PayrollStatutoryResultLine.company_id == PayrollStatutoryResult.company_id) &
+                (PayrollStatutoryResultLine.payroll_statutory_result_id == PayrollStatutoryResult.id))
+            .where(PayrollStatutoryResult.company_id == company_id,
+                PayrollStatutoryResult.payroll_calculation_id == calculation.id,
+                PayrollStatutoryResultLine.component == 'unified_social_contribution'))).one_or_none()
+        if tax is None or tax[0].gross_amount != calculation.gross_amount:
+            raise PayrollAverageHistoryError('Sick-pay ERP history requires reconciled assessed USC')
+        if tax[1].base_amount < calculation.gross_amount:
+            raise PayrollAverageHistoryError('Capped USC earnings require attributed sick-pay income allocation')
+        excluded_earnings += sum((Decimal(line.amount) for line in lines if line.line_type == 'sick_pay'), Decimal(0))
     earnings -= excluded_earnings
     from app.models.time_attendance import AttendanceRecord as Attendance
     if await db.scalar(select(Attendance.id).where(Attendance.company_id == company_id,
@@ -203,7 +217,7 @@ async def _erp_vacation_source(db, *, company_id, contract_id, calculation, peri
         raise PayrollAverageHistoryError('Unclassified absence in ERP reference month')
     excluded = set()
     for leave in leaves:
-        if leave.leave_type != LeaveType.UNPAID:
+        if leave.leave_type not in ({LeaveType.UNPAID, LeaveType.SICK} if purpose == 'sick' else {LeaveType.UNPAID}):
             continue
         day = max(month, leave.start_date)
         while day <= min(month_end, leave.end_date):
@@ -216,10 +230,12 @@ async def _erp_vacation_source(db, *, company_id, contract_id, calculation, peri
         source_period_start=month, source_period_end=month_end,
         earnings_amount=earnings, eligible_days=days,
         source_reference=(f'ERP payroll calculation {calculation.id}, revision {calculation.revision}; '
-                          f'average rule {RULE_VERSION}; excluded one-off earnings {excluded_earnings:.2f}'))
+                          f'average rule {RULE_VERSION}; excluded one-off earnings {excluded_earnings:.2f}'
+                          if purpose == 'vacation' else
+                          f'ERP sick-pay basis {calculation.id}; assessed USC; excluded earnings {excluded_earnings:.2f}'))
 
 
-async def _excluded_supplement_earnings(db, *, company_id, calculation, lines, month, month_end):
+async def _excluded_supplement_earnings(db, *, company_id, calculation, lines, month, month_end, purpose="vacation"):
     from app.models.payroll_supplement import PayrollSupplement
     excluded = Decimal(0)
     seen = set()
@@ -234,6 +250,14 @@ async def _excluded_supplement_earnings(db, *, company_id, calculation, lines, m
         seen.add(source.id)
         if not month <= source.work_date <= month_end or not source.source_reference.strip():
             raise PayrollAverageHistoryError('Supplement needs an attributed earning month')
+        if purpose == 'sick':
+            if source.kind == 'hardship':
+                raise PayrollAverageHistoryError('Hardship assistance requires a verified USC income classification')
+            if source.kind not in {'bonus', 'holiday_bonus', 'night', 'overtime', 'rest_day', 'regular_extra'}:
+                raise PayrollAverageHistoryError('Unclassified sick-pay earning')
+            if source.kind in {'bonus', 'holiday_bonus'} and Decimal(line.amount) != Decimal(source.amount):
+                raise PayrollAverageHistoryError('Bonus differs from its attributed source amount')
+            continue
         if source.kind in {'holiday_bonus', 'hardship'}:
             if Decimal(line.amount) != Decimal(source.amount):
                 raise PayrollAverageHistoryError('One-off supplement differs from its source amount')

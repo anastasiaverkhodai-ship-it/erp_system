@@ -37,7 +37,15 @@ async def run_copy():
             async with source.connect() as src:
                 await src.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
                 q=dest.dialect.identifier_preparer.quote
+                source_tables=set((await src.scalars(text(
+                    "SELECT tablename FROM pg_tables WHERE schemaname='public'"))).all())
                 for name_table in sorted(Base.metadata.tables):
+                    if name_table not in source_tables:
+                        # New model tables have no historical rows before migration.
+                        # This metadata copy is not a migration verification; test
+                        # upgrades separately against a restored source dump.
+                        print('NEW EMPTY MODEL TABLE', name_table, flush=True)
+                        continue
                     table=q(name_table)
                     # Keep PostgreSQL's numeric JSON text intact: decoding and
                     # re-encoding monetary values through float can lose precision.

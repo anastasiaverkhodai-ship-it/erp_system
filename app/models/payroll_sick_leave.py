@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Integer,
+    JSON,
     Numeric,
     String,
     UniqueConstraint,
@@ -22,6 +23,11 @@ class PayrollSickLeaveCalculation(Base):
     __tablename__ = "payroll_sick_leave_calculations"
 
     __table_args__ = (
+        ForeignKeyConstraint(['company_id', 'insurance_evidence_id'],
+            ['payroll_insurance_evidence.company_id', 'payroll_insurance_evidence.id'],
+            name='fk_payroll_sick_insurance_evidence', ondelete='RESTRICT'),
+        CheckConstraint('(insurance_evidence_id IS NULL) = (insurance_assessment IS NULL)',
+            name='ck_payroll_sick_insurance_assessment'),
         UniqueConstraint(
             "company_id",
             "id",
@@ -137,6 +143,9 @@ class PayrollSickLeaveCalculation(Base):
         Integer,
         nullable=False,
     )
+
+    insurance_evidence_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    insurance_assessment: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     benefit_case_code: Mapped[str] = mapped_column(
         String(50),
