@@ -29,7 +29,7 @@ def test_general_291_working_profile_count() -> None:
         ChartOfAccountsTemplateType.GENERAL_291
     )
 
-    assert profile.count == 19
+    assert profile.count == 21
 
 
 def test_general_291_working_profile_mapping() -> None:
@@ -62,6 +62,8 @@ def test_general_291_working_profile_mapping() -> None:
             "704",
         AccountingAccountRole.GOODS_COGS:
             "902",
+        AccountingAccountRole.PAYROLL_INSURANCE_RECEIVABLE: "378",
+        AccountingAccountRole.PAYROLL_SICK_EXPENSE: "94",
         AccountingAccountRole.PAYROLL_EXPENSE:
             "92",
         AccountingAccountRole.PAYROLL_EMPLOYER_CONTRIBUTION_EXPENSE:
@@ -88,7 +90,7 @@ def test_simplified_186_inventory_roles() -> None:
         ChartOfAccountsTemplateType.SIMPLIFIED_186
     )
 
-    assert profile.count == 9
+    assert profile.count == 11
 
     assert dict(
         profile.role_to_code
@@ -97,6 +99,8 @@ def test_simplified_186_inventory_roles() -> None:
             "26",
         AccountingAccountRole.GOODS_COGS:
             "90",
+        AccountingAccountRole.PAYROLL_INSURANCE_RECEIVABLE: "37",
+        AccountingAccountRole.PAYROLL_SICK_EXPENSE: "97",
         AccountingAccountRole.PAYROLL_EXPENSE:
             "90",
         AccountingAccountRole.PAYROLL_EMPLOYER_CONTRIBUTION_EXPENSE:

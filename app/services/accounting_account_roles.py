@@ -2,6 +2,8 @@ from enum import StrEnum
 
 
 class AccountingAccountRole(StrEnum):
+    PAYROLL_INSURANCE_RECEIVABLE = "payroll_insurance_receivable"
+    PAYROLL_SICK_EXPENSE = "payroll_sick_expense"
     PAYROLL_EXPENSE = "payroll_expense"
     PAYROLL_EMPLOYER_CONTRIBUTION_EXPENSE = "payroll_employer_contribution_expense"
     PAYROLL_NET_PAYABLE = "payroll_net_payable"

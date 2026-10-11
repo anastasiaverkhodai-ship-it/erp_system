@@ -14,6 +14,7 @@ GENERAL_CHILD_PARENT = {
     "311": "31",
     "361": "36",
     "371": "37",
+    "378": "37",
     "631": "63",
     "641": "64",
     "643": "64",
@@ -36,7 +37,7 @@ def test_general_working_catalog_count() -> None:
         )
     )
 
-    assert catalog.count == 96
+    assert catalog.count == 97
     assert len(catalog.roots()) == 84
 
 

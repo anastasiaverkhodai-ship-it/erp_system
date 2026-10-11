@@ -43,6 +43,10 @@ GENERAL_291_WORKING_SUBACCOUNT_METADATA: Mapping[
             account_type=AccountType.ASSET,
             normal_balance=AccountNormalBalance.DEBIT,
         ),
+        "378": UkrainianWorkingSubaccountMetadata(
+            account_type=AccountType.ASSET,
+            normal_balance=AccountNormalBalance.DEBIT,
+        ),
         "371": UkrainianWorkingSubaccountMetadata(
             account_type=AccountType.ASSET,
             normal_balance=AccountNormalBalance.DEBIT,

@@ -385,7 +385,17 @@ async def generate_and_post_payroll_journal_entry(
         components=components,
     )
 
+    from app.services.payroll_sick_accounting_service import sick_funding_for_calculation
+    try:
+        sick_employer, sick_insurer = await sick_funding_for_calculation(db,
+            company_id=company_id, calculation=calculation, period=period)
+    except ValueError as exc:
+        raise PayrollAccountingReconciliationError(str(exc)) from exc
     roles = _payroll_roles()
+    if sick_employer:
+        roles['sick_expense'] = AccountingAccountRole.PAYROLL_SICK_EXPENSE
+    if sick_insurer:
+        roles['insurance_receivable'] = AccountingAccountRole.PAYROLL_INSURANCE_RECEIVABLE
 
     try:
         accounts = await resolve_company_account_roles(
@@ -429,7 +439,7 @@ async def generate_and_post_payroll_journal_entry(
     payload = [
         (
             roles["gross_expense"],
-            gross,
+            gross - sick_employer - sick_insurer,
             ZERO,
             "Payroll gross expense",
         ),
@@ -464,6 +474,11 @@ async def generate_and_post_payroll_journal_entry(
             "Unified social contribution payable",
         ),
     ]
+
+    if sick_employer:
+        payload.append((roles['sick_expense'], sick_employer, ZERO, 'Employer-funded sick pay'))
+    if sick_insurer:
+        payload.append((roles['insurance_receivable'], sick_insurer, ZERO, 'Sick-pay insurance receivable'))
 
     journal.lines = [
         JournalEntryLine(

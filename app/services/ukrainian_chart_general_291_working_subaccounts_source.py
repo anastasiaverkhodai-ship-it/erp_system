@@ -13,6 +13,11 @@ TEMPLATE_TYPE = (
 
 GENERAL_291_WORKING_SUBACCOUNTS_V1 = (
     UkrainianWorkingSubaccountSource(
+        code="378",
+        name="Розрахунки з державними цільовими фондами",
+        parent_code="37",
+    ),
+    UkrainianWorkingSubaccountSource(
         code="281",
         name="Товари на складі",
         parent_code="28",

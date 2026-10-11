@@ -62,6 +62,10 @@ GENERAL_291_WORKING_PROFILE = (
             AccountingAccountRole.GOODS_COGS:
                 "902",
 
+            AccountingAccountRole.PAYROLL_INSURANCE_RECEIVABLE:
+                "378",
+            AccountingAccountRole.PAYROLL_SICK_EXPENSE:
+                "94",
             AccountingAccountRole.PAYROLL_EXPENSE:
                 "92",
 
@@ -97,6 +101,10 @@ SIMPLIFIED_186_WORKING_PROFILE = (
             AccountingAccountRole.GOODS_COGS:
                 "90",
 
+            AccountingAccountRole.PAYROLL_INSURANCE_RECEIVABLE:
+                "37",
+            AccountingAccountRole.PAYROLL_SICK_EXPENSE:
+                "97",
             AccountingAccountRole.PAYROLL_EXPENSE:
                 "90",
 
