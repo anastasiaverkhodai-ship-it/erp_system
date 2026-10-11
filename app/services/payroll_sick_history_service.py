@@ -15,7 +15,12 @@ from app.services.payroll_sick_leave_service import (
 )
 
 RULE_CODE = 'UA_ORDINARY_INCAPACITY_EVIDENCE'
-RULE_VERSION = '1-2026-1105-1266'
+from app.services.payroll_sick_allocation import (
+    ALLOCATION_VERSION, allocate_sick_days, daily_benefit, maximum_contribution_base, sick_period_amount,
+)
+
+LEGACY_RULE_VERSION = '1-2026-1105-1266'
+RULE_VERSION = ALLOCATION_VERSION
 
 
 def service_percentage(months, days=0, entitlement='standard'):
@@ -66,7 +71,8 @@ async def calculate_sick_from_history(db, *, company_id, leave_request_id, insur
     for old, certificate in prior:
         if (certificate.start_date != cursor or certificate.end_date >= leave.start_date
             or certificate.status != 'approved' or old.insurance_evidence_id != evidence.id
-            or old.rule_code != RULE_CODE or old.rule_version != RULE_VERSION):
+            or old.rule_code != RULE_CODE or old.rule_version not in {RULE_VERSION, LEGACY_RULE_VERSION}
+            or old.rule_version != prior[0][0].rule_version):
             raise PayrollSickLeaveConflictError('Continuation requires contiguous approved certificates with the same evidence')
         cursor = certificate.end_date + timedelta(days=1)
     if cursor != leave.start_date:
@@ -82,6 +88,16 @@ async def calculate_sick_from_history(db, *, company_id, leave_request_id, insur
                 if s.source_type != 'insurance_service_evidence'])
     else:
         basis = await derive_leave_average_history(db,company_id=company_id,leave_request_id=leave.id)
+    version = prior[0][0].rule_version if prior else RULE_VERSION
+    if version == RULE_VERSION and not prior:
+        # Imported sick earnings are explicitly attributed contribution-bearing
+        # earnings. Enforce each month's statutory base before averaging.
+        for source in basis['sources']:
+            maximum = maximum_contribution_base(source['source_period_end'])
+            if D(source['earnings_amount']) > maximum:
+                source['earnings_amount'] = maximum
+                source['source_reference'] = ('USC maximum applied; ' + (source.get('source_reference') or ''))[:255]
+        basis['eligible_earnings'] = sum((D(s['earnings_amount']) for s in basis['sources']), D(0))
     percent = service_percentage(evidence.total_service_months,evidence.service_days,evidence.entitlement)
     limited = evidence.recent_service_months < 6
     days = (leave.end_date-leave.start_date).days+1
@@ -91,8 +107,40 @@ async def calculate_sick_from_history(db, *, company_id, leave_request_id, insur
     # and jobs. Do not silently apply a daily ceiling to the wrong month.
     average = D(basis['eligible_earnings'])/D(basis['eligible_days'])
     maximum_reference_base = D(160000) if evidence.case_start.month == 1 else D(172940)
-    if not limited and (average > maximum_reference_base/D('30.44') or average*percent/100*31 > maximum_reference_base):
+    if version == LEGACY_RULE_VERSION and not limited and (average > maximum_reference_base/D('30.44') or average*percent/100*31 > maximum_reference_base):
         raise PayrollSickLeaveDerivationError('High-income sick pay requires monthly maximum-base allocation')
+    allocation = None
+    if version == RULE_VERSION:
+        daily, maximum_reference_base = daily_benefit(earnings=basis['eligible_earnings'],
+            days=basis['eligible_days'], percent=percent, reference_end=basis['reference_period_end'], limited=limited)
+        # Count prior ordinary benefits for this employee, including a former
+        # primary contract in the same month. Later saved certificates require
+        # a correction rather than retroactively consuming their ceiling.
+        other_rows = (await db.execute(select(PayrollSickLeaveCalculation, LeaveRequest)
+            .join(LeaveRequest, (LeaveRequest.company_id == PayrollSickLeaveCalculation.company_id) &
+                  (LeaveRequest.id == PayrollSickLeaveCalculation.leave_request_id))
+            .join(EmploymentContract, (EmploymentContract.company_id == PayrollSickLeaveCalculation.company_id) &
+                  (EmploymentContract.id == PayrollSickLeaveCalculation.employment_contract_id))
+            .where(PayrollSickLeaveCalculation.company_id == company_id,
+                   EmploymentContract.employee_id == evidence.employee_id,
+                   LeaveRequest.status == 'approved',
+                   LeaveRequest.end_date >= leave.start_date.replace(day=1),
+                   LeaveRequest.start_date <= (leave.end_date.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)))).all()
+        spent = {}
+        for previous, certificate in other_rows:
+            if certificate.end_date >= leave.start_date:
+                raise PayrollSickLeaveConflictError('Later or overlapping sick calculation requires a correction before allocating monthly limits')
+            if previous.benefit_case_code != 'ORDINARY_TEMPORARY_INCAPACITY':
+                raise PayrollSickLeaveConflictError('Other benefit cases require a combined monthly allocation')
+            month = leave.start_date.replace(day=1)
+            while month <= leave.end_date:
+                next_month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
+                _, used = sick_period_amount(previous, certificate, month, next_month - timedelta(days=1))
+                key = month.strftime('%Y-%m')
+                spent[key] = spent.get(key, D(0)) + used
+                month = next_month
+        allocation = allocate_sick_days(start=leave.start_date, end=leave.end_date,
+            case_start=evidence.case_start, daily=daily, maximum=maximum_reference_base, previous=spent)
     sources = list(basis['sources'])+[dict(source_type='insurance_service_evidence',source_id=evidence.id,
         source_reference=evidence.document_reference[:255],earnings_amount=D(0),eligible_days=D(0))]
     row = await calculate_sick_leave_pay(db,company_id=company_id,leave_request_id=leave.id,
@@ -100,9 +148,14 @@ async def calculate_sick_from_history(db, *, company_id, leave_request_id, insur
         reference_period_end=basis['reference_period_end'],eligible_earnings=basis['eligible_earnings'],
         eligible_days=basis['eligible_days'],insurance_service_months=evidence.total_service_months,
         benefit_percent=percent,limited_service_rule_applied=limited,employer_days=D(employer_days),
-        insurer_days=D(insurer_days),rule_code=RULE_CODE,rule_version=RULE_VERSION,calculated_by=calculated_by,sources=sources)
+        insurer_days=D(insurer_days),rule_code=RULE_CODE,rule_version=version,calculated_by=calculated_by,sources=sources)
+    if allocation is not None:
+        row.daily_benefit_amount = daily
+        row.employer_amount = sum((D(e['amount']) for e in allocation if e['payer'] == 'employer'), D(0))
+        row.insurer_amount = sum((D(e['amount']) for e in allocation if e['payer'] == 'insurer'), D(0))
+        row.sick_pay_amount = row.employer_amount + row.insurer_amount
     row.insurance_evidence_id = evidence.id
-    row.insurance_assessment = dict(rule_version=RULE_VERSION,case_start=evidence.case_start.isoformat(),
+    row.insurance_assessment = dict(rule_version=version,case_start=evidence.case_start.isoformat(),
         total_service_months=evidence.total_service_months,service_days=evidence.service_days,
         recent_service_months=str(evidence.recent_service_months),entitlement=evidence.entitlement,
         entitlement_reference=evidence.entitlement_reference,benefit_percent=str(percent),limited_service=limited,
@@ -111,5 +164,7 @@ async def calculate_sick_from_history(db, *, company_id, leave_request_id, insur
         initial_calculation_id=prior[0][0].id if prior else row.id,
         sources=['https://zakon.rada.gov.ua/laws/show/1105-14',
                  'https://zakon.rada.gov.ua/laws/show/1266-2001-%D0%BF'])
+    if allocation is not None:
+        row.insurance_assessment.update(daily_allocation=allocation, monthly_maximum=str(maximum_reference_base))
     await db.flush()
     return row

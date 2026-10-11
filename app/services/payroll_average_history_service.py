@@ -292,8 +292,15 @@ async def _verify_paid_leave_lines(db, *, company_id, contract_id, leaves, lines
         if days != (leave.end_date - leave.start_date).days + 1 or source.currency_code != 'UAH':
             raise PayrollAverageHistoryError('Paid absence dates or currency differ from its saved calculation')
         amount = source.vacation_pay_amount if vacation else source.sick_pay_amount
-        quantity, allocated = allocate_leave_amount(start=leave.start_date, end=leave.end_date,
-            period_start=month, period_end=month_end, amount=amount)
+        if vacation:
+            quantity, allocated = allocate_leave_amount(start=leave.start_date, end=leave.end_date,
+                period_start=month, period_end=month_end, amount=amount)
+        else:
+            from app.services.payroll_sick_allocation import sick_period_amount
+            try:
+                quantity, allocated = sick_period_amount(source, leave, month, month_end)
+            except ValueError as exc:
+                raise PayrollAverageHistoryError(str(exc)) from exc
         expected[('vacation_pay' if vacation else 'sick_pay', source.id)] = (Decimal(quantity), allocated)
     actual = {}
     for line in lines:

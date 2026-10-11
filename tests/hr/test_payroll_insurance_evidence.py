@@ -158,18 +158,92 @@ async def test_automatic_sick_requires_attributed_primary_basis(employee_engine,
                 insurance_evidence_id=evidence.id,calculated_by=user.id)
 
 
-async def test_january_sick_does_not_use_february_monthly_ceiling(employee_engine, monkeypatch):
-    import app.services.payroll_sick_history_service as service
-    from app.services.payroll_sick_leave_service import PayrollSickLeaveDerivationError
+async def test_january_sick_caps_month_and_carries_basis_into_february(employee_engine):
+    from calendar import monthrange
+    from types import SimpleNamespace
+    from app.models.payroll_opening import PayrollEarningsHistory
+    from app.services.payroll_sick_leave_service import derive_sick_pay_lines
     async with AsyncSession(employee_engine, expire_on_commit=False) as db:
         company,user,contract,leave,reviewer,_,evidence=await insurance_setup(db)
-        leave.start_date=date(2026,1,1);leave.end_date=date(2026,1,31)
+        leave.start_date=date(2026,1,1);leave.end_date=date(2026,1,20)
         evidence.case_start=date(2026,1,1)
+        histories=(await db.scalars(select(PayrollEarningsHistory).where(
+            PayrollEarningsHistory.employment_contract_id==contract.id).order_by(PayrollEarningsHistory.month))).all()
+        for i,history in enumerate(histories,1):
+            history.month=date(2025,i,1);history.cutover_date=date(2026,1,1)
+            history.gross_amount=history.sick_earnings=D(160000)
+            history.sick_days=history.vacation_days=D(monthrange(2025,i)[1])
         await review_insurance_evidence(db,company_id=company.id,evidence_id=evidence.id,
             reviewed_by=reviewer.id,approved=True)
-        async def basis(*args, **kwargs):
-            return dict(eligible_earnings=D(5200)*365,eligible_days=D(365))
-        monkeypatch.setattr(service,'derive_leave_average_history',basis)
-        with pytest.raises(PayrollSickLeaveDerivationError,match='monthly maximum'):
-            await calculate_sick_from_history(db,company_id=company.id,leave_request_id=leave.id,
-                insurance_evidence_id=evidence.id,calculated_by=user.id)
+        first=await calculate_sick_from_history(db,company_id=company.id,leave_request_id=leave.id,
+            insurance_evidence_id=evidence.id,calculated_by=user.id)
+        assert first.daily_benefit_amount==D('5256.24')
+        assert first.sick_pay_amount==D('105124.80')
+        second=LeaveRequest(company_id=company.id,employment_contract_id=contract.id,leave_type='sick',
+            start_date=date(2026,1,21),end_date=date(2026,2,3),status='approved',requested_by=user.id,
+            approved_by=user.id,approved_at=datetime.now(UTC))
+        db.add(second);await db.flush()
+        continued=await calculate_sick_from_history(db,company_id=company.id,leave_request_id=second.id,
+            insurance_evidence_id=evidence.id,calculated_by=user.id)
+        assert continued.employer_amount==0
+        assert continued.sick_pay_amount==D('70643.92')
+        assert continued.insurance_assessment['monthly_maximum']=='160000.00'
+        assert first.sick_pay_amount+continued.sick_pay_amount==D('175768.72')
+        for month,expected in [(1,D(160000)),(2,D('15768.72'))]:
+            lines=await derive_sick_pay_lines(db,company_id=company.id,
+                payroll_input=SimpleNamespace(employment_contract_id=contract.id),
+                period=SimpleNamespace(start_date=date(2026,month,1),end_date=date(2026,month,monthrange(2026,month)[1])))
+            assert sum(x['amount'] for x in lines)==expected
+        assert (await calculate_sick_from_history(db,company_id=company.id,leave_request_id=second.id,
+            insurance_evidence_id=evidence.id,calculated_by=user.id)).id==continued.id
+
+
+async def test_legacy_insurance_continuation_preserves_original_rounding(employee_engine):
+    from app.services.payroll_sick_leave_service import calculate_sick_leave_pay
+    from app.services.payroll_sick_history_service import RULE_CODE, LEGACY_RULE_VERSION
+    from app.services.payroll_average_history_service import derive_leave_average_history
+    async with AsyncSession(employee_engine,expire_on_commit=False) as db:
+        company,user,contract,leave,reviewer,_,evidence=await insurance_setup(db)
+        await review_insurance_evidence(db,company_id=company.id,evidence_id=evidence.id,
+            reviewed_by=reviewer.id,approved=True)
+        basis=await derive_leave_average_history(db,company_id=company.id,leave_request_id=leave.id)
+        first=await calculate_sick_leave_pay(db,company_id=company.id,leave_request_id=leave.id,
+            benefit_case_code='ORDINARY_TEMPORARY_INCAPACITY',reference_period_start=basis['reference_period_start'],
+            reference_period_end=basis['reference_period_end'],eligible_earnings=basis['eligible_earnings'],
+            eligible_days=basis['eligible_days'],insurance_service_months=120,benefit_percent=D(100),
+            limited_service_rule_applied=False,employer_days=D(5),insurer_days=D(2),rule_code=RULE_CODE,
+            rule_version=LEGACY_RULE_VERSION,calculated_by=user.id,sources=basis['sources'])
+        first.insurance_evidence_id=evidence.id
+        first.insurance_assessment={'rule_version':LEGACY_RULE_VERSION}
+        second=LeaveRequest(company_id=company.id,employment_contract_id=contract.id,leave_type='sick',
+            start_date=date(2026,10,5),end_date=date(2026,10,9),status='approved',requested_by=user.id,
+            approved_by=user.id,approved_at=datetime.now(UTC))
+        db.add(second);await db.flush()
+        continued=await calculate_sick_from_history(db,company_id=company.id,leave_request_id=second.id,
+            insurance_evidence_id=evidence.id,calculated_by=user.id)
+        assert continued.rule_version==LEGACY_RULE_VERSION
+        assert continued.sick_pay_amount==400
+        assert 'daily_allocation' not in continued.insurance_assessment
+        assert first.sick_pay_amount==560
+
+
+async def test_new_earlier_case_cannot_reallocate_existing_later_certificate(employee_engine):
+    async with AsyncSession(employee_engine,expire_on_commit=False) as db:
+        company,user,contract,leave,reviewer,_,evidence=await insurance_setup(db)
+        await review_insurance_evidence(db,company_id=company.id,evidence_id=evidence.id,
+            reviewed_by=reviewer.id,approved=True)
+        await calculate_sick_from_history(db,company_id=company.id,leave_request_id=leave.id,
+            insurance_evidence_id=evidence.id,calculated_by=user.id)
+        earlier=LeaveRequest(company_id=company.id,employment_contract_id=contract.id,leave_type='sick',
+            start_date=date(2026,9,10),end_date=date(2026,9,12),status='approved',requested_by=user.id,
+            approved_by=user.id,approved_at=datetime.now(UTC))
+        db.add(earlier);await db.flush()
+        data=InsuranceEvidenceCreate(employee_id=contract.employee_id,case_start=earlier.start_date,
+            total_service_months=120,recent_service_months=12,issued_on=date(2026,9,10),
+            document_reference='Earlier case evidence',request_key='earlier-case')
+        proof=await create_insurance_evidence(db,company_id=company.id,data=data,created_by=user.id)
+        await review_insurance_evidence(db,company_id=company.id,evidence_id=proof.id,
+            reviewed_by=reviewer.id,approved=True)
+        with pytest.raises(PayrollSickLeaveConflictError,match='Later or overlapping'):
+            await calculate_sick_from_history(db,company_id=company.id,leave_request_id=earlier.id,
+                insurance_evidence_id=proof.id,calculated_by=user.id)

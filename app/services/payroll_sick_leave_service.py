@@ -433,14 +433,14 @@ async def derive_sick_pay_lines(
 
     lines: list[dict] = []
 
-    from app.services.payroll_leave_allocation import allocate_leave_amount
+    from app.services.payroll_sick_allocation import sick_period_amount
     for row, leave in rows:
         if Decimal((leave.end_date - leave.start_date).days + 1) != row.sick_days:
             raise PayrollSickLeaveDerivationError('Leave dates changed after calculation; use a correction')
-        allocated_days, allocated_amount = allocate_leave_amount(
-            start=leave.start_date, end=leave.end_date,
-            period_start=period.start_date, period_end=period.end_date,
-            amount=row.sick_pay_amount)
+        try:
+            allocated_days, allocated_amount = sick_period_amount(row, leave, period.start_date, period.end_date)
+        except ValueError as exc:
+            raise PayrollSickLeaveDerivationError(str(exc)) from exc
         lines.append(
             {
                 "line_type": "sick_pay",
