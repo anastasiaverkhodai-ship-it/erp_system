@@ -142,6 +142,11 @@ async def test_funding_http_permissions_and_no_duplicate_posting(employee_engine
             assert (await client.post(prefix,json=equivalent)).json()==saved
             assert (await client.get(prefix+f'/{identifier}')).json()==saved
             assert (await client.get(prefix)).json()==[saved]
+            balances=await client.get(prefix+'/balances',params={'as_of':'2026-09-30'})
+            assert balances.status_code==200,balances.text
+            pit=next(x for x in balances.json()['totals'] if x['component']=='personal_income_tax')
+            assert D(pit['paid_amount'])==400 and D(pit['outstanding_amount'])==302
+            assert (await client.get(prefix+'/balances',params={'as_of':'not-a-date'})).status_code==422
             assert (await client.get(f'/companies/2147483647/payroll-tax-remittances/{identifier}')).status_code==403
             reversed_=await client.post(prefix+f'/{identifier}/reverse',json={'reversal_date':'2026-09-30'})
             assert reversed_.status_code==200,reversed_.text

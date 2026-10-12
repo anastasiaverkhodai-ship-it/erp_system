@@ -60,3 +60,28 @@ class TaxRemittanceRead(BaseModel):
 class TaxRemittanceReverse(BaseModel):
     model_config = ConfigDict(extra='forbid')
     reversal_date: date
+
+
+class TaxBalanceTotals(BaseModel):
+    component: str
+    accrued_amount: Decimal
+    paid_amount: Decimal
+    outstanding_amount: Decimal
+
+
+class TaxBalanceRow(TaxBalanceTotals):
+    payroll_calculation_id: int
+    employee_id: int
+    employment_contract_id: int
+    period_start: date
+    period_end: date
+    accrual_journal_id: int
+
+
+class TaxBalanceRead(BaseModel):
+    company_id: int
+    as_of: date
+    currency_code: str
+    scope: str
+    rows: list[TaxBalanceRow]
+    totals: list[TaxBalanceTotals]
