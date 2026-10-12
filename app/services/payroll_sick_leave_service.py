@@ -128,8 +128,8 @@ async def calculate_sick_leave_pay(
     company_id: int,
     leave_request_id: int,
     benefit_case_code: str,
-    reference_period_start: date,
-    reference_period_end: date,
+    reference_period_start: date | None,
+    reference_period_end: date | None,
     eligible_earnings: Decimal,
     eligible_days: Decimal,
     insurance_service_months: int,
@@ -203,7 +203,12 @@ async def calculate_sick_leave_pay(
         date_from=leave_request.start_date, date_to=leave_request.end_date,
         error_type=PayrollSickLeaveConflictError)
 
-    if reference_period_end < reference_period_start or reference_period_end >= leave_request.start_date:
+    from app.services.payroll_sick_allocation import FIRST_DAY_VERSION
+    replacement_basis = (reference_period_start is None and reference_period_end is None
+                         and rule_version == FIRST_DAY_VERSION
+                         and rule_code == 'UA_ORDINARY_INCAPACITY_EVIDENCE')
+    if not replacement_basis and (reference_period_start is None or reference_period_end is None
+            or reference_period_end < reference_period_start or reference_period_end >= leave_request.start_date):
         raise PayrollSickLeaveDerivationError(
             "Invalid sick leave reference period: earnings must precede incapacity"
         )
@@ -342,6 +347,7 @@ async def calculate_sick_leave_pay(
             "earnings_history",
             "payroll_calculation",
             "insurance_service_evidence",
+            "replacement_salary_rate",
         }:
             raise PayrollSickLeaveDerivationError(
                 "Unsupported sick leave source type"

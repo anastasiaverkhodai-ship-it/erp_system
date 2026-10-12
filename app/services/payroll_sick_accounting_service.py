@@ -6,7 +6,7 @@ from app.models.leave_request import LeaveRequest
 from app.models.payroll import PayrollCalculationLine
 from app.models.payroll_sick_leave import PayrollSickLeaveCalculation
 from app.services.payroll_leave_allocation import allocate_leave_amount
-from app.services.payroll_sick_allocation import ALLOCATION_VERSION, sick_period_amount
+from app.services.payroll_sick_allocation import DATED_ALLOCATION_VERSIONS, sick_period_amount
 
 
 async def sick_funding_for_calculation(db, *, company_id, calculation, period):
@@ -34,7 +34,7 @@ async def sick_funding_for_calculation(db, *, company_id, calculation, period):
         days, total = sick_period_amount(source, leave, period.start_date, period.end_date)
         if D(days) != line.quantity or total != line.amount or days <= 0:
             raise ValueError('Sick payroll line does not reconcile to its dated funding source')
-        if source.rule_version == ALLOCATION_VERSION:
+        if source.rule_version in DATED_ALLOCATION_VERSIONS:
             insurer_part = sum((D(x['amount']) for x in source.insurance_assessment['daily_allocation']
                 if x['payer'] == 'insurer' and period.start_date.isoformat() <= x['date'] <= period.end_date.isoformat()), D(0))
             employer_part = total - insurer_part

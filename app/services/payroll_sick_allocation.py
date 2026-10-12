@@ -7,6 +7,8 @@ from app.services.payroll_leave_allocation import allocate_leave_amount
 D = Decimal
 ZERO = D('0.00')
 ALLOCATION_VERSION = '2-2026-monthly-ceilings'
+FIRST_DAY_VERSION = '3-2026-first-day-monthly'
+DATED_ALLOCATION_VERSIONS = {ALLOCATION_VERSION, FIRST_DAY_VERSION}
 
 
 def money(value):
@@ -59,7 +61,7 @@ def allocate_sick_days(*, start, end, case_start, daily, maximum, previous=None)
 def sick_period_amount(row, leave, period_start, period_end):
     """Use saved dated amounts; legacy calculations retain their old allocation."""
     assessment = row.insurance_assessment or {}
-    if row.rule_version != ALLOCATION_VERSION:
+    if row.rule_version not in DATED_ALLOCATION_VERSIONS:
         return allocate_leave_amount(start=leave.start_date, end=leave.end_date,
             period_start=period_start, period_end=period_end, amount=row.sick_pay_amount)
     entries = assessment.get('daily_allocation')

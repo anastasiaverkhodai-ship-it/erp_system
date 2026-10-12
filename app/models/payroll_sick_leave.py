@@ -58,7 +58,7 @@ class PayrollSickLeaveCalculation(Base):
             name="ck_payroll_sick_leave_calculation_sick_days",
         ),
         CheckConstraint(
-            "reference_period_end >= reference_period_start",
+            "((reference_period_start IS NOT NULL AND reference_period_end IS NOT NULL AND reference_period_end >= reference_period_start) OR (reference_period_start IS NULL AND reference_period_end IS NULL AND rule_version = '3-2026-first-day-monthly'))",
             name="ck_payroll_sick_leave_calculation_reference_period",
         ),
         CheckConstraint(
@@ -157,14 +157,14 @@ class PayrollSickLeaveCalculation(Base):
         nullable=False,
     )
 
-    reference_period_start: Mapped[date] = mapped_column(
+    reference_period_start: Mapped[date | None] = mapped_column(
         Date,
-        nullable=False,
+        nullable=True,
     )
 
-    reference_period_end: Mapped[date] = mapped_column(
+    reference_period_end: Mapped[date | None] = mapped_column(
         Date,
-        nullable=False,
+        nullable=True,
     )
 
     eligible_earnings: Mapped[Decimal] = mapped_column(
@@ -288,7 +288,7 @@ class PayrollSickLeaveCalculationSource(Base):
         CheckConstraint(
             "source_type IN "
             "('earnings_history','payroll_calculation',"
-            "'insurance_service_evidence')",
+            "'insurance_service_evidence','replacement_salary_rate')",
             name="ck_payroll_sick_leave_source_type",
         ),
         CheckConstraint(

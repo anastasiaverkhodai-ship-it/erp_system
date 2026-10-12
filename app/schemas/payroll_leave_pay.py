@@ -61,8 +61,8 @@ class SickCalculationRead(BaseModel):
     leave_request_id: int
     employment_contract_id: int
     benefit_case_code: str
-    reference_period_start: date
-    reference_period_end: date
+    reference_period_start: date | None
+    reference_period_end: date | None
     eligible_earnings: Decimal
     eligible_days: Decimal
     sick_days: Decimal
