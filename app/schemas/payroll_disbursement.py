@@ -28,7 +28,8 @@ class PayrollDisbursementRead(BaseModel):
     id: int
     company_id: int
     request_key: str
-    payroll_calculation_id: int
+    payroll_calculation_id: int | None
+    opening_debt_id: int | None
     employee_id: int
     bank_account_id: int
     employee_iban_snapshot: str

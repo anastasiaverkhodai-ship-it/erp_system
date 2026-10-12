@@ -74,6 +74,11 @@ async def require_posted_payroll_accrual(db, *, company_id, disbursement, error_
     from app.models.journal_entry import JournalEntry, JournalEntryStatus
     if disbursement.cancelled_at is not None:
         raise error_type('Cancelled payroll disbursement cannot be posted')
+    if disbursement.opening_debt_id is not None:
+        from app.services.payroll_opening_disbursement_service import require_opening_debt_for_payout
+        await require_opening_debt_for_payout(db, company_id=company_id,
+            disbursement=disbursement, error_type=error_type)
+        return
     accrual = await db.scalar(select(JournalEntry).where(
         JournalEntry.company_id == company_id,
         JournalEntry.payroll_calculation_id == disbursement.payroll_calculation_id,

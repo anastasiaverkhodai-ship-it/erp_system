@@ -250,3 +250,31 @@ async def api_unmatch_payroll_bank(company_id: int, payroll_disbursement_id: int
     except Exception:
         await db.rollback()
         raise
+
+
+@router.post('/companies/{company_id}/payroll-opening-debts/{opening_debt_id}/disbursements',
+             response_model=PayrollDisbursementRead,status_code=status.HTTP_201_CREATED)
+async def api_create_opening_disbursement(company_id:int,opening_debt_id:int,
+    payload:PayrollDisbursementCreate,db:AsyncSession=Depends(get_db),
+    actor:User=Depends(require_company_permission('journal_entries.create'))):
+    from app.services.payroll_opening_disbursement_service import create_opening_disbursement
+    try:
+        row=await create_opening_disbursement(db,company_id=company_id,opening_debt_id=opening_debt_id,
+            data=payload,created_by=actor.id)
+        result=PayrollDisbursementRead.model_validate(row)
+        await db.commit()
+        return result
+    except PayrollDisbursementError as exc:
+        await db.rollback()
+        raise _http_error(exc) from exc
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.get('/companies/{company_id}/payroll-opening-debts/{opening_debt_id}/disbursements',
+            response_model=list[PayrollDisbursementRead])
+async def api_list_opening_disbursements(company_id:int,opening_debt_id:int,
+    db:AsyncSession=Depends(get_db),actor:User=Depends(require_company_permission('journal_entries.read'))):
+    from app.services.payroll_opening_disbursement_service import list_opening_disbursements
+    return await list_opening_disbursements(db,company_id=company_id,opening_debt_id=opening_debt_id)

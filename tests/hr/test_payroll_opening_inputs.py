@@ -93,11 +93,14 @@ async def test_opening_input_migration_preserves_history(employee_engine):
         with Operations.context(MigrationContext.configure(sync)):
             getattr(migration,method)()
     async with employee_engine.begin() as connection:
+        # Remove the later payout FK around this older opening-table roundtrip.
+        await connection.execute(text('ALTER TABLE payroll_disbursements DROP CONSTRAINT fk_payroll_disbursements_opening_debt'))
         for table in ('payroll_opening_debts','payroll_opening_packages','payroll_leave_openings','payroll_earnings_history'):
             await connection.execute(text(f'DROP TABLE {table}'))
         await connection.run_sync(run,'upgrade')
         await connection.run_sync(run,'downgrade')
         await connection.run_sync(run,'upgrade')
+        await connection.execute(text('ALTER TABLE payroll_disbursements ADD CONSTRAINT fk_payroll_disbursements_opening_debt FOREIGN KEY (company_id, opening_debt_id) REFERENCES payroll_opening_debts(company_id, id) ON DELETE RESTRICT'))
     async with AsyncSession(employee_engine,expire_on_commit=False) as db:
         f=await setup(db);c=await contract(db,f)
         row=await import_leave_opening(db,company_id=f['company'],contract_id=c.id,created_by=f['actor'],

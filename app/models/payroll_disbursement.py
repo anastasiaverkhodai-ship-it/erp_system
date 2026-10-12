@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -37,6 +37,11 @@ class PayrollDisbursement(Base):
         CheckConstraint("reversed_on IS NULL OR confirmed_at IS NOT NULL",
                         name="ck_payroll_disbursement_chronology"),
         CheckConstraint("amount > 0", name="ck_payroll_disbursement_positive"),
+        CheckConstraint("num_nonnulls(payroll_calculation_id, opening_debt_id) = 1",
+                        name="ck_payroll_disbursements_source"),
+        ForeignKeyConstraint(["company_id", "opening_debt_id"],
+                             ["payroll_opening_debts.company_id", "payroll_opening_debts.id"],
+                             name="fk_payroll_disbursements_opening_debt", ondelete="RESTRICT"),
         ForeignKeyConstraint(
             ["company_id", "payroll_calculation_id"],
             [
@@ -82,10 +87,8 @@ class PayrollDisbursement(Base):
     )
     request_key: Mapped[str] = mapped_column(String(200), nullable=False)
 
-    payroll_calculation_id: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-    )
+    payroll_calculation_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    opening_debt_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     employee_id: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -122,5 +125,5 @@ class PayrollDisbursement(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
     )
