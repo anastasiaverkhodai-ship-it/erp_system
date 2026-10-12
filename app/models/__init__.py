@@ -234,3 +234,7 @@ from app.models.payroll_insurance_evidence import PayrollInsuranceEvidence
 from app.models.payroll_insurance_funding import PayrollInsuranceFunding, PayrollInsuranceFundingLine
 
 from app.models.payroll_tax_remittance import PayrollTaxRemittance, PayrollTaxRemittanceLine
+
+from app.models.payroll_deduction_rule_approval import PayrollDeductionRuleApproval
+
+from app.models.payroll_deduction_rule_approval_event import PayrollDeductionRuleApprovalEvent
