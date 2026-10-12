@@ -216,9 +216,12 @@ async def test_migration_roundtrip_and_legacy_backfill(opening_engine):
     detail = import_module("alembic.versions.d1552cd41bf1_opening_subledger_detail")
     fa_opening = import_module("alembic.versions.2b49ee3de82f_add_fixed_asset_opening_balances")
     payroll_opening = import_module("alembic.versions.13d4a7b8c007_payroll_opening_inputs")
+    insurance_funding = import_module("alembic.versions.13d4a7b8c017_payroll_insurance_funding")
     async with opening_engine.begin() as conn:
         def migrate(sync):
             with Operations.context(MigrationContext.configure(sync)):
+                # The later funding FK depends on the journal candidate key.
+                insurance_funding.downgrade()
                 # Install the actual revision, including its immutable triggers:
                 # metadata.create_all creates only the empty table definitions.
                 for table in ('payroll_opening_debts', 'payroll_opening_packages',
@@ -241,6 +244,7 @@ async def test_migration_roundtrip_and_legacy_backfill(opening_engine):
                 detail.upgrade()
                 fa_opening.upgrade()
                 payroll_opening.upgrade()
+                insurance_funding.upgrade()
         await conn.run_sync(migrate)
         row = (await conn.execute(text("SELECT request_key, request_fingerprint, journal_entry_id FROM opening_balances WHERE id=99"))).one()
         assert row == ("legacy:99", "0"*64, 99)

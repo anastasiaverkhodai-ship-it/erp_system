@@ -455,9 +455,13 @@ async def reverse_journal_entry(
             "Journal entry not found"
         )
 
+    from app.services.payroll_insurance_funding_service import ensure_funding_receipt_reversible
+    await ensure_funding_receipt_reversible(db, company_id=company_id,
+        journal_entry_id=original_entry.id, reversal_date=reversal_date, error_type=AccountingReversalError)
+
     if original_entry.payroll_calculation_id is not None:
         await ensure_no_posted_payroll_disbursement(db, company_id=company_id,
-            calculation_id=original_entry.payroll_calculation_id,
+            calculation_id=original_entry.payroll_calculation_id, reversal_date=reversal_date,
             error_type=AccountingReversalError)
 
     if original_entry.payroll_disbursement_id is not None:

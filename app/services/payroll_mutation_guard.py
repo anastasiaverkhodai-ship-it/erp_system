@@ -3,7 +3,7 @@ from datetime import date
 from functools import wraps
 from inspect import signature
 
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from app.models.company import Company
 from app.models.payroll import PayrollInput, PayrollPeriod, PayrollPeriodStatus
 
@@ -50,12 +50,23 @@ async def ensure_payroll_source_editable(db, *, company_id, date_from,
 async def lock_payroll_journal_company(db, company_id, journal_entry_id):
     """Also cover direct journal endpoints, using the same lock ordering."""
     from app.models.journal_entry import JournalEntry
+    # An unassigned manual receipt may become payroll funding concurrently.
+    # Lock its company before its journal, even before attribution exists.
+    manual_receipt = and_(*(
+        column.is_(None) for column in JournalEntry.__table__.columns
+        if column.name.endswith('_id')
+        and column.name not in {'company_id', 'id', 'reversal_of_id', 'accounting_rule_id'}
+    ))
     source = (await db.execute(select(
         JournalEntry.payroll_calculation_id, JournalEntry.payroll_disbursement_id,
-        JournalEntry.payroll_advance_id, JournalEntry.payroll_deduction_result_id
+        JournalEntry.payroll_advance_id, JournalEntry.payroll_deduction_result_id, manual_receipt
     ).where(JournalEntry.company_id == company_id,
             JournalEntry.id == journal_entry_id))).first()
-    if source is not None and any(value is not None for value in source):
+    from app.models.payroll_insurance_funding import PayrollInsuranceFunding
+    funding = await db.scalar(select(PayrollInsuranceFunding.id).where(
+        PayrollInsuranceFunding.company_id == company_id,
+        PayrollInsuranceFunding.journal_entry_id == journal_entry_id))
+    if funding is not None or (source is not None and (source[-1] or any(value is not None for value in source[:-1]))):
         await db.scalar(select(Company.id).where(Company.id == company_id).with_for_update())
 
 
@@ -92,8 +103,10 @@ async def require_posted_payroll_accrual(db, *, company_id, disbursement, error_
         raise error_type('Final payroll disbursement cannot predate accrual; use an advance')
 
 
-async def ensure_no_posted_payroll_disbursement(db, *, company_id, calculation_id, error_type):
+async def ensure_no_posted_payroll_disbursement(db, *, company_id, calculation_id, reversal_date, error_type):
     from app.models.journal_entry import JournalEntry, JournalEntryStatus
+    from app.services.payroll_insurance_funding_service import ensure_no_insurance_funding
+    await ensure_no_insurance_funding(db, company_id=company_id, calculation_id=calculation_id, reversal_date=reversal_date, error_type=error_type)
     from app.models.payroll_disbursement import PayrollDisbursement
     payout = await db.scalar(select(JournalEntry.id).join(PayrollDisbursement,
         JournalEntry.payroll_disbursement_id == PayrollDisbursement.id).where(
