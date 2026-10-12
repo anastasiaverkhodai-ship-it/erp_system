@@ -241,3 +241,6 @@ app.include_router(payroll_insurance_evidence_router, prefix='/api/v1')
 
 from app.api.v1.payroll_insurance_funding import router as payroll_insurance_funding_router
 app.include_router(payroll_insurance_funding_router, prefix='/api/v1')
+
+from app.api.v1.payroll_tax_remittance import router as payroll_tax_remittance_router
+app.include_router(payroll_tax_remittance_router, prefix='/api/v1')

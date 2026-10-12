@@ -231,3 +231,5 @@ from app.models.payroll_employee_tax_evidence import PayrollEmployeeTaxEvidence
 
 from app.models.payroll_insurance_evidence import PayrollInsuranceEvidence
 from app.models.payroll_insurance_funding import PayrollInsuranceFunding, PayrollInsuranceFundingLine
+
+from app.models.payroll_tax_remittance import PayrollTaxRemittance, PayrollTaxRemittanceLine

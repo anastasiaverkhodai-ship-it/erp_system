@@ -110,6 +110,8 @@ async def require_posted_payroll_accrual(db, *, company_id, disbursement, error_
 
 async def ensure_no_posted_payroll_disbursement(db, *, company_id, calculation_id, reversal_date, error_type):
     from app.models.journal_entry import JournalEntry, JournalEntryStatus
+    from app.services.payroll_tax_remittance_service import ensure_no_tax_remittance
+    await ensure_no_tax_remittance(db, company_id=company_id, calculation_id=calculation_id, reversal_date=reversal_date, error_type=error_type)
     from app.services.payroll_insurance_funding_service import ensure_no_insurance_funding
     await ensure_no_insurance_funding(db, company_id=company_id, calculation_id=calculation_id, reversal_date=reversal_date, error_type=error_type)
     from app.models.payroll_disbursement import PayrollDisbursement
