@@ -330,3 +330,26 @@ https://www.pfu.gov.ua/cv/411220-vyznachennya-rozrahunkovogo-periodu-pry-obchysl
 Перевірки: **3 passed**, 56 попереджень — історичні дати, сторнування платежу
 й нарахування, відсутня компанія, неприв'язаний платіж, HTTP/права/формат дати.
 Тестову копію видалено. Додаткової міграції для звіту немає.
+
+
+## 12.10.2026 — C3 deduction evidence and aggregate safety
+
+Completed the candidate-only C3 evidence/classification/limit chain and a
+separate fail-closed aggregate assessment. Mixed categories, unverified evidence,
+duplicate instructions, company/contract mismatches and aggregate or individual
+overages reject the entire snapshot. Real payroll result calculation remains
+unchanged; a successful assessment never authorizes withholding.
+
+PostgreSQL acceptance: **4 passed** on a disposable copy. Fixed stale-session
+repeat verification and added a migration-021 history-preservation guard.
+Full ERP regression: **4085 passed / 1 failed** (20m18s); the old year-end
+migration test omitted dependency 018. Added that dependency without weakening
+metadata assertions. Final rerun of year-end, all deduction tests, opening and
+regular disbursements, and settlement migrations: **185 passed** (1m37s).
+The entire suite was not rerun after that test-only correction.
+
+Working PostgreSQL data hashes match for 164 tables / 1776 rows. Revision remains
+`13d4a7b8c020`; migration 021 is included in source but unapplied to the working
+database. Test databases were removed. User authorized commit and push.
+C3 candidate scope is accepted; production legal integration and the rest of
+Phase 13 remain separate work. Details: [C3 report](phase13_c3_aggregate_safety.md).
