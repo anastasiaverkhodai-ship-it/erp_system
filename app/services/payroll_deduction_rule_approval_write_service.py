@@ -113,6 +113,7 @@ def _record_from_model(
         approved_at=approval.approved_at,
         revoked_by=approval.revoked_by,
         revoked_at=approval.revoked_at,
+        company_id=approval.company_id,
     )
 
 

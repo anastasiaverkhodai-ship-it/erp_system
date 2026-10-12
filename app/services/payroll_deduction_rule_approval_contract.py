@@ -40,6 +40,7 @@ class RuleApprovalRecord:
     approved_at: datetime | None = None
     revoked_by: int | None = None
     revoked_at: datetime | None = None
+    company_id: int | None = None
 
 
 def validate_rule_approval(record: RuleApprovalRecord) -> None:
