@@ -238,3 +238,4 @@ from app.models.payroll_tax_remittance import PayrollTaxRemittance, PayrollTaxRe
 from app.models.payroll_deduction_rule_approval import PayrollDeductionRuleApproval
 
 from app.models.payroll_deduction_rule_approval_event import PayrollDeductionRuleApprovalEvent
+from app.models.payroll_deduction_remainder import PayrollDeductionRemainder, PayrollDeductionRemainderEvent
