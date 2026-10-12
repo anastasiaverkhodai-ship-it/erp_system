@@ -241,22 +241,56 @@ async def test_reads_run_with_autoflush_disabled():
 
 
 @pytest.mark.asyncio
-async def test_existing_payroll_result_keeps_original_financial_behavior():
-    from app.services.payroll_deduction_result_service import calculate_payroll_deduction_result
+async def test_unapproved_deduction_cannot_enter_payroll():
+    from app.services.payroll_deduction_result_service import (
+        PayrollDeductionResultConflictError,
+        calculate_payroll_deduction_result,
+    )
 
-    # Existing payroll can still calculate 3000 here; the new candidate limit
-    # would reject it. This regression detects accidental production wiring.
-    db = database(7, None, SimpleNamespace(id=4, payroll_period_id=2, employment_contract_id=3),
-                  SimpleNamespace(id=5, net_amount=D("10000"), currency_code="UAH"),
-                  SimpleNamespace(end_date=DAY))
+    db = database(
+        7,
+        None,
+        SimpleNamespace(
+            id=4,
+            payroll_period_id=2,
+            employment_contract_id=3,
+        ),
+        SimpleNamespace(
+            id=5,
+            net_amount=D("10000"),
+            currency_code="UAH",
+        ),
+        SimpleNamespace(end_date=DAY),
+        None,
+    )
+
     instructions = MagicMock()
-    instructions.all.return_value = [instruction(method="fixed", fixed_amount=D("3000"),
-        percentage=None, priority=100, deduction_type="other", source_reference=None)]
+    instructions.all.return_value = [
+        instruction(
+            method="fixed",
+            fixed_amount=D("3000"),
+            percentage=None,
+            priority=100,
+            deduction_type="other",
+            source_reference=None,
+        )
+    ]
+
     db.scalars = AsyncMock(return_value=instructions)
     db.flush = AsyncMock()
-    result = await calculate_payroll_deduction_result(db, company_id=7,
-        payroll_calculation_id=4, calculated_by=5)
-    assert result.deduction_amount == D("3000")
-    assert result.final_payable_amount == D("7000")
-    assert db.scalar.await_count == 5
+
+    with pytest.raises(
+        PayrollDeductionResultConflictError,
+        match="not authorized",
+    ):
+        await calculate_payroll_deduction_result(
+            db,
+            company_id=7,
+            payroll_calculation_id=4,
+            calculated_by=5,
+        )
+
+    db.add.assert_not_called()
+    db.flush.assert_not_awaited()
     db.commit.assert_not_called()
+    db.rollback.assert_not_called()

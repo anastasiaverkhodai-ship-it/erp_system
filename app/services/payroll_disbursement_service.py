@@ -20,7 +20,10 @@ from app.models.payroll_disbursement import PayrollDisbursement
 from app.models.payroll_advance import PayrollAdvance
 from app.models.payroll_statutory import PayrollStatutoryResult
 from app.models.payroll_deduction_result import PayrollDeductionResult
-from app.services.payroll_deduction_result_service import calculate_payroll_deduction_result
+from app.services.payroll_deduction_result_service import (
+    calculate_payroll_deduction_result,
+    require_authorized_deduction_result,
+)
 from app.services.accounting_account_role_resolver import (
     AccountingAccountRoleResolutionError,
     resolve_company_account_roles,
@@ -202,6 +205,8 @@ async def create_payroll_disbursement(
             payroll_calculation_id=calculation.id,
             calculated_by=created_by,
         )
+
+    require_authorized_deduction_result(deduction_result)
 
     if deduction_result is not None:
         if (

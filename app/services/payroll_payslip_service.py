@@ -7,7 +7,10 @@ from app.services.payroll_mutation_guard import serialized_payroll_mutation
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.payroll_deduction_result_service import calculate_payroll_deduction_result
+from app.services.payroll_deduction_result_service import (
+    calculate_payroll_deduction_result,
+    require_authorized_deduction_result,
+)
 
 from app.models import (
     Employee,
@@ -299,6 +302,8 @@ async def generate_payroll_payslip(
             payroll_calculation_id=calculation.id,
             calculated_by=actor_user_id,
         )
+
+    require_authorized_deduction_result(deduction_result)
 
     if deduction_result is not None:
         if (

@@ -9,6 +9,7 @@ from app.models.payroll_statutory import PayrollStatutoryResult
 from app.models.payroll_disbursement import PayrollDisbursement
 from app.schemas.payroll_register import PayrollRegister, PayrollRegisterRow, PayrollRegisterAdvance
 from app.services.payroll_period_service import PayrollPeriodNotFoundError, PayrollPeriodError
+from app.services.payroll_deduction_result_service import require_authorized_deduction_result
 
 
 async def get_payroll_register(db, *, company_id: int, payroll_period_id: int):
@@ -107,6 +108,7 @@ async def get_payroll_register(db, *, company_id: int, payroll_period_id: int):
         deduction_reversed = False
         if deduction_data:
             deduction, deduction_entry = deduction_data
+            require_authorized_deduction_result(deduction)
             deduction_amount = deduction.deduction_amount
             if deduction.statutory_net_amount != net or deduction.currency_code != currency:
                 issues.append('deduction_result_mismatch')

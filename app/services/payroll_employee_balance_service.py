@@ -12,6 +12,7 @@ from app.models.payroll_opening import PayrollOpeningDebt,PayrollOpeningPackage
 from app.models.opening_balance import OpeningBalance
 from app.models.journal_entry import JournalEntry
 from app.services.payroll_opening_service import PayrollOpeningNotFoundError
+from app.services.payroll_deduction_result_service import require_authorized_deduction_result, PayrollDeductionResultConflictError
 
 
 async def employee_payroll_balance(db, *, company_id:int, employee_id:int, as_of:date):
@@ -58,14 +59,39 @@ async def employee_payroll_balance(db, *, company_id:int, employee_id:int, as_of
         (PayrollDeductionResult, JournalEntry.payroll_deduction_result_id,
          PayrollDeductionResult.deduction_amount, 'deducted_amount'),
     ):
-        entries = (await db.execute(select(JournalEntry, model.currency_code, amount_field)
+        entries = (await db.execute(select(JournalEntry, model.currency_code, amount_field, model)
             .join(model, and_(model.company_id == company_id, model.id == source_field))
             .join(EmploymentContract, and_(EmploymentContract.company_id == company_id,
                 EmploymentContract.id == model.employment_contract_id))
             .where(JournalEntry.company_id == company_id, EmploymentContract.employee_id == employee_id,
                 JournalEntry.status.in_(('posted', 'reversed')), JournalEntry.entry_date <= as_of))).all()
-        for journal, currency, amount in entries:
+        for journal, currency, amount, source in entries:
             target = totals(currency)
+
+            if total_field == 'deducted_amount':
+                try:
+                    require_authorized_deduction_result(source)
+                except PayrollDeductionResultConflictError:
+                    # Preserve historical unauthorized deductions before reversal.
+                    # A posted reversal resolves the active balance issue only
+                    # from its accounting date onward.
+                    if journal.reversal_of_id is not None:
+                        continue
+
+                    reversal_id = await db.scalar(
+                        select(JournalEntry.id).where(
+                            JournalEntry.company_id == company_id,
+                            JournalEntry.reversal_of_id == journal.id,
+                            JournalEntry.status == 'posted',
+                            JournalEntry.entry_date <= as_of,
+                        ).limit(1)
+                    )
+
+                    if reversal_id is None:
+                        issues.append('unauthorized_payroll_deduction')
+
+                    continue
+
             target[total_field] = target.get(total_field, Decimal(0)) + (
                 -amount if journal.reversal_of_id is not None else amount)
     for row in currencies.values():

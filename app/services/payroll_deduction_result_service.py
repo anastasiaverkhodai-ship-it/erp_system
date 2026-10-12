@@ -15,10 +15,48 @@ from app.models.payroll_deduction_result import (
     PayrollDeductionResultLine,
 )
 from app.models.payroll_statutory import PayrollStatutoryResult
+from app.services.payroll_deduction_legal_rule_contract import (
+    require_approved_legal_rule,
+    PayrollDeductionLegalRuleError,
+)
+from app.services.payroll_deduction_evidence_policy import (
+    resolve_verified_deduction_classification,
+    PayrollDeductionEvidencePolicyError,
+)
+
 
 
 class PayrollDeductionResultError(ValueError):
     pass
+
+
+
+def require_authorized_deduction_result(result) -> None:
+    """Block use of legacy non-zero deduction results.
+
+    This is a temporary fail-closed boundary.
+    It does not authorize legal withholding.
+    """
+    if result is None:
+        return
+
+    try:
+        amount = Decimal(result.deduction_amount)
+    except (TypeError, ValueError, ArithmeticError) as exc:
+        raise PayrollDeductionResultConflictError(
+            "Invalid payroll deduction result amount"
+        ) from exc
+
+    if not amount.is_finite() or amount < 0:
+        raise PayrollDeductionResultConflictError(
+            "Invalid payroll deduction result amount"
+        )
+
+    if amount > 0:
+        raise PayrollDeductionResultConflictError(
+            "Payroll deduction result is not authorized "
+            "for financial execution"
+        )
 
 
 class PayrollDeductionResultNotFoundError(
@@ -95,6 +133,7 @@ async def calculate_payroll_deduction_result(
         payroll_calculation_id=payroll_calculation_id,
     )
     if existing is not None:
+        require_authorized_deduction_result(existing)
         return existing
 
     calculation = await db.scalar(
@@ -172,6 +211,29 @@ async def calculate_payroll_deduction_result(
             )
         ).all()
     )
+
+
+    # Legal deductions must not enter persisted payroll results
+    # until their legal classification and production rules
+    # have been explicitly approved.
+    for instruction in instructions:
+        try:
+            classification = (
+                await resolve_verified_deduction_classification(
+                    db,
+                    company_id=company_id,
+                    payroll_deduction_instruction_id=instruction.id,
+                )
+            )
+            require_approved_legal_rule(classification.category)
+        except (
+            PayrollDeductionEvidencePolicyError,
+            PayrollDeductionLegalRuleError,
+        ) as exc:
+            raise PayrollDeductionResultConflictError(
+                "Payroll deduction is not authorized for "
+                "automatic payroll application"
+            ) from exc
 
     result = PayrollDeductionResult(
         company_id=company_id,

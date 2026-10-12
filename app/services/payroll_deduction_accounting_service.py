@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.payroll_deduction_result_service import require_authorized_deduction_result
+
 from app.services.payroll_mutation_guard import serialized_payroll_mutation
 
 from datetime import date, datetime
@@ -60,15 +62,6 @@ async def generate_and_post_payroll_deduction_journal(
     payroll_deduction_result_id: int,
     created_by: int,
 ) -> JournalEntry:
-    existing = await get_payroll_deduction_journal(
-        db,
-        company_id=company_id,
-        payroll_deduction_result_id=payroll_deduction_result_id,
-    )
-    if existing is not None:
-        if existing.status != JournalEntryStatus.POSTED:
-            raise PayrollDeductionAccountingConflictError('Deduction journal is not active; use a correction')
-        return existing
 
     result = await db.scalar(
         select(PayrollDeductionResult).where(
@@ -81,6 +74,19 @@ async def generate_and_post_payroll_deduction_journal(
         raise PayrollDeductionAccountingNotFoundError(
             "Payroll deduction result not found"
         )
+
+    require_authorized_deduction_result(result)
+
+    existing = await get_payroll_deduction_journal(
+        db,
+        company_id=company_id,
+        payroll_deduction_result_id=payroll_deduction_result_id,
+    )
+    if existing is not None:
+        if existing.status != JournalEntryStatus.POSTED:
+            raise PayrollDeductionAccountingConflictError('Deduction journal is not active; use a correction')
+        return existing
+
 
     amount = Decimal(result.deduction_amount)
 
