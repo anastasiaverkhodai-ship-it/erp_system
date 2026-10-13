@@ -1,3 +1,4 @@
+from app.services.payroll_deduction_result_service import PayrollDeductionResultConflictError
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -98,6 +99,12 @@ async def api_create_payroll_disbursement(
         await db.commit()
         await db.refresh(row)
         return row
+    except PayrollDeductionResultConflictError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
     except (PayrollDisbursementError, AccountingPostingError, AccountingReversalError) as exc:
         await db.rollback()
         raise _http_error(exc) from exc

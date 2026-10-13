@@ -1,3 +1,4 @@
+from app.services.payroll_deduction_result_service import PayrollDeductionResultConflictError
 from app.api.deps import get_current_user
 from app.api.permissions import require_company_permission
 from app.core.database import get_db
@@ -196,6 +197,12 @@ async def generate_company_payroll_payslip(
         await db.commit()
         await db.refresh(payslip)
         return payslip
+    except PayrollDeductionResultConflictError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
     except PayrollPayslipNotFoundError as exc:
         await db.rollback()
         raise HTTPException(

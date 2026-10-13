@@ -1,3 +1,4 @@
+from app.services.payroll_deduction_result_service import PayrollDeductionResultConflictError
 from app.schemas.payroll_register import PayrollRegister
 from app.services.payroll_register_service import get_payroll_register
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -429,5 +430,10 @@ async def read_payroll_register(
     try:
         return await get_payroll_register(db, company_id=company_id,
                                           payroll_period_id=payroll_period_id)
+    except PayrollDeductionResultConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
     except PayrollPeriodError as exc:
         raise _period_http_error(exc) from exc
