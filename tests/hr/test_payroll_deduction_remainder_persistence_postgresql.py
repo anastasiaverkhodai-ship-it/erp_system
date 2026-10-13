@@ -39,7 +39,7 @@ async def _run_e2e():
 
     assert url.get_backend_name() == "postgresql"
     assert url.host in ("localhost", "127.0.0.1", "::1")
-    assert url.database == "erp_db"
+    assert url.database is not None and url.database.startswith("erp_r3_copy_")
 
     engine = create_async_engine(
         url, poolclass=NullPool

@@ -1,118 +1,426 @@
-"""Run PostgreSQL tests in a disposable, constraint-preserving data copy.
+"""Run PostgreSQL regression against a disposable full PostgreSQL clone.
 
-Use: PYTHONPATH=. .venv/bin/python scripts/run_postgresql_regression_copy.py tests
-The configured source database is read-only. Test writes use a separate database,
-which is removed on success or failure. Requires CREATE DATABASE permission.
+Usage:
+    PYTHONPATH=. .venv/bin/python \\
+        scripts/run_postgresql_regression_copy.py \\
+        tests/hr/test_payroll_deduction_remittance_persistence_postgresql.py
+
+The source erp_db is never used as the pytest target.
+pg_dump reads the source; pg_restore builds a separate database,
+preserving migration-created functions, indexes and triggers.
+
+The temporary dump and database can contain real data. They are
+private and removed during normal completion and handled failures.
+Requires local PostgreSQL and CREATE DATABASE permission.
 """
-import asyncio, json, os, sys, uuid
-from sqlalchemy import text, MetaData
+
+import asyncio
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import uuid
+
+from pathlib import Path
+
+from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.schema import DropConstraint, AddConstraint
 from sqlalchemy.pool import NullPool
-import app.models
+
 from app.core.config import settings
-from app.core.database import Base
+
+
+PREFIX = "erp_r3_copy_"
+NAME_PATTERN = re.compile(r"erp_r3_copy_[0-9a-f]{16}")
+
+REQUIRED_TRIGGERS = {
+    "payroll_deduction_remainders": "trg_pdr_no_truncate",
+    "payroll_deduction_remainder_events": "trg_pdre_no_truncate",
+    "payroll_deduction_remittance_plans": "trg_pdrp_no_truncate",
+    "payroll_deduction_remittance_events": "trg_pdrevent_no_truncate",
+}
+
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError("STOP: " + message)
+
+
+def pg_environment(url):
+    env = dict(os.environ)
+    env["PGHOST"] = url.host
+    env["PGPORT"] = str(url.port or 5432)
+    env["PGUSER"] = url.username or ""
+    env["PGDATABASE"] = url.database
+
+    if url.password is not None:
+        env["PGPASSWORD"] = url.password
+
+    return env
+
+
+def pg_command(args, env):
+    result = subprocess.run(
+        args,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode:
+        # Do not expose connection URLs or credentials.
+        print(
+            "POSTGRESQL CLIENT COMMAND FAILED:",
+            args[0],
+            "EXIT:",
+            result.returncode,
+            flush=True,
+        )
+        raise RuntimeError("PostgreSQL dump/restore failed")
+
+
+async def revision(engine):
+    async with engine.connect() as conn:
+        return await conn.scalar(
+            text("SELECT version_num FROM alembic_version")
+        )
+
+
+async def trigger_contract(engine):
+    async with engine.connect() as conn:
+        rows = (
+            await conn.execute(
+                text("""
+                    SELECT
+                        c.relname AS table_name,
+                        t.tgname AS trigger_name,
+                        t.tgenabled AS enabled,
+                        pg_get_triggerdef(t.oid) AS definition
+                    FROM pg_trigger t
+                    JOIN pg_class c ON c.oid = t.tgrelid
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = 'public'
+                      AND NOT t.tgisinternal
+                      AND c.relname = ANY(:tables)
+                """),
+                {"tables": list(REQUIRED_TRIGGERS)},
+            )
+        ).mappings().all()
+
+    for table, expected in REQUIRED_TRIGGERS.items():
+        matches = [
+            row for row in rows
+            if row["table_name"] == table
+            and row["trigger_name"] == expected
+        ]
+
+        require(
+            len(matches) == 1,
+            f"Required PostgreSQL trigger missing: {table}",
+        )
+
+        row = matches[0]
+        enabled = row["enabled"]
+
+        if isinstance(enabled, bytes):
+            enabled = enabled.decode()
+
+        require(
+            enabled in ("O", "A")
+            and "BEFORE TRUNCATE" in row["definition"],
+            f"Required PostgreSQL trigger invalid: {table}",
+        )
+
 
 async def run_copy():
-    name='erp_fa_copy_'+uuid.uuid4().hex[:12]
-    url=make_url(settings.database_url)
-    source=create_async_engine(url,poolclass=NullPool)
-    admin=create_async_engine(url.set(database='postgres'),isolation_level='AUTOCOMMIT',poolclass=NullPool)
-    target=create_async_engine(url.set(database=name),poolclass=NullPool)
-    created=False
-    try:
-        async with admin.connect() as conn:
-            await conn.execute(text(f'CREATE DATABASE "{name}"'));created=True
-        async with target.begin() as dest:
-            await dest.run_sync(Base.metadata.create_all)
-            constraints=[]
-            def drop_fks(sync):
-                metadata=MetaData();metadata.reflect(bind=sync)
-                for table in metadata.tables.values():
-                    for constraint in table.foreign_key_constraints:
-                        constraints.append(constraint);sync.execute(DropConstraint(constraint))
-            await dest.run_sync(drop_fks)
-            count=0
-            async with source.connect() as src:
-                await src.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'))
-                q=dest.dialect.identifier_preparer.quote
-                source_tables=set((await src.scalars(text(
-                    "SELECT tablename FROM pg_tables WHERE schemaname='public'"))).all())
-                for name_table in sorted(Base.metadata.tables):
-                    if name_table not in source_tables:
-                        # New model tables have no historical rows before migration.
-                        # This metadata copy is not a migration verification; test
-                        # upgrades separately against a restored source dump.
-                        print('NEW EMPTY MODEL TABLE', name_table, flush=True)
-                        continue
-                    table=q(name_table)
-                    # Keep PostgreSQL's numeric JSON text intact: decoding and
-                    # re-encoding monetary values through float can lose precision.
-                    rows_json=await src.scalar(text(f"SELECT COALESCE(json_agg(t), '[]'::json)::text FROM {table} t"))
-                    rows=json.loads(rows_json)
-                    if rows:
-                        await dest.execute(text(f'INSERT INTO {table} SELECT * FROM json_populate_recordset(NULL::{table},CAST(:data AS json))'),{'data':rows_json})
-                        count+=len(rows)
-                    for column in Base.metadata.tables[name_table].primary_key.columns:
-                        if column.name!='id':continue
-                        sequence=await dest.scalar(text('SELECT pg_get_serial_sequence(:table,:column)'),{'table':name_table,'column':column.name})
-                        if sequence:
-                            maximum=max((r['id'] for r in rows),default=None)
-                            await dest.execute(text('SELECT setval(CAST(:seq AS regclass),:value,:called)'),{'seq':sequence,'value':maximum or 1,'called':maximum is not None})
-                revision=await src.scalar(text('SELECT version_num FROM alembic_version'))
-                source_constraints=(await src.execute(text(
-                    "SELECT c.relname, p.conname, pg_get_constraintdef(p.oid) AS definition "
-                    "FROM pg_constraint p JOIN pg_class c ON c.oid=p.conrelid "
-                    "JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'"
-                ))).mappings().all()
-            def add_fks(sync):
-                for constraint in constraints:sync.execute(AddConstraint(constraint))
-            await dest.run_sync(add_fks)
-            target_constraints=(await dest.execute(text(
-                "SELECT c.relname, p.conname, pg_get_constraintdef(p.oid) AS definition "
-                "FROM pg_constraint p JOIN pg_class c ON c.oid=p.conrelid "
-                "JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'"
-            ))).mappings().all()
-            target_names={(r['relname'],r['definition']):r['conname'] for r in target_constraints}
-            for constraint in source_constraints:
-                old_name=target_names.get((constraint['relname'],constraint['definition']))
-                new_name=constraint['conname']
-                if old_name is not None and old_name != new_name:
-                    await dest.execute(text(f"ALTER TABLE {q(constraint['relname'])} RENAME CONSTRAINT {q(old_name)} TO {q(new_name)}"))
-            await dest.execute(text('CREATE TABLE alembic_version (version_num varchar(32) NOT NULL PRIMARY KEY)'))
-            await dest.execute(text('INSERT INTO alembic_version VALUES (:revision)'),{'revision':revision})
-        print('ISOLATED COPY READY',name,'rows',count,flush=True)
-        env=dict(os.environ,DATABASE_URL=url.set(database=name).render_as_string(hide_password=False),RUN_POSTGRES_E2E='1',PYTHONDONTWRITEBYTECODE='1')
-        proc=await asyncio.create_subprocess_exec(sys.executable,'-m','pytest',*sys.argv[1:],'-q','-p','no:cacheprovider',env=env)
-        result=await proc.wait();print('COPY_TEST_EXIT',result,flush=True)
-        return result
-    finally:
-        await target.dispose();await source.dispose()
-        if created:
-            async with admin.connect() as conn:
-                await conn.execute(text(f'DROP DATABASE "{name}" WITH (FORCE)'))
-            print('ISOLATED COPY REMOVED',flush=True)
-        await admin.dispose()
-async def main():
-    # Each test schema contains hundreds of tables/indexes. Concurrent CREATE /
-    # DROP runs can exhaust the cluster's shared lock table even in separate DBs.
-    coordinator = create_async_engine(
-        make_url(settings.database_url).set(database='postgres'),
-        isolation_level='AUTOCOMMIT', poolclass=NullPool,
+    require(
+        len(sys.argv) > 1,
+        "Provide at least one pytest test path",
     )
+
+    source_url = make_url(settings.database_url)
+
+    require(
+        source_url.get_backend_name() == "postgresql",
+        "PostgreSQL is required",
+    )
+
+    require(
+        source_url.host in ("localhost", "127.0.0.1", "::1"),
+        "Only local PostgreSQL is allowed",
+    )
+
+    require(
+        source_url.database == "erp_db",
+        "Configured source database must be erp_db",
+    )
+
+    database_name = PREFIX + uuid.uuid4().hex[:16]
+
+    require(
+        NAME_PATTERN.fullmatch(database_name) is not None,
+        "Unsafe temporary database name",
+    )
+
+    target_url = source_url.set(database=database_name)
+
+    source = create_async_engine(
+        source_url,
+        poolclass=NullPool,
+    )
+
+    target = create_async_engine(
+        target_url,
+        poolclass=NullPool,
+    )
+
+    admin = create_async_engine(
+        source_url.set(database="postgres"),
+        isolation_level="AUTOCOMMIT",
+        poolclass=NullPool,
+    )
+
+    created = False
+
     try:
-        async with coordinator.connect() as connection:
-            acquired = await connection.scalar(text('SELECT pg_try_advisory_lock(130015, 1)'))
+        # Coordinate complete-copy regressions to avoid excessive
+        # concurrent PostgreSQL locks and transient test databases.
+        async with admin.connect() as coordinator:
+            acquired = await coordinator.scalar(
+                text("SELECT pg_try_advisory_lock(130015, 1)")
+            )
+
             if not acquired:
-                print('WAITING FOR ANOTHER POSTGRESQL REGRESSION RUN', flush=True)
-                await connection.execute(text('SELECT pg_advisory_lock(130015, 1)'))
-            # NullPool closes this session on exit, releasing its advisory lock
-            # after cleanup, including when the test process fails.
-            return await run_copy()
+                print(
+                    "WAITING FOR ANOTHER POSTGRESQL REGRESSION",
+                    flush=True,
+                )
+                await coordinator.execute(
+                    text("SELECT pg_advisory_lock(130015, 1)")
+                )
+
+            try:
+                async with source.connect() as conn:
+                    await conn.execute(
+                        text("SET TRANSACTION READ ONLY")
+                    )
+
+                    current_database = await conn.scalar(
+                        text("SELECT current_database()")
+                    )
+
+                    source_rev = await conn.scalar(
+                        text(
+                            "SELECT version_num FROM alembic_version"
+                        )
+                    )
+
+                    await conn.rollback()
+
+                require(
+                    current_database == "erp_db",
+                    "Unexpected source database",
+                )
+
+                await trigger_contract(source)
+
+                with tempfile.TemporaryDirectory(
+                    prefix="erp_r3_private_dump_"
+                ) as temporary_directory:
+                    dump_path = (
+                        Path(temporary_directory) / "source.dump"
+                    )
+
+                    os.chmod(temporary_directory, 0o700)
+
+                    source_env = pg_environment(source_url)
+
+                    print(
+                        "POSTGRESQL FULL DUMP START",
+                        flush=True,
+                    )
+
+                    pg_command(
+                        [
+                            "pg_dump",
+                            "--format=custom",
+                            "--no-owner",
+                            "--no-acl",
+                            "--no-password",
+                            "--file",
+                            str(dump_path),
+                            "erp_db",
+                        ],
+                        source_env,
+                    )
+
+                    require(
+                        dump_path.is_file()
+                        and dump_path.stat().st_size > 0,
+                        "Dump file missing or empty",
+                    )
+
+                    os.chmod(dump_path, 0o600)
+
+                    archive_check = subprocess.run(
+                        ["pg_restore", "--list", str(dump_path)],
+                        capture_output=True,
+                        text=True,
+                    )
+
+                    require(
+                        archive_check.returncode == 0
+                        and "TABLE DATA" in archive_check.stdout,
+                        "Invalid PostgreSQL archive",
+                    )
+
+                    print("POSTGRESQL FULL DUMP = PASS", flush=True)
+
+                    async with admin.connect() as conn:
+                        await conn.execute(
+                            text(
+                                f'CREATE DATABASE "{database_name}" '
+                                "TEMPLATE template0"
+                            )
+                        )
+
+                        created = True
+
+                    print(
+                        "ISOLATED DATABASE CREATED =",
+                        database_name,
+                        flush=True,
+                    )
+
+                    target_env = pg_environment(target_url)
+
+                    pg_command(
+                        [
+                            "pg_restore",
+                            "--exit-on-error",
+                            "--no-owner",
+                            "--no-acl",
+                            "--no-password",
+                            "--dbname",
+                            database_name,
+                            str(dump_path),
+                        ],
+                        target_env,
+                    )
+
+                    print(
+                        "POSTGRESQL FULL RESTORE = PASS",
+                        flush=True,
+                    )
+
+                    require(
+                        await revision(target) == source_rev,
+                        "Alembic revision mismatch",
+                    )
+
+                    await trigger_contract(target)
+
+                    print(
+                        "POSTGRESQL TRIGGER CONTRACT = PASS",
+                        flush=True,
+                    )
+
+                    test_env = dict(os.environ)
+
+                    test_env["DATABASE_URL"] = (
+                        target_url.render_as_string(
+                            hide_password=False
+                        )
+                    )
+
+                    test_env["RUN_POSTGRES_E2E"] = "1"
+                    test_env["PYTHONDONTWRITEBYTECODE"] = "1"
+
+                    settings_check = subprocess.run(
+                        [
+                            sys.executable,
+                            "-c",
+                            (
+                                "from app.core.config import settings; "
+                                "from sqlalchemy.engine import make_url; "
+                                "print(make_url(settings.database_url).database)"
+                            ),
+                        ],
+                        env=test_env,
+                        capture_output=True,
+                        text=True,
+                    )
+
+                    require(
+                        settings_check.returncode == 0
+                        and settings_check.stdout.strip()
+                        == database_name,
+                        "Pytest database isolation override failed",
+                    )
+
+                    print(
+                        "PYTEST DATABASE ISOLATION = PASS",
+                        flush=True,
+                    )
+
+                    result = await asyncio.create_subprocess_exec(
+                        sys.executable,
+                        "-m",
+                        "pytest",
+                        *sys.argv[1:],
+                        "-q",
+                        "-p",
+                        "no:cacheprovider",
+                        env=test_env,
+                    )
+
+                    exit_code = await result.wait()
+
+                    print(
+                        "ISOLATED PYTEST EXIT =",
+                        exit_code,
+                        flush=True,
+                    )
+
+                    return exit_code
+
+            finally:
+                # Explicitly release the advisory lock even if
+                # dump, restore, or pytest fails.
+                await coordinator.execute(
+                    text("SELECT pg_advisory_unlock(130015, 1)")
+                )
+
     finally:
-        await coordinator.dispose()
+        await target.dispose()
+        await source.dispose()
+
+        try:
+            if created:
+                require(
+                    NAME_PATTERN.fullmatch(database_name)
+                    is not None,
+                    "Unsafe temporary database cleanup",
+                )
+
+                async with admin.connect() as conn:
+                    await conn.execute(
+                        text(
+                            f'DROP DATABASE "{database_name}" '
+                            "WITH (FORCE)"
+                        )
+                    )
+
+                print(
+                    "ISOLATED DATABASE REMOVED = PASS",
+                    flush=True,
+                )
+
+        finally:
+            await admin.dispose()
 
 
-if __name__=='__main__':
-    sys.exit(asyncio.run(main()))
+if __name__ == "__main__":
+    sys.exit(asyncio.run(run_copy()))
