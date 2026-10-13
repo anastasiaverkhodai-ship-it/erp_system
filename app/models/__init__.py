@@ -239,3 +239,8 @@ from app.models.payroll_deduction_rule_approval import PayrollDeductionRuleAppro
 
 from app.models.payroll_deduction_rule_approval_event import PayrollDeductionRuleApprovalEvent
 from app.models.payroll_deduction_remainder import PayrollDeductionRemainder, PayrollDeductionRemainderEvent
+
+from app.models.payroll_deduction_remittance import (
+    PayrollDeductionRemittancePlan,
+    PayrollDeductionRemittanceEvent,
+)
