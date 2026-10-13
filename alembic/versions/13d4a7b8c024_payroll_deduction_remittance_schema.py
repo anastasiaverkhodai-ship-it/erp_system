@@ -210,6 +210,27 @@ def upgrade():
 
 def downgrade():
 
+    # Fail closed before removing financial history.
+    op.execute(
+        "LOCK TABLE payroll_deduction_remittance_events "
+        "IN ACCESS EXCLUSIVE MODE"
+    )
+    op.execute(
+        "LOCK TABLE payroll_deduction_remittance_plans "
+        "IN ACCESS EXCLUSIVE MODE"
+    )
+
+    has_history = op.get_bind().execute(
+        sa.text("SELECT EXISTS (SELECT 1 FROM payroll_deduction_remittance_events) OR EXISTS (SELECT 1 FROM payroll_deduction_remittance_plans)")
+    ).scalar_one()
+
+    if has_history:
+        raise RuntimeError(
+            "Cannot downgrade payroll deduction remittance history: "
+            "financial history exists"
+        )
+
+
     op.execute("""
         DROP TRIGGER trg_pdrevent_immutable
         ON payroll_deduction_remittance_events;

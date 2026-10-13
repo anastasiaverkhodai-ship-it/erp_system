@@ -214,6 +214,27 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+
+    # Fail closed before removing financial history.
+    op.execute(
+        "LOCK TABLE payroll_deduction_remainder_events "
+        "IN ACCESS EXCLUSIVE MODE"
+    )
+    op.execute(
+        "LOCK TABLE payroll_deduction_remainders "
+        "IN ACCESS EXCLUSIVE MODE"
+    )
+
+    has_history = op.get_bind().execute(
+        sa.text("SELECT EXISTS (SELECT 1 FROM payroll_deduction_remainder_events) OR EXISTS (SELECT 1 FROM payroll_deduction_remainders)")
+    ).scalar_one()
+
+    if has_history:
+        raise RuntimeError(
+            "Cannot downgrade payroll deduction remainder ledger: "
+            "financial history exists"
+        )
+
     for table, suffix in (
         ("payroll_deduction_remainder_events", "pdre"),
         ("payroll_deduction_remainders", "pdr"),
