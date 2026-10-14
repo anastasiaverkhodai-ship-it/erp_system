@@ -25,12 +25,26 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def include_object(obj, name, type_, reflected, compare_to):
+    # Trigger-owned concurrency state from migration 027, intentionally absent
+    # from ORM reads/writes. Never propose deleting these internal columns.
+    managed = {
+        ('payroll_inputs', 'history_sealed'),
+        ('payroll_inputs', 'history_epoch'),
+        ('payroll_calculations', 'history_creation_xid'),
+    }
+    if type_ == 'column' and reflected and compare_to is None:
+        return (obj.table.name, name) not in managed
+    return True
+
+
 def run_migrations_offline():
     url = config.get_main_option("sqlalchemy.url")
 
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        include_object=include_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -43,6 +57,7 @@ def do_run_migrations(connection: Connection):
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
+        include_object=include_object,
     )
 
     with context.begin_transaction():

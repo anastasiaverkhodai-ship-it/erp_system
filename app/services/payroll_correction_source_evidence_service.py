@@ -5,9 +5,9 @@ This is a READ-ONLY evidence service, not a correction executor.
 The fingerprint covers the current Payroll Input, salary slices,
 calculation header and calculation lines.
 
-Other payroll dependencies (supplements, vacation, sick leave,
-minimum wage and statutory components) require separate provenance
-before a financial recalculation can be authorized.
+Legacy fingerprints alone never authorize a correction. A database-sealed
+creation-time basis supports only minimum-wage-context correction: frozen
+other earnings remain unchanged. Taxes, posting and payouts stay separate.
 
 No database writes or transaction commits are performed.
 """
@@ -119,8 +119,9 @@ async def capture_payroll_correction_source(
 ) -> dict:
     """Capture evidence while holding the company mutation lock.
 
-    This result is informational and MUST NOT authorize revision
-    creation, payment, posting, or changes to finalized inputs.
+    This result is not a bearer authorization token. The correction executor
+    revalidates it in its own locked transaction. Complete evidence is explicitly
+    scoped to minimum_wage_context_only; it never authorizes posting or payment.
     """
 
     try:
@@ -148,6 +149,28 @@ async def capture_payroll_correction_source(
         raise PayrollCorrectionEvidenceError(
             "Original payroll calculation not found"
         )
+
+    if (calculation.minimum_wage_assessment or {}).get("correction_basis", {}).get("seal"):
+        from app.services.payroll_correction_basis import verify_basis
+        from app.services.payroll_minimum_wage_service import MinimumWageError
+        lines = (await db.scalars(select(PayrollCalculationLine).where(
+            PayrollCalculationLine.company_id == company_id,
+            PayrollCalculationLine.payroll_calculation_id == calculation.id,
+        ).order_by(PayrollCalculationLine.line_no, PayrollCalculationLine.id))).all()
+        try:
+            verify_basis(calculation, lines)
+        except MinimumWageError as exc:
+            raise PayrollCorrectionEvidenceError(str(exc)) from exc
+        snapshot = {"schema": "payroll-minimum-context-evidence-v1",
+                    "calculation": _model_snapshot(calculation),
+                    "calculation_lines": [_model_snapshot(line) for line in lines]}
+        return {**preflight, "source_fingerprint_sha256": _fingerprint(snapshot),
+                "source_evidence_schema": snapshot["schema"],
+                "source_evidence_complete": True,
+                "evidence_scope": "minimum_wage_context_only",
+                "requires_verified_recalculation_source": False,
+                "automatic_revision_creation_allowed": False,
+                "financial_execution_allowed": False}
 
     payroll_input = await db.scalar(
         select(PayrollInput).where(

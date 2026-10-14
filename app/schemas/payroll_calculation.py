@@ -64,3 +64,14 @@ class PayrollMinimumWageContext(BaseModel):
         if (self.manual_adjustment_category is None) != (self.manual_adjustment_reference is None):
             raise ValueError('Adjustment category and documentary reference must be supplied together')
         return self
+
+
+class PayrollCorrectionEvidenceRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    request_key: str = Field(min_length=1, max_length=100)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class PayrollMinimumWageCorrectionRequest(PayrollCorrectionEvidenceRequest):
+    expected_source_fingerprint_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    corrected_minimum_wage_context: PayrollMinimumWageContext

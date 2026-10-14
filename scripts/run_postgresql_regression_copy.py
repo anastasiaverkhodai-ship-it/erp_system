@@ -83,6 +83,7 @@ def pg_command(args, env):
 
 async def revision(engine):
     async with engine.connect() as conn:
+        await conn.execute(text("SET TRANSACTION READ ONLY"))
         return await conn.scalar(
             text("SELECT version_num FROM alembic_version")
         )
@@ -224,6 +225,7 @@ async def run_copy():
                     "Unexpected source database",
                 )
 
+                print("SOURCE ALEMBIC REVISION =", source_rev, flush=True)
                 await trigger_contract(source)
 
                 with tempfile.TemporaryDirectory(
@@ -383,6 +385,12 @@ async def run_copy():
                         exit_code,
                         flush=True,
                     )
+
+                    require(
+                        await revision(source) == source_rev,
+                        "Source Alembic revision changed during regression",
+                    )
+                    print("SOURCE ALEMBIC REVISION UNCHANGED = PASS", flush=True)
 
                     return exit_code
 

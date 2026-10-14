@@ -90,7 +90,7 @@ def normalize_minimum_wage_context(context):
 
 
 async def derive_minimum_wage_assessment(db, *, company_id, period, payroll_input,
-                                        salary_slices, lines, context=None):
+                                        salary_slices, lines, context=None, correction_facts=None):
     """Build a saved 2026 UAH assessment from attributed payroll earnings."""
     from datetime import date
     from sqlalchemy import select
@@ -174,6 +174,15 @@ async def derive_minimum_wage_assessment(db, *, company_id, period, payroll_inpu
         earnings.append(MinimumWageEarning('ordinary_salary',Decimal(line['amount'])-extra_pay))
         earnings.append(MinimumWageEarning('overtime',extra_pay))
         worked -= extra
+    if correction_facts is not None:
+        correction_facts.update(dict(
+            rate_type=rate_type, minimum_rate='8647' if rate_type == 'monthly' else '52',
+            ordinary_worked_minutes=worked, default_norm_minutes=(norm if 'full_time_norm_minutes' not in context else None),
+            earnings=[dict(category=e.category, amount=str(e.amount)) for e in earnings],
+            adjustment=str(adjustment), has_adjustment=any(line['line_type'] == 'manual_adjustment' for line in lines),
+            period_start=period.start_date.isoformat(), period_end=period.end_date.isoformat(),
+            rule_version='UA-4695-IX-2026-v1',
+        ))
     if context.get('manual_adjustment_category'):
         if not any(line['line_type'] == 'manual_adjustment' for line in lines):
             raise MinimumWageError('Adjustment classification has no matching earning line')

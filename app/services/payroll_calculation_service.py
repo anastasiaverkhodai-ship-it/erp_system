@@ -538,39 +538,15 @@ def derive_gross_calculation(
     return currency_code, gross, lines
 
 
-@serialized_payroll_mutation(PayrollCalculationLifecycleError)
-async def calculate_payroll_input(
-    db: AsyncSession,
+async def _derive_payroll_components(
+    db,
     *,
-    company_id: int,
-    payroll_input_id: int,
-    calculated_by: int,
-    minimum_wage_context: dict | None = None,
-) -> PayrollCalculation:
-    from app.services.payroll_minimum_wage_service import normalize_minimum_wage_context, MinimumWageError
-    try:
-        minimum_wage_context = normalize_minimum_wage_context(minimum_wage_context)
-    except MinimumWageError as exc:
-        raise PayrollCalculationDerivationError(str(exc)) from exc
-    period, payroll_input, salary_slices = (
-        await validate_calculation_source(
-            db,
-            company_id=company_id,
-            payroll_input_id=payroll_input_id,
-        )
-    )
-
-    existing = await get_payroll_calculation_for_input(
-        db,
-        company_id=company_id,
-        payroll_input_id=payroll_input_id,
-    )
-
-    if existing is not None:
-        if minimum_wage_context and (existing.minimum_wage_assessment or {}).get('request') != minimum_wage_context:
-            raise PayrollCalculationConflictError('Saved calculation has different minimum-wage context; use a correction')
-        return existing
-
+    company_id,
+    period,
+    payroll_input,
+    salary_slices,
+    minimum_wage_context,
+):
     from app.services.payroll_supplement_service import derive_supplement_lines, PayrollSupplementError
     from app.services.payroll_vacation_service import derive_vacation_pay_lines, PayrollVacationError
     from app.services.payroll_sick_leave_service import derive_sick_pay_lines, PayrollSickLeaveError
@@ -624,17 +600,88 @@ async def calculate_payroll_input(
         gross_amount+=line['amount']
 
     from app.services.payroll_minimum_wage_service import derive_minimum_wage_assessment, MinimumWageError
+    correction_facts = {}
     try:
         minimum_assessment, minimum_line = await derive_minimum_wage_assessment(
             db, company_id=company_id, period=period, payroll_input=payroll_input,
-            salary_slices=salary_slices, lines=derived_lines, context=minimum_wage_context)
+            salary_slices=salary_slices, lines=derived_lines, context=minimum_wage_context,
+            correction_facts=correction_facts)
     except MinimumWageError as exc:
         raise PayrollCalculationDerivationError(str(exc)) from exc
+    if correction_facts:
+        from app.services.payroll_correction_basis import make_basis
+        minimum_assessment = dict(minimum_assessment, correction_basis=make_basis(
+            company_id=company_id, period=period, payroll_input=payroll_input,
+            salary_slices=salary_slices, facts=correction_facts, lines=derived_lines))
     if minimum_line is not None:
         minimum_line['line_no'] = len(derived_lines)+1
         derived_lines.append(minimum_line)
         gross_amount += minimum_line['amount']
     gross_amount=_money(gross_amount)
+
+    return (
+        currency_code,
+        gross_amount,
+        derived_lines,
+        minimum_assessment,
+    )
+
+
+@serialized_payroll_mutation(PayrollCalculationLifecycleError)
+async def calculate_payroll_input(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    payroll_input_id: int,
+    calculated_by: int,
+    minimum_wage_context: dict | None = None,
+) -> PayrollCalculation:
+    from app.services.payroll_minimum_wage_service import normalize_minimum_wage_context, MinimumWageError
+    try:
+        minimum_wage_context = normalize_minimum_wage_context(minimum_wage_context)
+    except MinimumWageError as exc:
+        raise PayrollCalculationDerivationError(str(exc)) from exc
+    # Own the input membership lock before reading slices or deriving amounts.
+    # PostgreSQL migration 027 makes slice writers acquire the same row lock.
+    # The caller retains ownership of the surrounding transaction.
+    await db.execute(
+        select(PayrollInput.id).where(
+            PayrollInput.company_id == company_id,
+            PayrollInput.id == payroll_input_id,
+        ).with_for_update()
+    )
+    period, payroll_input, salary_slices = (
+        await validate_calculation_source(
+            db,
+            company_id=company_id,
+            payroll_input_id=payroll_input_id,
+        )
+    )
+
+    existing = await get_payroll_calculation_for_input(
+        db,
+        company_id=company_id,
+        payroll_input_id=payroll_input_id,
+    )
+
+    if existing is not None:
+        if minimum_wage_context and (existing.minimum_wage_assessment or {}).get('request') != minimum_wage_context:
+            raise PayrollCalculationConflictError('Saved calculation has different minimum-wage context; use a correction')
+        return existing
+
+    (
+        currency_code,
+        gross_amount,
+        derived_lines,
+        minimum_assessment,
+    ) = await _derive_payroll_components(
+        db,
+        company_id=company_id,
+        period=period,
+        payroll_input=payroll_input,
+        salary_slices=salary_slices,
+        minimum_wage_context=minimum_wage_context,
+    )
 
     calculation = PayrollCalculation(
         company_id=company_id,
@@ -662,5 +709,7 @@ async def calculate_payroll_input(
         )
 
     await db.flush()
+    # The database attests the basis only for a new calculation under migration 028.
+    await db.refresh(calculation)
 
     return calculation

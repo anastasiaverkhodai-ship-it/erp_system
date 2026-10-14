@@ -278,3 +278,64 @@ async def list_company_payroll_payslip_lines(
         company_id=company_id,
         payroll_payslip_id=payslip.id,
     )
+
+
+from app.schemas.payroll_calculation import (
+    PayrollCorrectionEvidenceRequest, PayrollMinimumWageCorrectionRequest,
+)
+from app.services.payroll_correction_source_evidence_service import (
+    capture_payroll_correction_source, PayrollCorrectionEvidenceError,
+)
+from app.services.payroll_correction_preflight_service import (
+    PayrollCorrectionPreflightError, PayrollCorrectionPreflightNotFound,
+)
+from app.services.payroll_correction_recalculation_service import recalculate_minimum_wage_correction
+from app.services.payroll_correction_recalculation_contract import PayrollCorrectionRecalculationError
+from app.services.payroll_correction_service import PayrollCorrectionError
+
+
+_CORRECTION_ERRORS = (PayrollCorrectionEvidenceError, PayrollCorrectionPreflightError,
+                      PayrollCorrectionRecalculationError, PayrollCorrectionError)
+
+
+@router.post('/companies/{company_id}/payroll-calculations/{payroll_calculation_id}/correction-evidence')
+async def payroll_correction_evidence(
+    company_id: int, payroll_calculation_id: int, data: PayrollCorrectionEvidenceRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_company_permission('employees.manage')),
+):
+    try:
+        return await capture_payroll_correction_source(db, company_id=company_id,
+            original_payroll_calculation_id=payroll_calculation_id,
+            request_key=data.request_key, reason=data.reason)
+    except _CORRECTION_ERRORS as exc:
+        raise HTTPException(status_code=404 if isinstance(exc, PayrollCorrectionPreflightNotFound) else 409,
+                            detail=str(exc)) from exc
+    finally:
+        # Read-only evidence owns no lasting lock or transaction.
+        await db.rollback()
+
+
+@router.post('/companies/{company_id}/payroll-calculations/{payroll_calculation_id}/minimum-wage-correction',
+             response_model=PayrollCalculationRead)
+async def payroll_minimum_wage_correction(
+    company_id: int, payroll_calculation_id: int, data: PayrollMinimumWageCorrectionRequest,
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user),
+    _: User = Depends(require_company_permission('employees.manage')),
+):
+    try:
+        calculation, _link = await recalculate_minimum_wage_correction(db,
+            company_id=company_id, original_payroll_calculation_id=payroll_calculation_id,
+            calculated_by=current_user.id, request_key=data.request_key, reason=data.reason,
+            corrected_minimum_wage_context=data.corrected_minimum_wage_context.model_dump(exclude_none=True),
+            expected_source_fingerprint_sha256=data.expected_source_fingerprint_sha256)
+        await db.commit()
+        await db.refresh(calculation)
+        return calculation
+    except _CORRECTION_ERRORS as exc:
+        await db.rollback()
+        raise HTTPException(status_code=404 if isinstance(exc, PayrollCorrectionPreflightNotFound) else 409,
+                            detail=str(exc)) from exc
+    except Exception:
+        await db.rollback()
+        raise
