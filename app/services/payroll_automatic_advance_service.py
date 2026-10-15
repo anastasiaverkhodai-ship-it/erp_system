@@ -49,6 +49,10 @@ async def create_automatic_payroll_advance(db, *, company_id, payroll_period_id,
         raise PayrollAdvanceSourceStateError('First-half advance date must follow its earned period within the month')
     if contract.status == 'cancelled' or payment_date < contract.start_date or (contract.end_date and payment_date > contract.end_date):
         raise PayrollAdvanceSourceStateError('Advance payment date must be within active employment')
+    from app.services.payroll_deduction_payment_guard import require_payment_without_unresolved_deductions
+    await require_payment_without_unresolved_deductions(db, company_id=company_id,
+        employee_id=contract.employee_id, payment_date=payment_date,
+        error_type=PayrollAdvanceSourceStateError)
     bank = await db.scalar(select(BankAccount).where(BankAccount.company_id == company_id,
         BankAccount.id == bank_account_id))
     if bank is None or not bank.is_active or bank.currency_code != 'UAH':

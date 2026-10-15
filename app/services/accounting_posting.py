@@ -133,6 +133,24 @@ async def post_journal_entry(
         from app.services.payroll_revision_service import require_current_journal_calculation
         await require_current_journal_calculation(db, journal=journal_entry, error_type=AccountingPostingError)
 
+    if journal_entry.reversal_of_id is None and journal_entry.payroll_advance_id is not None:
+        from app.models.payroll_advance import PayrollAdvance
+        from app.models.employment_contract import EmploymentContract
+        from app.services.payroll_deduction_payment_guard import require_payment_without_unresolved_deductions
+        payment = (await db.execute(select(
+            EmploymentContract.employee_id, PayrollAdvance.payment_date,
+        ).join(PayrollAdvance, (
+            PayrollAdvance.company_id == EmploymentContract.company_id
+        ) & (PayrollAdvance.employment_contract_id == EmploymentContract.id)).where(
+            PayrollAdvance.company_id == company_id,
+            PayrollAdvance.id == journal_entry.payroll_advance_id,
+        ))).one_or_none()
+        if payment is None:
+            raise AccountingPostingError('Payroll advance not found')
+        await require_payment_without_unresolved_deductions(db, company_id=company_id,
+            employee_id=payment.employee_id, payment_date=payment.payment_date,
+            error_type=AccountingPostingError)
+
     if journal_entry.payroll_disbursement_id is not None:
         from app.models.payroll_disbursement import PayrollDisbursement
         disbursement = await db.scalar(select(PayrollDisbursement).where(

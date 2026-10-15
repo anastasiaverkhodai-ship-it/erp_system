@@ -142,6 +142,10 @@ async def create_payroll_advance(
     ):
         raise PayrollAdvanceSourceStateError('Advance payment date must be within active employment')
 
+    from app.services.payroll_deduction_payment_guard import require_payment_without_unresolved_deductions
+    await require_payment_without_unresolved_deductions(db, company_id=company_id,
+        employee_id=contract.employee_id, payment_date=payment_date,
+        error_type=PayrollAdvanceSourceStateError)
     bank = (
         await db.execute(
             select(BankAccount).where(
