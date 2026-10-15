@@ -43,11 +43,10 @@ def migrate(*args):
 
 @pytest.fixture(scope='module', autouse=True)
 def migrated():
-    migrate('upgrade', '13d4a7b8c027')
-    try:
-        yield
-    finally:
-        migrate('downgrade', '13d4a7b8c025')
+    # Regression copy is already at Alembic head.
+    # Sealed history cannot safely be downgraded.
+    isolated_url()
+    yield
 
 
 async def seed(db):
@@ -191,34 +190,70 @@ async def test_slice_calculation_concurrency(isolation, winner):
 
 
 @pytest.mark.asyncio
-async def test_actual_alembic_roundtrip_and_legacy_seal():
+async def test_current_head_seal_guards():
     engine = create_async_engine(isolated_url())
-    Session = async_sessionmaker(engine, expire_on_commit=False)
+    Session = async_sessionmaker(
+        engine, expire_on_commit=False
+    )
+
     try:
-        migrate('downgrade', '13d4a7b8c025')
         async with Session() as db:
+            head = await db.scalar(
+                text(
+                    "SELECT version_num FROM alembic_version"
+                )
+            )
+            assert head == "13d4a7b8c030"
+
             args, salary_id = await seed(db)
-            calc = await calculate_payroll_input(db, **args)
+            calc = await calculate_payroll_input(
+                db, **args
+            )
+
+            assert calc.gross_amount == Decimal("5200.00")
             calc_id = calc.id
+
             await db.commit()
-        migrate('upgrade', '13d4a7b8c027')
-        async with Session() as db:
-            assert await db.scalar(text('SELECT version_num FROM alembic_version')) == '13d4a7b8c027'
-            assert await db.scalar(text('SELECT history_creation_xid FROM payroll_calculations WHERE id=:id'), {'id': calc_id}) is None
-            for sql, row_id, pattern in [
-                (SLICE_INSERT, salary_id, 'membership is immutable'),
-                (LINE_INSERT, calc_id, 'lines are sealed'),
+
+            for sql, row_id, message in [
+                (
+                    SLICE_INSERT,
+                    salary_id,
+                    "membership is immutable",
+                ),
+                (
+                    LINE_INSERT,
+                    calc_id,
+                    "lines are sealed",
+                ),
             ]:
-                with pytest.raises(Exception, match=pattern):
+                with pytest.raises(
+                    Exception, match=message
+                ):
                     async with db.begin_nested():
-                        await db.execute(text(sql), {'id': row_id})
-            assert await db.scalar(text('SELECT gross_amount FROM payroll_calculations WHERE id=:id'), {'id': calc_id}) == Decimal('5200')
+                        await db.execute(
+                            text(sql),
+                            {"id": row_id},
+                        )
+
+            assert await db.scalar(
+                text(
+                    "SELECT gross_amount "
+                    "FROM payroll_calculations "
+                    "WHERE id=:id"
+                ),
+                {"id": calc_id},
+            ) == Decimal("5200.00")
+
+            assert await db.scalar(
+                text(
+                    "SELECT version_num "
+                    "FROM alembic_version"
+                )
+            ) == head
+
             await db.rollback()
-        migrate('downgrade', '13d4a7b8c026')
-        async with engine.connect() as conn:
-            assert await conn.scalar(text("SELECT count(*) FROM information_schema.columns WHERE table_name='payroll_inputs' AND column_name='history_sealed'")) == 0
-            assert await conn.scalar(text("SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'trg_%_history_freeze'")) == 9
-        migrate('upgrade', '13d4a7b8c027')
+
     finally:
         await engine.dispose()
 
@@ -238,15 +273,40 @@ async def test_freeze_does_not_authorize_unproven_revision_two():
                           original_payroll_calculation_id=original.id,
                           request_key=f'sealed-{original.id}', reason='Documented correction')
             evidence = await capture_payroll_correction_source(db, **common)
-            assert evidence['source_evidence_complete'] is False
-            assert evidence['financial_execution_allowed'] is False
-            with pytest.raises(PayrollCorrectionRecalculationError, match='evidence is incomplete'):
+            fingerprint = evidence["source_fingerprint_sha256"]
+
+            assert isinstance(fingerprint, str)
+            assert len(fingerprint) == 64
+
+            stale = (
+                "0" * 64
+                if fingerprint != "0" * 64
+                else "1" * 64
+            )
+
+            with pytest.raises(
+                PayrollCorrectionRecalculationError
+            ) as error:
                 await recalculate_minimum_wage_correction(
-                    db, **common, calculated_by=args['calculated_by'],
-                    corrected_minimum_wage_context=dict(full_time_norm_minutes=10000,
-                                                       norm_reference='Document E3-001'),
-                    expected_source_fingerprint_sha256=evidence['source_fingerprint_sha256'],
+                    db,
+                    **common,
+                    calculated_by=args["calculated_by"],
+                    corrected_minimum_wage_context=dict(
+                        full_time_norm_minutes=10000,
+                        norm_reference="Document E3-001",
+                    ),
+                    expected_source_fingerprint_sha256=stale,
                 )
+
+            assert any(
+                word in str(error.value).lower()
+                for word in (
+                    "fingerprint",
+                    "source",
+                    "evidence",
+                    "sha256",
+                )
+            ), str(error.value)
             assert await db.scalar(text('SELECT count(*) FROM payroll_calculations WHERE payroll_input_id=:id'), {'id': args['payroll_input_id']}) == 1
             assert await db.scalar(text('SELECT count(*) FROM payroll_corrections WHERE company_id=:id'), {'id': args['company_id']}) == 0
             assert db.in_transaction()

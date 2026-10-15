@@ -323,6 +323,10 @@ async def test_preflight_eligibility_and_negative_guards_real_postgresql():
             await db.delete(pending_journal)
             await db.flush()
 
+            # Create the temporary later revision in its
+            # own SAVEPOINT so cleanup never deletes history.
+            _later_revision_savepoint = await db.begin_nested()
+
             replacement = PayrollCalculation(
                 **_required_values(
                     PayrollCalculation,
@@ -351,8 +355,28 @@ async def test_preflight_eligibility_and_negative_guards_real_postgresql():
 
             print("UNLINKED LATER REVISION GUARD = PASS")
 
-            await db.delete(replacement)
-            await db.flush()
+            # The later revision is intentionally temporary.
+            # PostgreSQL historical freeze forbids DELETE.
+            # Rolling back the SAVEPOINT undoes its INSERT.
+            replacement_id = replacement.id
+
+            await _later_revision_savepoint.rollback()
+
+            assert await count_calculations() == initial_calculations
+            assert await count_corrections() == initial_corrections
+
+            removed_revision_count = await db.scalar(
+                select(func.count(PayrollCalculation.id)).where(
+                    PayrollCalculation.company_id == company_id,
+                    PayrollCalculation.id == replacement_id,
+                )
+            )
+
+            assert removed_revision_count == 0
+
+            print("TEMPORARY LATER REVISION = SAVEPOINT ROLLED BACK")
+            print("HISTORICAL DELETE = NOT EXECUTED")
+            print("ORIGINAL PAYROLL = PRESERVED")
 
             result_again = await preflight()
 

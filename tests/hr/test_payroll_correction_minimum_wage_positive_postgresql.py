@@ -326,19 +326,70 @@ async def test_positive_minimum_wage_top_up_postgresql():
 
             original_line_amount = top_up_line.amount
 
-            top_up_line.amount = Decimal("1100.00")
-            await db.flush()
+            # 1. Test service-level tamper detection
+            # using copies, without modifying persisted ORM rows.
+            from types import SimpleNamespace
+
+            tampered_lines = [
+                SimpleNamespace(
+                    **{
+                        column.key: getattr(item, column.key)
+                        for column in item.__table__.columns
+                    }
+                )
+                for item in stored_lines
+            ]
+
+            tampered_top_up = next(
+                item
+                for item in tampered_lines
+                if item.line_type == "minimum_wage"
+            )
+
+            tampered_top_up.amount = Decimal("1100.00")
+
+            assert top_up_line.amount == original_line_amount
 
             with pytest.raises(
                 PayrollMinimumWageProofError,
-                match="top-up line mismatch",
+                match="Minimum-wage top-up line mismatch",
             ):
-                verify()
+                verify(current_lines=tampered_lines)
 
-            print("ALTERED STORED TOP-UP = REJECTED")
+            print("IN-MEMORY MINIMUM WAGE TAMPER = REJECTED")
 
-            top_up_line.amount = original_line_amount
-            await db.flush()
+            # 2. Test PostgreSQL historical immutability.
+            # Expected database failure must escape the
+            # nested context to trigger ROLLBACK TO SAVEPOINT.
+            from sqlalchemy.exc import IntegrityError as _IntegrityError
+
+            with pytest.raises(
+                _IntegrityError,
+                match="Historical payroll source is immutable",
+            ):
+                async with db.begin_nested():
+                    await db.execute(
+                        text(
+                            "UPDATE payroll_calculation_lines "
+                            "SET amount = :new_amount "
+                            "WHERE company_id = :company_id "
+                            "AND id = :line_id"
+                        ),
+                        {
+                            "new_amount": Decimal("1100.00"),
+                            "company_id": company.id,
+                            "line_id": top_up_line.id,
+                        },
+                    )
+
+            await db.refresh(top_up_line)
+
+            assert top_up_line.amount == original_line_amount
+            assert verify() == first
+
+            print("POSTGRESQL HISTORICAL TOP-UP UPDATE = BLOCKED")
+            print("ORIGINAL MINIMUM WAGE LINE = UNCHANGED")
+            print("PROVENANCE AFTER SAVEPOINT = PASS")
 
             assert verify() == first
 

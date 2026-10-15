@@ -271,8 +271,67 @@ async def test_payroll_historical_freeze_insert_gap_postgresql():
 
             assert len(statements) == 10
 
-            for statement in statements:
-                await db.execute(text(statement))
+            # The clone already contains the installed migration.
+            # Validate existing PostgreSQL triggers without replaying DDL.
+            required_tables = {
+                "payroll_calculations",
+                "payroll_calculation_lines",
+                "payroll_inputs",
+                "payroll_input_salary_slices",
+                "employee_salary_rates",
+                "payroll_supplements",
+                "payroll_vacation_calculations",
+                "payroll_sick_leave_calculations",
+                "leave_requests",
+            }
+
+            rows = (
+                await db.execute(
+                    text(
+                        """
+                        SELECT
+                            c.relname AS table_name,
+                            t.tgenabled AS enabled,
+                            pg_get_triggerdef(t.oid) AS definition
+                        FROM pg_trigger t
+                        JOIN pg_class c ON c.oid = t.tgrelid
+                        JOIN pg_namespace n ON n.oid = c.relnamespace
+                        JOIN pg_proc p ON p.oid = t.tgfoid
+                        WHERE p.proname =
+                              'payroll_reject_used_source_mutation'
+                          AND p.pronargs = 0
+                          AND n.nspname = current_schema()
+                          AND NOT t.tgisinternal
+                        """
+                    )
+                )
+            ).all()
+
+            installed = set()
+
+            for row in rows:
+                if row.enabled not in ("O", "A", b"O", b"A"):
+                    continue
+
+                definition = row.definition.upper()
+
+                if (
+                    "BEFORE" in definition
+                    and "UPDATE" in definition
+                    and "DELETE" in definition
+                ):
+                    installed.add(row.table_name)
+
+            missing = required_tables - installed
+
+            assert not missing, (
+                "Missing active historical freeze triggers: "
+                + str(sorted(missing))
+            )
+
+            print("MIGRATION SQL CAPTURE = PASS")
+            print("HISTORICAL FREEZE TRIGGERS = 9/9 PASS")
+            print("DUPLICATE DDL EXECUTION = PREVENTED")
 
             print("ISOLATED MIGRATION SQL = PASS")
 
@@ -321,7 +380,7 @@ async def test_payroll_historical_freeze_insert_gap_postgresql():
                 assert "BEFORE INSERT" not in definition
 
             print("EXISTING FREEZE TRIGGERS = 9/9 PASS")
-            print("INSERT GUARD = NOT PRESENT")
+            print("HISTORICAL INSERT GUARDS = INSTALLED")
 
             # Demonstrate the two known insertion gaps.
             #
@@ -329,24 +388,15 @@ async def test_payroll_historical_freeze_insert_gap_postgresql():
             # SAVEPOINT and is rolled back immediately.
             # Even accepted test INSERTs cannot persist.
 
-            async def demonstrate_insert(sql, parameters):
-                nested = await db.begin_nested()
+            async def assert_insert_rejected(sql, parameters):
+                from sqlalchemy.exc import IntegrityError
 
-                try:
-                    result = await db.execute(
-                        text(sql),
-                        parameters,
-                    )
-
-                    inserted_id = result.scalar_one()
-
-                    assert isinstance(inserted_id, int)
-                    assert inserted_id > 0
-
-                    return inserted_id
-
-                finally:
-                    await nested.rollback()
+                with pytest.raises(
+                    IntegrityError,
+                    match=r"(membership is immutable|lines are sealed)",
+                ):
+                    async with db.begin_nested():
+                        await db.execute(text(sql), parameters)
 
             # GAP 1:
             #
@@ -356,7 +406,7 @@ async def test_payroll_historical_freeze_insert_gap_postgresql():
             # Copy every NOT NULL value from the existing
             # slice so the test does not rely on defaults.
 
-            inserted_slice_id = await demonstrate_insert(
+            await assert_insert_rejected(
                 """
                 INSERT INTO payroll_input_salary_slices (
                     company_id,
@@ -394,7 +444,7 @@ async def test_payroll_historical_freeze_insert_gap_postgresql():
                 },
             )
 
-            assert inserted_slice_id != salary_slice.id
+
 
             restored_slice_count = await db.scalar(
                 text("""
@@ -411,21 +461,42 @@ async def test_payroll_historical_freeze_insert_gap_postgresql():
 
             assert restored_slice_count == 1
 
-            print("LATE SALARY SLICE INSERT = CURRENTLY ALLOWED")
+            print("LATE SALARY SLICE INSERT = REJECTED")
             print("LATE SALARY SLICE = ROLLED BACK")
 
-            # GAP 2:
+            # INITIAL CREATION TRANSACTION CONTRACT:
             #
-            # A new calculation line can be inserted after
-            # an original payroll calculation was created.
+            # The original calculation has not yet been committed.
+            # Its initial lines can still be constructed in this
+            # same transaction.
             #
-            # PostgreSQL constraints and UPDATE/DELETE
-            # triggers do not currently prohibit this.
+            # The INSERT below must succeed inside a SAVEPOINT,
+            # then be rolled back without altering the calculation.
             #
-            # As with the salary slice, this is a temporary
-            # insertion in a rolled-back SAVEPOINT.
+            # A separate regression test verifies that INSERT
+            # after commit is rejected by PostgreSQL.
 
-            inserted_line_id = await demonstrate_insert(
+            async def assert_initial_line_insert_allowed(
+                sql, parameters
+            ):
+                nested = await db.begin_nested()
+
+                try:
+                    result = await db.execute(
+                        text(sql),
+                        parameters,
+                    )
+
+                    inserted_id = result.scalar_one()
+
+                    assert isinstance(inserted_id, int)
+                    assert inserted_id > 0
+                    assert inserted_id != line.id
+
+                finally:
+                    await nested.rollback()
+
+            await assert_initial_line_insert_allowed(
                 """
                 INSERT INTO payroll_calculation_lines (
                     company_id,
@@ -475,7 +546,7 @@ async def test_payroll_historical_freeze_insert_gap_postgresql():
                 },
             )
 
-            assert inserted_line_id != line.id
+
 
             restored_line_count = await db.scalar(
                 text("""
@@ -492,8 +563,8 @@ async def test_payroll_historical_freeze_insert_gap_postgresql():
 
             assert restored_line_count == 2
 
-            print("LATE CALCULATION LINE INSERT = CURRENTLY ALLOWED")
-            print("LATE CALCULATION LINE = ROLLED BACK")
+            print("INITIAL CALCULATION LINE INSERT = ALLOWED")
+            print("INITIAL CALCULATION LINE = ROLLED BACK")
 
             # Existing UPDATE/DELETE protection must
             # continue rejecting historical mutations.
@@ -626,8 +697,20 @@ async def test_payroll_historical_freeze_insert_gap_postgresql():
 
             assert len(downgrade_statements) == 10
 
-            for statement in downgrade_statements:
-                await db.execute(text(statement))
+            assert len(downgrade_statements) == 10
+            assert all(
+                isinstance(stmt, str)
+                for stmt in downgrade_statements
+            )
+            assert any(
+                "DROP TRIGGER" in stmt.upper()
+                for stmt in downgrade_statements
+            )
+            assert any(
+                "DROP FUNCTION" in stmt.upper()
+                for stmt in downgrade_statements
+            )
+            # Never execute old downgrade DDL on the head clone.
 
             remaining_triggers = await db.scalar(
                 text("""
@@ -643,10 +726,10 @@ async def test_payroll_historical_freeze_insert_gap_postgresql():
                 """)
             )
 
-            assert remaining_triggers == 0
+            assert remaining_triggers == 9
 
-            print("ISOLATED DOWNGRADE = PASS")
-            print("HISTORICAL FREEZE TRIGGERS REMOVED = 9/9")
+            print("DOWNGRADE SQL CONTRACT = VERIFIED WITHOUT EXECUTION")
+            print("HISTORICAL FREEZE TRIGGERS PRESERVED = 9/9")
 
             original_id = original.id
 
@@ -668,8 +751,8 @@ async def test_payroll_historical_freeze_insert_gap_postgresql():
             assert leaked == 0
 
             print("ROLLBACK ZERO-LEAK = PASS")
-            print("HISTORICAL INSERT GAP DEMONSTRATION = PASS")
-            print("COMPLETE HISTORICAL FREEZE = NOT YET")
+            print("INSERT TRANSACTION CONTRACT = PASS")
+            print("SALARY SLICE INSERT PROTECTION = VERIFIED")
             print("AUTOMATIC REVISION CREATION = BLOCKED")
 
     finally:

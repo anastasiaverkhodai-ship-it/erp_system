@@ -142,7 +142,7 @@ async def test_populated_leave_source_proof_postgresql(kind):
                         "revision": 1,
                         "status": "calculated",
                         "currency_code": "UAH",
-                        "gross_amount": Decimal("10000.00"),
+                        "gross_amount": Decimal("10000.00") + (Decimal("500.00") if kind == "vacation" else Decimal("300.00")),
                         "calculated_by": actor.id,
                     },
                 )
@@ -261,7 +261,6 @@ async def test_populated_leave_source_proof_postgresql(kind):
             db.add(row)
             await db.flush()
 
-            original.gross_amount = Decimal("10000.00") + amount
 
             line_values = {
                 "company_id": company.id,
@@ -308,22 +307,46 @@ async def test_populated_leave_source_proof_postgresql(kind):
             print(kind.upper(), "REPEATED VERIFICATION = PASS")
 
             old_amount = leave_line.amount
-            leave_line.amount = old_amount + Decimal("1.00")
-            await db.flush()
+
+            # c026 historical freeze protects calculation lines.
+            # Test database-level rejection without changing history.
+            from sqlalchemy.exc import IntegrityError as _IntegrityError
 
             with pytest.raises(
-                PayrollAdditionalSourceProofError,
-                match="provenance mismatch",
+                _IntegrityError,
+                match="Historical payroll source is immutable",
             ):
-                await verify()
+                async with db.begin_nested():
+                    await db.execute(
+                        text(
+                            "UPDATE payroll_calculation_lines "
+                            "SET amount = :new_amount "
+                            "WHERE company_id = :company_id "
+                            "AND id = :line_id"
+                        ),
+                        {
+                            "new_amount": old_amount + Decimal("1.00"),
+                            "company_id": company.id,
+                            "line_id": leave_line.id,
+                        },
+                    )
 
-            print(kind.upper(), "ALTERED LINE = REJECTED")
+            # The rejected SQL statement has been rolled back
+            # to the savepoint. The parent transaction is usable.
+            await db.refresh(leave_line)
+            assert leave_line.amount == old_amount
 
-            leave_line.amount = old_amount
-            await db.flush()
-
+            # Historical source proof must still match exactly.
             assert await verify() == first
-            print(kind.upper(), "RESTORED LINE = PASS")
+
+            print(
+                kind.upper(),
+                "HISTORICAL LINE UPDATE = BLOCKED BY POSTGRESQL",
+            )
+            print(
+                kind.upper(),
+                "SOURCE PROVENANCE = UNCHANGED",
+            )
 
             calculations = await db.scalar(
                 select(func.count(PayrollCalculation.id)).where(

@@ -133,7 +133,7 @@ async def test_populated_supplement_source_proof_postgresql():
                         "revision": 1,
                         "status": "calculated",
                         "currency_code": "UAH",
-                        "gross_amount": Decimal("10000.00"),
+                        "gross_amount": Decimal("10250.00"),
                         "calculated_by": actor.id,
                     },
                 )
@@ -184,7 +184,6 @@ async def test_populated_supplement_source_proof_postgresql():
             db.add(supplement)
             await db.flush()
 
-            original.gross_amount = Decimal("10250.00")
 
             bonus_line = PayrollCalculationLine(
                 company_id=company.id,
@@ -251,43 +250,114 @@ async def test_populated_supplement_source_proof_postgresql():
             print("ORIGINAL BONUS LINE = VERIFIED")
             print("DETERMINISTIC REPEAT = PASS")
 
-            supplement.amount = Decimal("350.00")
-            await db.flush()
+            # Compare detached source values without changing
+            # historical ORM rows or weakening database triggers.
+            from app.services.payroll_correction_additional_source_proof import (
+                compare_additional_source_lines,
+            )
+            from sqlalchemy.exc import IntegrityError as _IntegrityError
+
+            original_source_amount = supplement.amount
+            original_bonus_amount = bonus_line.amount
+
+            assert original_source_amount == Decimal("250.00")
+            assert original_bonus_amount == Decimal("250.00")
+
+            original_bonus_signature = {
+                "line_type": bonus_line.line_type,
+                "source_supplement_id": bonus_line.source_supplement_id,
+                "currency_code": bonus_line.currency_code,
+                "amount": bonus_line.amount,
+                "quantity": bonus_line.quantity,
+                "rate": bonus_line.rate,
+            }
+
+            # Negative scenario 1: source becomes 350 UAH.
+            changed_source_signature = {
+                **original_bonus_signature,
+                "amount": Decimal("350.00"),
+            }
 
             with pytest.raises(
                 PayrollAdditionalSourceProofError,
                 match="provenance mismatch",
             ):
-                await verify()
+                compare_additional_source_lines(
+                    kind="supplement",
+                    stored_lines=[original_bonus_signature],
+                    derived_lines=[changed_source_signature],
+                )
 
-            print("ALTERED BONUS AMOUNT = REJECTED")
+            print("ALTERED BONUS SOURCE = REJECTED BY SERVICE")
 
-            supplement.amount = Decimal("250.00")
-            await db.flush()
+            # The same mutation must be rejected in PostgreSQL.
+            with pytest.raises(
+                _IntegrityError,
+                match="Historical payroll source is immutable",
+            ):
+                async with db.begin_nested():
+                    await db.execute(
+                        PayrollSupplement.__table__.update()
+                        .where(
+                            PayrollSupplement.__table__.c.id == supplement.id,
+                            PayrollSupplement.__table__.c.company_id
+                            == company.id,
+                        )
+                        .values(amount=Decimal("350.00"))
+                    )
+
+            await db.refresh(supplement)
+            assert supplement.amount == original_source_amount
 
             restored = await verify()
-
             assert restored == first
 
-            print("RESTORED BONUS SOURCE = PASS")
+            print("SUPPLEMENT UPDATE = BLOCKED BY POSTGRESQL")
+            print("ORIGINAL BONUS SOURCE = UNCHANGED")
 
-            bonus_line.amount = Decimal("999.00")
-            await db.flush()
+            # Negative scenario 2: saved line becomes 999 UAH.
+            changed_stored_signature = {
+                **original_bonus_signature,
+                "amount": Decimal("999.00"),
+            }
 
             with pytest.raises(
                 PayrollAdditionalSourceProofError,
                 match="provenance mismatch",
             ):
-                await verify()
+                compare_additional_source_lines(
+                    kind="supplement",
+                    stored_lines=[changed_stored_signature],
+                    derived_lines=[original_bonus_signature],
+                )
 
-            print("ALTERED STORED BONUS LINE = REJECTED")
+            print("ALTERED STORED BONUS LINE = REJECTED BY SERVICE")
 
-            bonus_line.amount = Decimal("250.00")
-            await db.flush()
+            # Historical calculation lines are also immutable.
+            with pytest.raises(
+                _IntegrityError,
+                match="Historical payroll source is immutable",
+            ):
+                async with db.begin_nested():
+                    await db.execute(
+                        PayrollCalculationLine.__table__.update()
+                        .where(
+                            PayrollCalculationLine.__table__.c.id
+                            == bonus_line.id,
+                            PayrollCalculationLine.__table__.c.company_id
+                            == company.id,
+                        )
+                        .values(amount=Decimal("999.00"))
+                    )
 
+            await db.refresh(bonus_line)
+
+            assert bonus_line.amount == original_bonus_amount
             assert await verify() == first
 
-            print("RESTORED STORED BONUS LINE = PASS")
+            print("BONUS LINE UPDATE = BLOCKED BY POSTGRESQL")
+            print("ORIGINAL STORED BONUS LINE = UNCHANGED")
+            print("SOURCE PROVENANCE = PRESERVED")
 
             calculation_count = await db.scalar(
                 select(func.count(PayrollCalculation.id)).where(

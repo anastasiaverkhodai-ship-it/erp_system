@@ -346,8 +346,34 @@ async def test_minimum_wage_rederivation_postgresql():
 
             original_top_up = top_up_line.amount
 
-            top_up_line.amount = Decimal("1100.00")
-            await db.flush()
+            # Re-derive against isolated in-memory copies.
+            # Never mutate a historical ORM calculation line.
+            # The re-derivation service accepts dictionaries
+            # and mapped ORM rows, but not SimpleNamespace.
+            # Build detached dictionaries without modifying ORM.
+
+            _original_stored_lines = stored_lines
+
+            _tampered_lines = [
+                {
+                    column.key: getattr(item, column.key)
+                    for column in item.__mapper__.columns
+                }
+                for item in stored_lines
+            ]
+
+            _tampered_top_up = next(
+                item
+                for item in _tampered_lines
+                if item["line_type"] == "minimum_wage"
+            )
+
+            _tampered_top_up["amount"] = Decimal("1100.00")
+
+            assert top_up_line.amount == original_top_up
+
+            stored_lines = _tampered_lines
+
 
             with pytest.raises(
                 PayrollMinimumWageRederivationError,
@@ -355,8 +381,40 @@ async def test_minimum_wage_rederivation_postgresql():
             ):
                 await verify()
 
-            top_up_line.amount = original_top_up
-            await db.flush()
+            # Restore the original in-memory source list.
+            stored_lines = _original_stored_lines
+
+            assert top_up_line.amount == original_top_up
+
+            # Separately prove PostgreSQL prevents mutation
+            # of the real historical calculation line.
+            from sqlalchemy.exc import IntegrityError as _IntegrityError
+
+            with pytest.raises(
+                _IntegrityError,
+                match="Historical payroll source is immutable",
+            ):
+                async with db.begin_nested():
+                    await db.execute(
+                        text(
+                            "UPDATE payroll_calculation_lines "
+                            "SET amount = :new_amount "
+                            "WHERE company_id = :company_id "
+                            "AND id = :line_id"
+                        ),
+                        {
+                            "new_amount": Decimal("1100.00"),
+                            "company_id": company.id,
+                            "line_id": top_up_line.id,
+                        },
+                    )
+
+            await db.refresh(top_up_line)
+            assert top_up_line.amount == original_top_up
+
+            print("HISTORICAL TOP-UP UPDATE = BLOCKED")
+            print("ORIGINAL TOP-UP AMOUNT = UNCHANGED")
+
 
             assert await verify() == first
 
@@ -368,8 +426,29 @@ async def test_minimum_wage_rederivation_postgresql():
 
             original_salary_amount = salary_line.amount
 
-            salary_line.amount = Decimal("3900.00")
-            await db.flush()
+            # Mutation 3: verify a changed salary amount
+            # using detached dictionaries, not persisted ORM rows.
+            _salary_original_lines = stored_lines
+
+            _salary_tampered_lines = [
+                {
+                    column.key: getattr(item, column.key)
+                    for column in item.__mapper__.columns
+                }
+                for item in stored_lines
+            ]
+
+            _salary_tampered_row = next(
+                item
+                for item in _salary_tampered_lines
+                if item["line_type"] == "salary"
+            )
+
+            _salary_tampered_row["amount"] = Decimal("3900.00")
+
+            assert salary_line.amount == original_salary_amount
+
+            stored_lines = _salary_tampered_lines
 
             with pytest.raises(
                 PayrollMinimumWageRederivationError,
@@ -377,8 +456,41 @@ async def test_minimum_wage_rederivation_postgresql():
             ):
                 await verify()
 
-            salary_line.amount = original_salary_amount
-            await db.flush()
+            # Restore the original in-memory verification inputs.
+            stored_lines = _salary_original_lines
+
+            assert salary_line.amount == original_salary_amount
+
+            # PostgreSQL must reject the same mutation
+            # against the actual historical salary line.
+            from sqlalchemy.exc import IntegrityError as _SalaryIntegrityError
+
+            with pytest.raises(
+                _SalaryIntegrityError,
+                match="Historical payroll source is immutable",
+            ):
+                async with db.begin_nested():
+                    await db.execute(
+                        text(
+                            "UPDATE payroll_calculation_lines "
+                            "SET amount = :new_amount "
+                            "WHERE company_id = :company_id "
+                            "AND id = :line_id"
+                        ),
+                        {
+                            "new_amount": Decimal("3900.00"),
+                            "company_id": company.id,
+                            "line_id": salary_line.id,
+                        },
+                    )
+
+            await db.refresh(salary_line)
+
+            assert salary_line.amount == original_salary_amount
+            assert await verify() == first
+
+            print("HISTORICAL SALARY LINE UPDATE = BLOCKED")
+            print("ORIGINAL SALARY AMOUNT = UNCHANGED")
 
             assert await verify() == first
 

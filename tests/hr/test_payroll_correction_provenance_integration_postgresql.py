@@ -169,10 +169,6 @@ async def test_correction_provenance_integration_postgresql():
                 verify_payroll_correction_provenance,
             )
 
-            from app.services.payroll_correction_historical_salary_proof import (
-                PayrollHistoricalSalaryProofError,
-            )
-
             request_key = (
                 f"integrated-source-proof-{original.id}"
             )
@@ -258,59 +254,77 @@ async def test_correction_provenance_integration_postgresql():
 
             original_rate_amount = rate.amount
 
-            rate.amount = original_rate_amount + Decimal("1.00")
-            await db.flush()
+            # The historical rate is referenced by payroll.
+            # PostgreSQL must reject an UPDATE to that rate.
+            from sqlalchemy.exc import IntegrityError as _IntegrityError
+
+            with pytest.raises(
+                _IntegrityError,
+                match="Historical payroll source is immutable",
+            ):
+                async with db.begin_nested():
+                    await db.execute(
+                        EmployeeSalaryRate.__table__.update()
+                        .where(
+                            EmployeeSalaryRate.__table__.c.id == rate.id,
+                            EmployeeSalaryRate.__table__.c.company_id
+                            == company.id,
+                        )
+                        .values(
+                            amount=original_rate_amount + Decimal("1.00")
+                        )
+                    )
+
+            await db.refresh(rate)
+            assert rate.amount == original_rate_amount
 
             unchanged_snapshot = await capture()
-
             assert (
                 unchanged_snapshot["source_fingerprint_sha256"]
                 == fingerprint
             )
-
-            with pytest.raises(
-                PayrollHistoricalSalaryProofError,
-                match="terms mismatch",
-            ):
-                await verify()
-
-            print("ALTERED HISTORICAL RATE = REJECTED")
-            print(
-                "HISTORICAL RATE CHANGE OUTSIDE SOURCE SHA256 = DETECTED"
-            )
-
-            rate.amount = original_rate_amount
-            await db.flush()
-
             assert await verify() == first
 
-            print("HISTORICAL RATE RESTORATION = PASS")
+            print("HISTORICAL RATE UPDATE = BLOCKED BY POSTGRESQL")
+            print("HISTORICAL RATE VALUE = UNCHANGED")
+            print("SOURCE SHA256 AFTER REJECTION = UNCHANGED")
 
             original_slice_amount = salary_slice.salary_rate_amount
 
-            salary_slice.salary_rate_amount = (
-                original_slice_amount + Decimal("1.00")
-            )
-
-            await db.flush()
-
+            # Salary slices already used in payroll are immutable.
+            # The failed UPDATE is rolled back to a SAVEPOINT.
             with pytest.raises(
-                PayrollProvenanceIntegrationError,
-                match="source changed",
+                _IntegrityError,
+                match="Historical payroll source is immutable",
             ):
-                await verify()
+                async with db.begin_nested():
+                    await db.execute(
+                        PayrollInputSalarySlice.__table__.update()
+                        .where(
+                            PayrollInputSalarySlice.__table__.c.id
+                            == salary_slice.id,
+                            PayrollInputSalarySlice.__table__.c.company_id
+                            == company.id,
+                        )
+                        .values(
+                            salary_rate_amount=(
+                                original_slice_amount + Decimal("1.00")
+                            )
+                        )
+                    )
 
-            print("ALTERED SNAPSHOT = REJECTED BY SHA256")
+            await db.refresh(salary_slice)
 
-            salary_slice.salary_rate_amount = (
-                original_slice_amount
+            assert (
+                salary_slice.salary_rate_amount
+                == original_slice_amount
             )
-
-            await db.flush()
 
             assert await verify() == first
 
-            print("SOURCE SNAPSHOT RESTORATION = PASS")
+            print("SALARY SLICE UPDATE = BLOCKED BY POSTGRESQL")
+            print("SALARY SLICE VALUE = UNCHANGED")
+            print("SOURCE PROVENANCE AFTER SAVEPOINT = PASS")
 
             calculation_count = await db.scalar(
                 select(func.count(PayrollCalculation.id)).where(

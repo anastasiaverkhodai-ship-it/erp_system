@@ -206,24 +206,38 @@ async def test_historical_salary_proof_postgresql():
 
             original_rate_amount = rate.amount
 
-            rate.amount = Decimal("120.00")
-            await db.flush()
+            # Historical source freeze is now enforced by PostgreSQL.
+            # A referenced rate must never be changed and restored.
+            # Test the rejected mutation inside a savepoint instead.
+            from sqlalchemy import text as _sql_text
+            from sqlalchemy.exc import IntegrityError as _IntegrityError
 
             with pytest.raises(
-                PayrollHistoricalSalaryProofError,
-                match="terms mismatch",
+                _IntegrityError,
+                match="Historical payroll source is immutable",
             ):
-                await verify()
+                async with db.begin_nested():
+                    await db.execute(
+                        _sql_text(
+                            "UPDATE employee_salary_rates "
+                            "SET amount = :changed_amount "
+                            "WHERE id = :rate_id "
+                            "AND company_id = :company_id"
+                        ),
+                        {
+                            "changed_amount": Decimal("120.00"),
+                            "rate_id": rate.id,
+                            "company_id": company.id,
+                        },
+                    )
 
-            print("ALTERED HISTORICAL RATE = REJECTED")
-
-            rate.amount = original_rate_amount
-            await db.flush()
+            await db.refresh(rate)
+            assert rate.amount == original_rate_amount
 
             restored = await verify()
-
             assert restored == first
 
+            print("ALTERED HISTORICAL RATE = BLOCKED BY POSTGRESQL")
             print("RESTORED HISTORICAL RATE = PASS")
 
             calculation_count = await db.scalar(

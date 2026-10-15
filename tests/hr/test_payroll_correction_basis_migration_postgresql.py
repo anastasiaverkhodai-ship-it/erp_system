@@ -17,6 +17,8 @@ def test_actual_basis_migration_roundtrip():
     try:
         cli('downgrade', '13d4a7b8c027')
         cli('upgrade', '13d4a7b8c028')
+        cli('upgrade', 'head')
         cli('check')
     finally:
         cli('downgrade', '13d4a7b8c025')
+        cli('upgrade', 'head')
