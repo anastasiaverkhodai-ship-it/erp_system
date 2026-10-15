@@ -149,7 +149,7 @@ async def post_journal_entry(
             raise AccountingPostingError('Payroll advance not found')
         await require_payment_without_unresolved_deductions(db, company_id=company_id,
             employee_id=payment.employee_id, payment_date=payment.payment_date,
-            error_type=AccountingPostingError)
+            advance_id=journal_entry.payroll_advance_id, error_type=AccountingPostingError)
 
     if journal_entry.payroll_disbursement_id is not None:
         from app.models.payroll_disbursement import PayrollDisbursement
@@ -161,6 +161,10 @@ async def post_journal_entry(
             raise AccountingPostingError('Payroll disbursement not found')
         await require_posted_payroll_accrual(db, company_id=company_id,
             disbursement=disbursement, error_type=AccountingPostingError)
+
+    if journal_entry.payroll_advance_id is not None or journal_entry.payroll_disbursement_id is not None:
+        from app.services.payroll_deduction_execution_service import validate_withholding_journal
+        await validate_withholding_journal(db, journal_entry, AccountingPostingError)
 
     commissioning_id = getattr(journal_entry, "fixed_asset_commissioning_id", None)
     if commissioning_id is not None and db.info.get("fixed_asset_commissioning") != commissioning_id:

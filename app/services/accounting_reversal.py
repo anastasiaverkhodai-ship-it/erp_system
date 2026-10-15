@@ -455,6 +455,10 @@ async def reverse_journal_entry(
             "Journal entry not found"
         )
 
+    from app.services.payroll_recipient_remittance_service import ensure_withholding_reversible
+    await ensure_withholding_reversible(db, company_id=company_id, journal=original_entry,
+        reversal_date=reversal_date, error_type=AccountingReversalError)
+
     from app.services.payroll_insurance_funding_service import ensure_funding_receipt_reversible
     await ensure_funding_receipt_reversible(db, company_id=company_id,
         journal_entry_id=original_entry.id, reversal_date=reversal_date, error_type=AccountingReversalError)

@@ -343,7 +343,7 @@ async def generate_and_post_payroll_advance_journal(
         JournalEntryLine(
             line_no=1,
             account_id=payable.id,
-            debit=amount,
+            debit=amount + advance.withheld_amount,
             credit=Decimal("0.00"),
             description="Payroll net payable advance settlement",
         ),
@@ -355,6 +355,9 @@ async def generate_and_post_payroll_advance_journal(
             description="Payroll advance bank payment",
         ),
     ]
+
+    from app.services.payroll_deduction_execution_service import journal_withholding_lines
+    journal.lines.extend(await journal_withholding_lines(db, company_id, advance_id=advance.id))
 
     db.add(journal)
     await db.flush()

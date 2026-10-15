@@ -34,6 +34,8 @@ class PayrollDisbursementRead(BaseModel):
     bank_account_id: int
     employee_iban_snapshot: str
     amount: Decimal
+
+    withheld_amount: Decimal = Decimal("0")
     currency_code: str
     payment_date: date
     confirmed_at: datetime | None

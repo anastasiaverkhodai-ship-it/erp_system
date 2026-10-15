@@ -22,6 +22,7 @@ class PayrollDisbursement(Base):
     __tablename__ = "payroll_disbursements"
 
     __table_args__ = (
+        CheckConstraint("withheld_amount >= 0 AND withheld_amount <> 'NaN'::numeric", name="ck_payroll_disbursement_withheld"),
         UniqueConstraint(
             "company_id",
             "id",
@@ -75,6 +76,8 @@ class PayrollDisbursement(Base):
             "payment_date",
         ),
     )
+
+    withheld_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, server_default="0")
 
     id: Mapped[int] = mapped_column(
         Integer,

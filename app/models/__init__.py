@@ -244,3 +244,9 @@ from app.models.payroll_deduction_remittance import (
     PayrollDeductionRemittancePlan,
     PayrollDeductionRemittanceEvent,
 )
+
+from app.models.payroll_deduction_beneficiary import PayrollDeductionBeneficiary
+from app.models.payroll_deduction_execution import (
+    PayrollDeductionAssessment, PayrollWithholdingBatch, PayrollWithholdingLine,
+    PayrollRecipientRemittance, PayrollRecipientRemittanceLine,
+)

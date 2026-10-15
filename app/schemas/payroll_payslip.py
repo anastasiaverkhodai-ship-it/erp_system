@@ -21,6 +21,7 @@ class PayrollPayslipLineRead(BaseModel):
     source_payroll_calculation_line_id: int | None
     source_payroll_statutory_result_line_id: int | None
     source_payroll_deduction_result_line_id: int | None
+    source_withholding_line_id: int | None = None
     created_at: datetime
 
 

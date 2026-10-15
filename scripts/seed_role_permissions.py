@@ -9,6 +9,8 @@ from app.models.rbac import role_permissions
 
 
 ROLE_PERMISSIONS = {
+    "payroll_deduction_rule_author": ["employees.read", "employees.manage", "payroll_deduction_rule_approval.create"],
+    "payroll_deduction_rule_reviewer": ["employees.read", "employees.manage", "payroll_deduction_rule_approval.approve", "payroll_deduction_rule_approval.revoke"],
     "hr_manager": ["employees.read", "employees.manage"],
     "admin": [
         "employees.read",

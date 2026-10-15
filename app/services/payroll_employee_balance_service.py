@@ -94,6 +94,11 @@ async def employee_payroll_balance(db, *, company_id:int, employee_id:int, as_of
 
             target[total_field] = target.get(total_field, Decimal(0)) + (
                 -amount if journal.reversal_of_id is not None else amount)
+    from app.services.payroll_deduction_execution_service import withholding_rows
+    for batch, line, assessment, journal, reversal in await withholding_rows(db, company_id,
+            employee_id=employee_id, as_of=as_of):
+        target = totals('UAH')
+        target['deducted_amount'] = target.get('deducted_amount', Decimal(0)) + line.amount
     for row in currencies.values():
         row.setdefault('advance_paid', Decimal(0))
         row.setdefault('deducted_amount', Decimal(0))

@@ -26,6 +26,7 @@ class PayrollAdvance(Base):
     __tablename__ = "payroll_advances"
 
     __table_args__ = (
+        CheckConstraint("withheld_amount >= 0 AND withheld_amount <> 'NaN'::numeric", name="ck_payroll_advance_withheld"),
         UniqueConstraint(
             "company_id",
             "id",
@@ -72,11 +73,11 @@ class PayrollAdvance(Base):
             name="ck_payroll_advances_paid_amount_positive",
         ),
         CheckConstraint(
-            "paid_amount <= calculated_amount",
+            "paid_amount + withheld_amount <= calculated_amount",
             name="ck_payroll_advances_paid_lte_calculated",
         ),
         CheckConstraint(
-            "paid_amount >= minimum_due_amount",
+            "paid_amount + withheld_amount >= minimum_due_amount",
             name="ck_payroll_advances_paid_gte_minimum",
         ),
         CheckConstraint(
@@ -89,6 +90,8 @@ class PayrollAdvance(Base):
             "payment_date",
         ),
     )
+
+    withheld_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, server_default="0")
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(

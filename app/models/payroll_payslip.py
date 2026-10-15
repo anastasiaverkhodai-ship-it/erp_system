@@ -253,6 +253,9 @@ class PayrollPayslipLine(Base):
     __tablename__ = "payroll_payslip_lines"
 
     __table_args__ = (
+        ForeignKeyConstraint(['company_id','source_withholding_line_id'],
+            ['payroll_withholding_lines.company_id','payroll_withholding_lines.id'],
+            name='fk_payslip_withholding_line',ondelete='RESTRICT'),
         UniqueConstraint(
             "company_id",
             "id",
@@ -305,17 +308,17 @@ class PayrollPayslipLine(Base):
                 line_kind = 'earning'
                 AND source_payroll_calculation_line_id IS NOT NULL
                 AND source_payroll_statutory_result_line_id IS NULL
-                AND source_payroll_deduction_result_line_id IS NULL
+                AND source_payroll_deduction_result_line_id IS NULL AND source_withholding_line_id IS NULL
             ) OR (
                 line_kind IN ('employee_withholding','employer_contribution')
                 AND source_payroll_calculation_line_id IS NULL
                 AND source_payroll_statutory_result_line_id IS NOT NULL
-                AND source_payroll_deduction_result_line_id IS NULL
+                AND source_payroll_deduction_result_line_id IS NULL AND source_withholding_line_id IS NULL
             ) OR (
                 line_kind = 'non_statutory_deduction'
                 AND source_payroll_calculation_line_id IS NULL
                 AND source_payroll_statutory_result_line_id IS NULL
-                AND source_payroll_deduction_result_line_id IS NOT NULL
+                AND num_nonnulls(source_payroll_deduction_result_line_id, source_withholding_line_id) = 1
             )""",
             name="ck_payroll_payslip_lines_source_by_kind",
         ),
@@ -391,6 +394,8 @@ class PayrollPayslipLine(Base):
         Integer,
         nullable=True,
     )
+
+    source_withholding_line_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     source_payroll_deduction_result_line_id: Mapped[int | None] = mapped_column(
         Integer,

@@ -60,9 +60,9 @@ async def reserved_opening_amount(db, *, company_id, opening_debt_id, payment_da
     for payout, status, posted_date, reversed_date in (await db.execute(query)).all():
         if status in ('posted', 'reversed'):
             # Even cancelled reversed payments remain part of the dated history.
-            movements.append((payout.amount, posted_date, reversed_date))
+            movements.append((payout.amount + payout.withheld_amount, posted_date, reversed_date))
         elif payout.cancelled_at is None:
-            drafts += payout.amount
+            drafts += payout.amount + payout.withheld_amount
     return drafts + peak_commitment(movements, payment_date)
 
 
@@ -74,7 +74,7 @@ async def require_opening_debt_for_payout(db, *, company_id, disbursement, error
         raise error_type('Opening disbursement employee or currency differs from its source')
     reserved = await reserved_opening_amount(db, company_id=company_id,
         opening_debt_id=debt.id, payment_date=disbursement.payment_date, exclude_id=disbursement.id)
-    if reserved + disbursement.amount > debt.net_amount:
+    if reserved + disbursement.amount + disbursement.withheld_amount > debt.net_amount:
         raise error_type('Disbursement exceeds remaining opening payroll debt')
 
 

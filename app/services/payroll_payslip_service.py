@@ -295,7 +295,10 @@ async def generate_payroll_payslip(
         )
     )
 
-    if deduction_result is None:
+    from app.services.payroll_deduction_execution_service import withholding_rows
+    operational_rows = await withholding_rows(session, company_id,
+        period_id=calculation.payroll_period_id, contract_id=calculation.employment_contract_id)
+    if deduction_result is None and not operational_rows:
         deduction_result = await calculate_payroll_deduction_result(
             session,
             company_id=company_id,
@@ -372,6 +375,16 @@ async def generate_payroll_payslip(
                 )
             ).all()
         )
+
+    if operational_rows:
+        from types import SimpleNamespace
+        operational_total = sum((line.amount for _,line,_,_,_ in operational_rows), Decimal(0))
+        non_statutory_deduction_amount = (deduction_result.deduction_amount if deduction_result else Decimal(0)) + operational_total
+        final_payable_amount = net_amount - non_statutory_deduction_amount
+        deduction_lines = deduction_lines if deduction_result else []
+        deduction_lines += [SimpleNamespace(id=None, withholding_line_id=line.id,
+            deduction_type='operational_withholding',source_reference=assessment.reference,
+            amount=line.amount,currency_code='UAH') for _,line,assessment,_,_ in operational_rows if line.amount]
 
     if gross_amount != statutory_gross_amount:
         raise PayrollPayslipValidationError(
@@ -503,9 +516,8 @@ async def generate_payroll_payslip(
             ).upper(),
             source_payroll_calculation_line_id=None,
             source_payroll_statutory_result_line_id=None,
-            source_payroll_deduction_result_line_id=(
-                source_line.id
-            ),
+            source_payroll_deduction_result_line_id=source_line.id,
+            source_withholding_line_id=getattr(source_line, "withholding_line_id", None),
         )
         session.add(line)
         line_no += 1

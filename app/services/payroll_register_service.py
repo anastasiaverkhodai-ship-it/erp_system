@@ -118,7 +118,12 @@ async def get_payroll_register(db, *, company_id: int, payroll_period_id: int):
                 deduction_reversed = True
             elif deduction_amount:
                 issues.append('deduction_not_posted')
-        missing_deduction = contract.id in instruction_contracts and deduction_data is None
+        from app.services.payroll_deduction_execution_service import withholding_rows
+        execution_rows = await withholding_rows(db, company_id, period_id=period.id, contract_id=contract.id)
+        operational_amount = sum((line.amount for _,line,_,_,_ in execution_rows), Decimal(0))
+        deduction_amount += operational_amount
+        deduction_posted += operational_amount
+        missing_deduction = contract.id in instruction_contracts and deduction_data is None and not execution_rows
         if missing_deduction:
             issues.append('deduction_result_missing')
         final_payable = net - (Decimal(0) if deduction_reversed else deduction_amount) if net is not None and not missing_deduction else None

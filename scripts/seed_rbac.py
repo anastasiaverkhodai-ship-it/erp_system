@@ -8,6 +8,9 @@ from app.models.role import Role
 
 
 PERMISSIONS = [
+    "payroll_deduction_rule_approval.create",
+    "payroll_deduction_rule_approval.approve",
+    "payroll_deduction_rule_approval.revoke",
     "employees.read",
     "employees.manage",
     "users.read",
@@ -67,6 +70,8 @@ PERMISSIONS = [
 
 
 ROLES = [
+    "payroll_deduction_rule_author",
+    "payroll_deduction_rule_reviewer",
     "hr_manager",
     "admin",
     "director",

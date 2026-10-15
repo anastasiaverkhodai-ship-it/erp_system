@@ -29,6 +29,7 @@ class PayrollAdvanceRead(BaseModel):
     calculated_amount: Decimal
     minimum_due_amount: Decimal
     paid_amount: Decimal
+    withheld_amount: Decimal = Decimal("0")
 
     currency_code: str
     payment_date: date

@@ -198,7 +198,8 @@ async def create_payroll_disbursement(
         )
     )
 
-    if deduction_result is None:
+    from app.services.payroll_deduction_execution_service import preparing
+    if deduction_result is None and not preparing(db):
         deduction_result = await calculate_payroll_deduction_result(
             db,
             company_id=company_id,
@@ -260,7 +261,7 @@ async def create_payroll_disbursement(
                 raise PayrollDisbursementSourceStateError('Disbursement cannot precede deduction reversal')
             payable_ceiling = Decimal(statutory.net_amount)
 
-    reserved = await db.scalar(select(func.coalesce(func.sum(PayrollDisbursement.amount), 0))
+    reserved = await db.scalar(select(func.coalesce(func.sum(PayrollDisbursement.amount + PayrollDisbursement.withheld_amount), 0))
         .outerjoin(JournalEntry, and_(
             JournalEntry.company_id == PayrollDisbursement.company_id,
             JournalEntry.payroll_disbursement_id == PayrollDisbursement.id,
@@ -272,7 +273,7 @@ async def create_payroll_disbursement(
     advance_reserved = await db.scalar(
         select(
             func.coalesce(
-                func.sum(PayrollAdvance.paid_amount),
+                func.sum(PayrollAdvance.paid_amount + PayrollAdvance.withheld_amount),
                 0,
             )
         )
@@ -303,7 +304,7 @@ async def create_payroll_disbursement(
     # A later reversal cannot finance a backdated disbursement.
     from sqlalchemy.orm import aliased
     original_advance = aliased(JournalEntry)
-    late_reversed = await db.scalar(select(func.coalesce(func.sum(PayrollAdvance.paid_amount), 0))
+    late_reversed = await db.scalar(select(func.coalesce(func.sum(PayrollAdvance.paid_amount + PayrollAdvance.withheld_amount), 0))
         .join(original_advance, and_(original_advance.company_id == company_id,
             original_advance.payroll_advance_id == PayrollAdvance.id, original_advance.reversal_of_id.is_(None)))
         .join(JournalEntry, and_(JournalEntry.company_id == company_id,
@@ -313,6 +314,21 @@ async def create_payroll_disbursement(
             PayrollAdvance.employment_contract_id == calculation.employment_contract_id,
             original_advance.status == JournalEntryStatus.REVERSED, JournalEntry.entry_date > payment_date))
     advance_reserved = Decimal(advance_reserved or 0) + Decimal(late_reversed or 0)
+
+    original_payment = aliased(JournalEntry)
+    late_reversed_payments = await db.scalar(
+        select(func.coalesce(func.sum(PayrollDisbursement.amount + PayrollDisbursement.withheld_amount), 0))
+        .join(original_payment, and_(original_payment.company_id == company_id,
+            original_payment.payroll_disbursement_id == PayrollDisbursement.id,
+            original_payment.reversal_of_id.is_(None)))
+        .join(JournalEntry, and_(JournalEntry.company_id == company_id,
+            JournalEntry.reversal_of_id == original_payment.id,
+            JournalEntry.status == JournalEntryStatus.POSTED))
+        .where(PayrollDisbursement.company_id == company_id,
+            PayrollDisbursement.payroll_calculation_id == calculation.id,
+            original_payment.status == JournalEntryStatus.REVERSED,
+            JournalEntry.entry_date > payment_date))
+    reserved = Decimal(reserved or 0) + Decimal(late_reversed_payments or 0)
 
     amount = payable_ceiling - Decimal(reserved) - advance_reserved if amount is None else Decimal(amount)
     if not amount.is_finite() or amount != amount.quantize(Decimal('0.01')):
@@ -468,7 +484,7 @@ async def generate_and_post_payroll_disbursement_journal(
         JournalEntryLine(
             line_no=1,
             account_id=payable.id,
-            debit=amount,
+            debit=amount + disbursement.withheld_amount,
             credit=Decimal("0.00"),
             description="Payroll net payable settlement",
         ),
@@ -480,6 +496,9 @@ async def generate_and_post_payroll_disbursement_journal(
             description="Payroll bank disbursement",
         ),
     ]
+
+    from app.services.payroll_deduction_execution_service import journal_withholding_lines
+    journal.lines.extend(await journal_withholding_lines(db, company_id, disbursement_id=disbursement.id))
 
     db.add(journal)
     await db.flush()

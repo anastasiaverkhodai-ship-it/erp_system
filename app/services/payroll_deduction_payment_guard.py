@@ -11,8 +11,17 @@ from app.models.payroll_deduction import PayrollDeductionInstruction
 
 
 async def require_payment_without_unresolved_deductions(
-    db, *, company_id, employee_id, payment_date, error_type,
+    db, *, company_id, employee_id, payment_date, error_type, advance_id=None, disbursement_id=None,
 ):
+    from app.services.payroll_deduction_execution_service import preparing, validate_payment_batch
+    if preparing(db) and advance_id is None and disbursement_id is None:
+        return
+    try:
+        if await validate_payment_batch(db, company_id=company_id, employee_id=employee_id,
+            payment_date=payment_date, advance_id=advance_id, disbursement_id=disbursement_id):
+            return
+    except ValueError as exc:
+        raise error_type(str(exc)) from exc
     instruction_id = await db.scalar(
         select(PayrollDeductionInstruction.id)
         .join(EmploymentContract, (

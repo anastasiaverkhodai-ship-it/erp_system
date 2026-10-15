@@ -77,7 +77,7 @@ async def require_posted_payroll_accrual(db, *, company_id, disbursement, error_
     from app.services.payroll_deduction_payment_guard import require_payment_without_unresolved_deductions
     await require_payment_without_unresolved_deductions(db, company_id=company_id,
         employee_id=disbursement.employee_id, payment_date=disbursement.payment_date,
-        error_type=error_type)
+        disbursement_id=getattr(disbursement, "id", None), error_type=error_type)
     if disbursement.opening_debt_id is not None:
         from app.services.payroll_opening_disbursement_service import require_opening_debt_for_payout
         await require_opening_debt_for_payout(db, company_id=company_id,

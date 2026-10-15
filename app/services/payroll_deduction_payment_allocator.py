@@ -101,3 +101,68 @@ def allocate_payment_deductions(*, eligible_net: Decimal, aggregate_limit: Decim
             result.append(PaymentAllocation(key, Decimal(requested)/100,
                 Decimal(applied)/100, Decimal(requested-applied)/100))
     return tuple(result)
+
+
+@dataclass(frozen=True)
+class PaymentGroupLimit:
+    instruction_ids: frozenset[int]
+    amount: Decimal
+
+
+def allocate_grouped_payment_deductions(*, eligible_net, aggregate_limit, claims, group_limits):
+    """Weighted per-priority allocation with additional joint legal ceilings.
+
+    Constraints must be nested or disjoint. This covers employer-only, all
+    non-exception claims, and claims belonging to the same instruction. A scarce
+    joint ceiling is shared proportionately, never by caller input order.
+    """
+    from fractions import Fraction
+    # Reuse strict public validation without trusting its unconstrained result.
+    allocate_payment_deductions(eligible_net=eligible_net, aggregate_limit=aggregate_limit, claims=claims)
+    identifiers = {c.instruction_id for c in claims}
+    constraints = [(frozenset(identifiers), _cents(aggregate_limit, 'aggregate limit'))]
+    for group in group_limits:
+        if type(group) is not PaymentGroupLimit or type(group.instruction_ids) is not frozenset:
+            raise PaymentAllocationError('Invalid joint limit')
+        if not group.instruction_ids or not group.instruction_ids <= identifiers:
+            raise PaymentAllocationError('Joint limit contains unknown claims')
+        limit = _cents(group.amount, 'joint limit')
+        if limit > _cents(eligible_net, 'eligible net'):
+            raise PaymentAllocationError('Joint limit exceeds eligible net')
+        constraints.append((group.instruction_ids, limit))
+    for i, (left, _) in enumerate(constraints):
+        for right, _ in constraints[i+1:]:
+            if left & right and not (left <= right or right <= left):
+                raise PaymentAllocationError('Joint limits must be nested or disjoint')
+    by_id = {c.instruction_id:c for c in claims}
+    result = []
+    for priority in sorted({c.priority for c in claims}):
+        ids = {c.instruction_id for c in claims if c.priority == priority}
+        weights = {i:_cents(by_id[i].requested_amount, 'requested') for i in ids}
+        caps = {i:min(weights[i], _cents(by_id[i].individual_limit, 'individual')) for i in ids}
+        local = [(members & ids, Fraction(limit)) for members, limit in constraints if members & ids]
+        local += [(frozenset([i]), Fraction(cap)) for i, cap in caps.items()]
+        allocated = {i:Fraction(0) for i in ids}
+        active = {i for i in ids if caps[i] > 0}
+        while active:
+            step = min(limit / sum(weights[i] for i in members & active)
+                       for members, limit in local if members & active)
+            for i in active:
+                allocated[i] += step * weights[i]
+            local = [(members, limit - step * sum(weights[i] for i in members & active))
+                     for members, limit in local]
+            saturated = set().union(*(set(members) for members, limit in local if limit == 0))
+            active -= saturated
+        rounded = {i:int(value) for i, value in allocated.items()}
+        for i in sorted(ids, key=lambda k: (-(allocated[k]-rounded[k]), k)):
+            if rounded[i] >= caps[i] or allocated[i] == rounded[i]:
+                continue
+            if all(sum(rounded.get(j,0) for j in members) < limit
+                   for members, limit in constraints if i in members):
+                rounded[i] += 1
+        constraints = [(members, limit - sum(rounded.get(i,0) for i in members)) for members, limit in constraints]
+        for i in sorted(ids):
+            amount = rounded[i]
+            result.append(PaymentAllocation(i, Decimal(weights[i])/100, Decimal(amount)/100,
+                                            Decimal(weights[i]-amount)/100))
+    return tuple(result)
