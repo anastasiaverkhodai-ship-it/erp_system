@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -33,3 +34,38 @@ class PayrollRegulatoryReportRead(BaseModel):
     generated_by: int | None
     created_by: int
     created_at: datetime
+
+
+class PayrollRegulatorySourceComponent(BaseModel):
+    source_line_id: int
+    component: str
+    base_amount: Decimal
+    rate: Decimal
+    amount: Decimal
+    currency_code: str
+
+
+class PayrollRegulatoryCalculationSource(BaseModel):
+    employee_id: int
+    employment_contract_id: int
+    payroll_calculation_id: int
+    revision: int
+    tax_number: str | None
+    issues: list[str]
+    gross_amount: Decimal | None
+    net_amount: Decimal | None
+    employee_withholding_amount: Decimal | None
+    employer_contribution_amount: Decimal | None
+    currency_code: str | None
+    components: list[PayrollRegulatorySourceComponent]
+
+
+class PayrollRegulatoryReadinessRead(BaseModel):
+    company_id: int
+    payroll_period_id: int
+    report_kind: str
+    ready: bool
+    applicability: str
+    blocking_issues: list[str]
+    calculation_sources: list[PayrollRegulatoryCalculationSource]
+    notice: str

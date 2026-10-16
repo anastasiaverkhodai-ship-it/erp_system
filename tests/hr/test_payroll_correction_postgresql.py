@@ -500,16 +500,11 @@ async def test_payroll_correction_revision_contract_real_postgresql():
             from app.services.payroll_register_service import get_payroll_register
             register = await get_payroll_register(db, company_id=company_id, payroll_period_id=period.id)
             assert [row.payroll_calculation_id for row in register.rows] == [replacement.id]
-            from app.services.payroll_regulatory_report_service import (
-                create_payroll_regulatory_report, generate_payroll_regulatory_report,
-                list_payroll_regulatory_report_rows)
-            report = await create_payroll_regulatory_report(db, company_id=company_id,
-                payroll_period_id=period.id, report_kind='d1', created_by=actor_id)
-            await generate_payroll_regulatory_report(db, company_id=company_id,
-                payroll_regulatory_report_id=report.id, generated_by=actor_id)
-            report_rows = await list_payroll_regulatory_report_rows(db, company_id=company_id,
-                payroll_regulatory_report_id=report.id)
-            assert [row.payroll_calculation_id for row in report_rows] == [replacement.id]
+            from app.services.payroll_regulatory_readiness_service import payroll_regulatory_readiness
+            readiness = await payroll_regulatory_readiness(db, company_id=company_id,
+                payroll_period_id=period.id, report_kind='d1')
+            assert readiness['ready'] is False
+            assert [row['payroll_calculation_id'] for row in readiness['calculation_sources']] == [replacement.id]
             from app.services.payroll_disbursement_service import (
                 create_payroll_disbursement, PayrollDisbursementSourceStateError)
             with pytest.raises(PayrollDisbursementSourceStateError, match="superseded"):

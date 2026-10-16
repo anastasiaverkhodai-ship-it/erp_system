@@ -5,6 +5,7 @@ from app.core.database import get_db
 from app.models.user import User
 from app.schemas.payroll_regulatory_report import (
     PayrollRegulatoryReportRead,
+    PayrollRegulatoryReadinessRead,
     PayrollRegulatoryReportRowRead,
 )
 from app.api.permissions import require_company_permission
@@ -121,3 +122,20 @@ async def read_report_rows(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
+
+
+@router.get('/payroll-periods/{payroll_period_id}/regulatory-readiness/{report_kind}',
+            response_model=PayrollRegulatoryReadinessRead)
+async def read_regulatory_readiness(
+    company_id: int, payroll_period_id: int, report_kind: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_company_permission('employees.read')),
+):
+    from app.services.payroll_regulatory_readiness_service import payroll_regulatory_readiness
+    try:
+        return await payroll_regulatory_readiness(db, company_id=company_id,
+            payroll_period_id=payroll_period_id, report_kind=report_kind)
+    except PayrollRegulatoryReportNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PayrollRegulatoryReportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

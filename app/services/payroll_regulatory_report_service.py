@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
-
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.payroll_mutation_guard import serialized_payroll_mutation
 
-from app.models.payroll import PayrollCalculation, PayrollPeriod
+from app.models.payroll import PayrollPeriod
 from app.models.payroll_regulatory_report import (
     PayrollRegulatoryReport,
     PayrollRegulatoryReportKind,
@@ -66,6 +64,7 @@ async def _get_period(
     return period
 
 
+@serialized_payroll_mutation(PayrollRegulatoryReportError)
 async def create_payroll_regulatory_report(
     db: AsyncSession,
     *,
@@ -112,6 +111,7 @@ async def create_payroll_regulatory_report(
     return report
 
 
+@serialized_payroll_mutation(PayrollRegulatoryReportError)
 async def generate_payroll_regulatory_report(
     db: AsyncSession,
     *,
@@ -134,78 +134,16 @@ async def generate_payroll_regulatory_report(
             "Payroll regulatory report not found"
         )
 
-    if report.status == PayrollRegulatoryReportStatus.GENERATED.value:
-        return report
-
-    from app.services.payroll_revision_service import current_calculation_filter
-    calculations = (
-        await db.scalars(
-            select(PayrollCalculation)
-            .where(
-                PayrollCalculation.company_id == company_id,
-                PayrollCalculation.payroll_period_id
-                == report.payroll_period_id,
-                current_calculation_filter(),
-            )
-            .order_by(
-                PayrollCalculation.employment_contract_id,
-                PayrollCalculation.revision,
-                PayrollCalculation.id,
-            )
-        )
-    ).all()
-
-    existing_rows = (
-        await db.scalars(
-            select(PayrollRegulatoryReportRow).where(
-                PayrollRegulatoryReportRow.company_id == company_id,
-                PayrollRegulatoryReportRow.payroll_regulatory_report_id
-                == report.id,
-            )
-        )
-    ).all()
-
-    if existing_rows:
-        raise PayrollRegulatoryReportError(
-            "Draft payroll regulatory report already contains rows"
-        )
-
-    for row_no, calculation in enumerate(calculations, start=1):
-        payload = {
-            "report_kind": report.report_kind,
-            "payroll_period_id": report.payroll_period_id,
-            "payroll_calculation_id": calculation.id,
-            "employment_contract_id":
-                calculation.employment_contract_id,
-            "revision": calculation.revision,
-        }
-
-        db.add(
-            PayrollRegulatoryReportRow(
-                company_id=company_id,
-                payroll_regulatory_report_id=report.id,
-                row_no=row_no,
-                employee_id=None,
-                employment_contract_id=
-                    calculation.employment_contract_id,
-                payroll_calculation_id=calculation.id,
-                row_code=report.report_kind,
-                payload_json=json.dumps(
-                    payload,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ),
-            )
-        )
-
-    report.status = PayrollRegulatoryReportStatus.GENERATED.value
-    report.generated_at = datetime.now(timezone.utc)
-    report.generated_by = generated_by
-
-    await db.flush()
-    await db.refresh(report)
-
-    return report
+    # The former generator persisted identifiers only. Those rows, including
+    # legacy GENERATED snapshots, must not be accepted as statutory reports.
+    from app.services.payroll_regulatory_readiness_service import payroll_regulatory_readiness
+    readiness = await payroll_regulatory_readiness(
+        db, company_id=company_id, payroll_period_id=report.payroll_period_id,
+        report_kind=report.report_kind,
+    )
+    raise PayrollRegulatoryReportError(
+        "Regulatory report is incomplete: " + ", ".join(readiness['blocking_issues'])
+    )
 
 
 async def list_payroll_regulatory_report_rows(

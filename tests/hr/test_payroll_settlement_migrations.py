@@ -4,9 +4,12 @@ from pathlib import Path
 
 import pytest
 from alembic.operations import Operations
+from alembic import op
+import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.autogenerate import compare_metadata
 from app.core.database import Base
+from sqlalchemy.schema import AddConstraint, DropConstraint
 from test_employee_foundation import employee_engine
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.skipif(os.getenv('RUN_POSTGRES_E2E') != '1', reason='PostgreSQL required')]
@@ -32,13 +35,32 @@ async def test_settlement_migrations_roundtrip(employee_engine):
             with Operations.context(MigrationContext.configure(sync)):
                 # Metadata's current cross-source check references the new column;
                 # remove and restore that dependency around the older revision.
+                # Revision 030 adds this dependent FK after the legacy revisions
+                # exercised here. Suspend only that dependency in the empty test
+                # schema, then restore it and compare the complete metadata.
+                advance_fk = next(c for c in Base.metadata.tables[
+                    'payroll_withholding_batches'].foreign_key_constraints
+                    if c.name == 'fk_pwb_advance')
+                sync.execute(DropConstraint(advance_fk))
                 commissioning.downgrade()
                 for module in reversed(modules):
                     module.downgrade()
                 for module in modules:
                     module.upgrade()
                 commissioning.upgrade()
-            assert compare_metadata(MigrationContext.configure(sync), Base.metadata) == []
+                # Restore the later advance columns/checks after the legacy
+                # table recreation, without weakening the final drift assertion.
+                op.add_column('payroll_advances', sa.Column('withheld_amount',
+                    sa.Numeric(18, 2), nullable=False, server_default='0'))
+                for name in ('ck_payroll_advances_paid_gte_minimum',
+                             'ck_payroll_advances_paid_lte_calculated'):
+                    op.drop_constraint(name, 'payroll_advances', type_='check')
+                for constraint in Base.metadata.tables['payroll_advances'].constraints:
+                    if isinstance(constraint, sa.CheckConstraint) and 'withheld_amount' in str(constraint.sqltext):
+                        sync.execute(AddConstraint(constraint))
+                sync.execute(AddConstraint(advance_fk))
+            differences = compare_metadata(MigrationContext.configure(sync), Base.metadata)
+            assert differences == [], repr(differences)
         await conn.run_sync(roundtrip)
 
 

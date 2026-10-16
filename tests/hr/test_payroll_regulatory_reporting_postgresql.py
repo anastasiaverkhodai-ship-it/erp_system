@@ -380,79 +380,27 @@ async def test_regulatory_report_real_postgresql_e2e(
                 PayrollRegulatoryReportStatus.DRAFT.value
             )
 
-            generated = (
-                await generate_payroll_regulatory_report(
-                    db,
-                    company_id=company.id,
-                    payroll_regulatory_report_id=report.id,
-                    generated_by=actor.id,
-                )
-            )
-
-            await db.flush()
-
-            assert generated.id == report.id
-            assert generated.status == (
-                PayrollRegulatoryReportStatus
-                .GENERATED.value
-            )
-            assert generated.generated_at is not None
-            assert generated.generated_by == actor.id
-
-            rows = (
-                await list_payroll_regulatory_report_rows(
-                    db,
-                    company_id=company.id,
-                    payroll_regulatory_report_id=report.id,
-                )
-            )
-
-            assert len(rows) == 1
-
-            row = rows[0]
-
-            assert row.company_id == company.id
-            assert (
-                row.payroll_regulatory_report_id
-                == report.id
-            )
-            assert (
-                row.payroll_calculation_id
-                == calculation.id
-            )
-            assert (
-                row.employment_contract_id
-                == contract.id
-            )
-
-            first_row_ids = [item.id for item in rows]
-
-            generated_again = (
-                await generate_payroll_regulatory_report(
-                    db,
-                    company_id=company.id,
-                    payroll_regulatory_report_id=report.id,
-                    generated_by=actor.id,
-                )
-            )
-
-            await db.flush()
-
-            assert generated_again.id == report.id
-
-            rows_again = (
-                await list_payroll_regulatory_report_rows(
-                    db,
-                    company_id=company.id,
-                    payroll_regulatory_report_id=report.id,
-                )
-            )
-
-            assert len(rows_again) == 1
-            assert [
-                item.id
-                for item in rows_again
-            ] == first_row_ids
+            from app.services.payroll_regulatory_readiness_service import payroll_regulatory_readiness
+            from app.services.payroll_regulatory_report_service import PayrollRegulatoryReportError
+            readiness = await payroll_regulatory_readiness(db, company_id=company.id,
+                payroll_period_id=period.id, report_kind=kind_value)
+            assert readiness['ready'] is False
+            assert readiness['applicability'] == 'not_determined'
+            assert readiness['blocking_issues']
+            assert len(readiness['calculation_sources']) == 1
+            source = readiness['calculation_sources'][0]
+            assert source['employee_id'] == _employee.id
+            assert source['payroll_calculation_id'] == calculation.id
+            assert source['gross_amount'] is None
+            assert 'STATUTORY_CALCULATION_MISSING' in source['issues']
+            for _ in range(2):
+                with pytest.raises(PayrollRegulatoryReportError, match='incomplete'):
+                    await generate_payroll_regulatory_report(db, company_id=company.id,
+                        payroll_regulatory_report_id=report.id, generated_by=actor.id)
+            assert report.status == PayrollRegulatoryReportStatus.DRAFT.value
+            assert report.generated_at is None
+            assert await list_payroll_regulatory_report_rows(db, company_id=company.id,
+                payroll_regulatory_report_id=report.id) == []
 
             revision_2 = (
                 await create_payroll_regulatory_report(
