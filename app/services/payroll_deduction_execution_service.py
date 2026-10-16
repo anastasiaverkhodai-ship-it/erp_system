@@ -13,6 +13,7 @@ from app.models.payroll_deduction_execution import (
     PayrollDeductionAssessment as Assessment, PayrollWithholdingBatch as Batch,
     PayrollWithholdingLine as Line, PayrollRecipientRemittance as Remittance,
     PayrollRecipientRemittanceLine as RemittanceLine,
+    PayrollDeductionAssessmentClosure as Closure,
 )
 from app.models.payroll_deduction import PayrollDeductionInstruction as Instruction
 from app.models.payroll_deduction_rule_approval import PayrollDeductionRuleApproval as Approval
@@ -141,11 +142,20 @@ async def _allocate(db, company_id, employee_id, on, net, protected):
     instructions = await active_instructions(db, company_id, employee_id, on)
     if not instructions:
         raise DeductionExecutionError('No effective deduction instruction; use the ordinary payment lifecycle')
+    future_closure = await db.scalar(select(Closure.id).join(Assessment,
+        and_(Assessment.company_id==Closure.company_id,Assessment.id==Closure.assessment_id))
+        .where(Closure.company_id==company_id,Closure.effective_from>on,
+            Assessment.instruction_id.in_([x.id for x in instructions])).limit(1))
+    if future_closure is not None:
+        raise DeductionExecutionError('Cannot backdate a payment before a recorded assessment correction')
     assessments = list((await db.scalars(select(Assessment).where(Assessment.company_id == company_id,
         Assessment.instruction_id.in_([x.id for x in instructions]), Assessment.effective_from <= on)
         .order_by(Assessment.effective_from, Assessment.id))).all())
     if {x.instruction_id for x in assessments} != {x.id for x in instructions}:
         raise DeductionExecutionError('Every effective instruction requires a confirmed assessment')
+    closed_ids = set((await db.scalars(select(Closure.assessment_id).where(
+        Closure.company_id == company_id, Closure.effective_from <= on))).all())
+    assessments = [row for row in assessments if row.id not in closed_ids]
     eligible = net - protected
     claims, categories, recipients = [], {}, {}
     per_instruction = {}
@@ -329,7 +339,7 @@ async def validate_withholding_journal(db, journal, error_type):
         raise error_type('Payroll withholding journal does not match the operational ledger')
 
 
-async def withholding_rows(db, company_id, *, employee_id=None, period_id=None, contract_id=None, as_of=date.max):
+async def withholding_rows(db, company_id, *, employee_id=None, period_id=None, contract_id=None, as_of=date.max, active_only=True):
     reversal = aliased(JournalEntry)
     query = select(Batch, Line, Assessment, JournalEntry, reversal.entry_date).join(Line,
         and_(Line.company_id == Batch.company_id, Line.batch_id == Batch.id)).join(Assessment,
@@ -337,7 +347,7 @@ async def withholding_rows(db, company_id, *, employee_id=None, period_id=None, 
     query = query.outerjoin(reversal, and_(reversal.company_id == JournalEntry.company_id,
         reversal.reversal_of_id == JournalEntry.id, reversal.status == 'posted')).where(
         Batch.company_id == company_id, JournalEntry.status.in_(('posted','reversed')), JournalEntry.entry_date <= as_of,
-        or_(reversal.id.is_(None), reversal.entry_date > as_of))
+        or_(reversal.id.is_(None), reversal.entry_date > as_of) if active_only else True)
     if employee_id is not None: query = query.where(Batch.employee_id == employee_id)
     if period_id is not None or contract_id is not None:
         from app.models.payroll import PayrollCalculation
@@ -378,3 +388,42 @@ async def recipient_balances(db, *, company_id, as_of):
         item['account_id'] = recipient.account_id
         item['balance'] = item['withheld_amount']-item['remitted_amount'] if recipient.settlement_kind == 'recipient_payment' else D(0)
     return dict(company_id=company_id,as_of=as_of,currency_code='UAH',recipients=list(balances.values()))
+
+
+@serialized_payroll_mutation(DeductionExecutionError)
+async def correct_assessment(db, *, company_id, assessment_id, data, actor_id):
+    """Close future unused capacity, optionally with a confirmed replacement."""
+    await _permission(db,company_id,actor_id)
+    fingerprint=generate_request_fingerprint(dict(assessment_id=assessment_id,**data.model_dump(mode='json')))
+    old=await db.scalar(select(Closure).where(Closure.company_id==company_id,Closure.request_key==data.request_key))
+    if old is not None:
+        if old.request_fingerprint != fingerprint:
+            raise DeductionExecutionError('Correction request contains different data')
+        return old
+    source=await db.scalar(select(Assessment).where(Assessment.company_id==company_id,Assessment.id==assessment_id))
+    if source is None:
+        raise DeductionExecutionError('Assessment not found in company')
+    if await db.scalar(select(Closure.id).where(Closure.company_id==company_id,Closure.assessment_id==source.id)):
+        raise DeductionExecutionError('Assessment already corrected; correct its replacement instead')
+    if data.effective_from < source.effective_from:
+        raise DeductionExecutionError('Correction cannot predate its assessment')
+    last_payment=await db.scalar(select(func.max(Batch.payment_date)).join(Line,
+        and_(Line.company_id==Batch.company_id,Line.batch_id==Batch.id))
+        .where(Line.company_id==company_id,Line.assessment_id==source.id))
+    if last_payment is not None and data.effective_from <= last_payment:
+        raise DeductionExecutionError('Correction must follow the last recorded payment date')
+    replacement=data.replacement
+    if replacement is not None and (replacement.instruction_id!=source.instruction_id or replacement.effective_from!=data.effective_from):
+        raise DeductionExecutionError('Replacement must keep the instruction and correction date')
+    if replacement is not None and await db.scalar(select(Assessment.id).where(
+            Assessment.company_id==company_id,Assessment.request_key==replacement.request_key)):
+        raise DeductionExecutionError('Replacement must be a new confirmed assessment')
+    async with db.begin_nested():
+        new=await create_assessment(db,company_id=company_id,data=replacement,actor_id=actor_id) if replacement is not None else None
+        if new is not None and (new.id==source.id or await db.scalar(select(Line.id).where(Line.company_id==company_id,Line.assessment_id==new.id).limit(1))):
+            raise DeductionExecutionError('Replacement cannot reuse an already executed assessment')
+        row=Closure(company_id=company_id,assessment_id=source.id,effective_from=data.effective_from,
+            reason=data.reason,request_key=data.request_key,request_fingerprint=fingerprint,
+            replacement_assessment_id=new.id if new else None,created_by=actor_id)
+        db.add(row);await db.flush()
+        return row

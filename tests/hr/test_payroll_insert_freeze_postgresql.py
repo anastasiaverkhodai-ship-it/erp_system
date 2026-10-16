@@ -203,7 +203,7 @@ async def test_current_head_seal_guards():
                     "SELECT version_num FROM alembic_version"
                 )
             )
-            assert head == "13d4a7b8c030"
+            assert head == "13d4a7b8c031"
 
             args, salary_id = await seed(db)
             calc = await calculate_payroll_input(

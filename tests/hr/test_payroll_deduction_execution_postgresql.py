@@ -121,7 +121,8 @@ async def test_partial_payment_accounting_and_idempotency(employee_engine):
                 await db.execute(text('UPDATE payroll_disbursements SET amount=999 WHERE id=:id'),dict(id=payout.id))
 
 
-async def test_actual_bank_remittance_and_reversal_order(employee_engine):
+@pytest.mark.parametrize("change_bank",[False,True])
+async def test_actual_bank_remittance_and_reversal_order(employee_engine,change_bank):
     await protect(employee_engine)
     async with AsyncSession(employee_engine,expire_on_commit=False) as db:
         company,user,contract,calc,bank,beneficiary,claim=await seed(db)
@@ -131,12 +132,21 @@ async def test_actual_bank_remittance_and_reversal_order(employee_engine):
         payment.lines=[JournalEntryLine(line_no=1,account_id=beneficiary.account_id,debit=D(100),credit=D(0)),
             JournalEntryLine(line_no=2,account_id=bank.accounting_account_id,debit=D(0),credit=D(100))]
         db.add(payment);await db.flush();await post_journal_entry(db,company.id,payment.id)
+        payment_recipient=beneficiary
+        if change_bank:
+            from app.services.payroll_deduction_beneficiary_service import revoke_beneficiary
+            await revoke_beneficiary(db,company_id=company.id,beneficiary_id=beneficiary.id,actor_id=user.id)
+            payment_recipient=await create_beneficiary(db,company_id=company.id,instruction_id=claim.instruction_id,actor_id=user.id,
+                data=DeductionBeneficiaryCreate(request_key='changed-bank',recipient_name=beneficiary.recipient_name,
+                    recipient_identifier=beneficiary.recipient_identifier,iban='UA213223130000026007233566001',
+                    settlement_kind='recipient_payment',account_id=beneficiary.account_id,document_reference='Confirmed changed bank',valid_from=date(2026,9,30)))
+            await verify_beneficiary(db,company_id=company.id,beneficiary_id=payment_recipient.id,actor_id=beneficiary.verified_by)
         statement=BankStatement(company_id=company.id,bank_account_id=bank.id,external_id='recipient-statement')
         db.add(statement);await db.flush()
         evidence=BankStatementLine(company_id=company.id,bank_statement_id=statement.id,bank_account_id=bank.id,
-            external_line_id='recipient-transfer',transaction_date=date(2026,9,30),amount=D(-100),currency_code='UAH',counterparty_account=IBAN)
+            external_line_id='recipient-transfer',transaction_date=date(2026,9,30),amount=D(-100),currency_code='UAH',counterparty_account=payment_recipient.iban)
         db.add(evidence);await db.flush()
-        data=RecipientRemittanceCreate(beneficiary_id=beneficiary.id,journal_entry_id=payment.id,bank_statement_line_id=evidence.id,
+        data=RecipientRemittanceCreate(beneficiary_id=beneficiary.id,payment_beneficiary_id=payment_recipient.id,journal_entry_id=payment.id,bank_statement_line_id=evidence.id,
             request_key='remit',allocations=[dict(withholding_line_id=line.id,amount=D(100))])
         with pytest.raises(DeductionExecutionError,match='outgoing amount'):
             await register_recipient_remittance(db,company_id=company.id,actor_id=user.id,
@@ -145,10 +155,10 @@ async def test_actual_bank_remittance_and_reversal_order(employee_engine):
             await register_recipient_remittance(db,company_id=company.id,actor_id=user.id,
                 data=RecipientRemittanceCreate(**{**data.model_dump(),'allocations':[
                     dict(withholding_line_id=line.id,amount=D(50)),dict(withholding_line_id=line.id,amount=D(50))]}))
-        evidence.counterparty_account='UA213223130000026007233566001';await db.flush()
+        evidence.counterparty_account=IBAN if change_bank else 'UA213223130000026007233566001';await db.flush()
         with pytest.raises(DeductionExecutionError,match='recipient IBAN'):
             await register_recipient_remittance(db,company_id=company.id,data=data,actor_id=user.id)
-        evidence.counterparty_account=IBAN;await db.flush()
+        evidence.counterparty_account=payment_recipient.iban;await db.flush()
         before=await db.scalar(select(func.count(JournalEntry.id)))
         remit=await register_recipient_remittance(db,company_id=company.id,data=data,actor_id=user.id)
         assert await db.scalar(select(func.count(JournalEntry.id)))==before

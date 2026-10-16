@@ -339,3 +339,24 @@ async def payroll_minimum_wage_correction(
     except Exception:
         await db.rollback()
         raise
+
+
+@router.get('/companies/{company_id}/payroll-calculations/{payroll_calculation_id}/payslip-history',
+            response_model=list[PayrollPayslipRead])
+async def get_company_payslip_history(company_id: int,payroll_calculation_id: int,
+    db: AsyncSession=Depends(get_db),_: User=Depends(require_company_permission('employees.read'))):
+    from sqlalchemy import select
+    from app.models.payroll_payslip import PayrollPayslip
+    return list((await db.scalars(select(PayrollPayslip).where(PayrollPayslip.company_id==company_id,
+        PayrollPayslip.payroll_calculation_id==payroll_calculation_id).order_by(PayrollPayslip.revision))).all())
+
+
+@router.get('/companies/{company_id}/payroll-payslips/{payslip_id}/lines',response_model=list[PayrollPayslipLineRead])
+async def get_company_payslip_revision_lines(company_id: int,payslip_id: int,
+    db: AsyncSession=Depends(get_db),_: User=Depends(require_company_permission('employees.read'))):
+    from app.services.payroll_payslip_service import get_payroll_payslip, PayrollPayslipNotFoundError
+    try:
+        await get_payroll_payslip(db,company_id=company_id,payslip_id=payslip_id)
+        return await list_payroll_payslip_lines(db,company_id=company_id,payroll_payslip_id=payslip_id)
+    except PayrollPayslipNotFoundError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc

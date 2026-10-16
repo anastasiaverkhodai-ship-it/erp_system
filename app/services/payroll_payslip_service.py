@@ -70,7 +70,7 @@ async def get_payroll_payslip_by_calculation(
             PayrollPayslip.company_id == company_id,
             PayrollPayslip.payroll_calculation_id
             == payroll_calculation_id,
-        )
+        ).order_by(PayrollPayslip.revision.desc()).limit(1)
     )
 
 
@@ -223,7 +223,14 @@ async def generate_payroll_payslip(
         payroll_calculation_id=payroll_calculation_id,
     )
     if existing is not None:
-        return existing
+        from app.services.payroll_deduction_execution_service import withholding_rows
+        actual=await withholding_rows(session,company_id,period_id=existing.payroll_period_id,
+            contract_id=existing.employment_contract_id)
+        saved=await session.scalars(select(PayrollPayslipLine.source_withholding_line_id).where(
+            PayrollPayslipLine.company_id==company_id,PayrollPayslipLine.payroll_payslip_id==existing.id,
+            PayrollPayslipLine.source_withholding_line_id.is_not(None)))
+        if set(saved.all())=={line.id for _,line,_,_,_ in actual if line.amount}:
+            return existing
 
     (
         calculation,
@@ -286,6 +293,9 @@ async def generate_payroll_payslip(
         statutory_result.employer_contribution_amount
     )
     net_amount = Decimal(statutory_result.net_amount)
+    non_statutory_deduction_amount = Decimal(0)
+    final_payable_amount = net_amount
+    deduction_lines = []
 
     deduction_result = await session.scalar(
         select(PayrollDeductionResult).where(
@@ -298,7 +308,9 @@ async def generate_payroll_payslip(
     from app.services.payroll_deduction_execution_service import withholding_rows
     operational_rows = await withholding_rows(session, company_id,
         period_id=calculation.payroll_period_id, contract_id=calculation.employment_contract_id)
-    if deduction_result is None and not operational_rows:
+    operational_history = operational_rows or await withholding_rows(session,company_id,
+        period_id=calculation.payroll_period_id,contract_id=calculation.employment_contract_id,active_only=False)
+    if deduction_result is None and not operational_history:
         deduction_result = await calculate_payroll_deduction_result(
             session,
             company_id=company_id,
@@ -401,6 +413,7 @@ async def generate_payroll_payslip(
         )
 
     payslip = PayrollPayslip(
+        revision=existing.revision+1 if existing else 1,
         company_id=company_id,
         payroll_calculation_id=calculation.id,
         payroll_statutory_result_id=statutory_result.id,

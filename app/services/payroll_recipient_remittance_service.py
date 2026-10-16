@@ -31,7 +31,8 @@ async def remitted_commitment(db, company_id, withholding_line_id, from_date):
 @serialized_payroll_mutation(DeductionExecutionError)
 async def register_recipient_remittance(db, *, company_id, data, actor_id):
     await _permission(db, company_id, actor_id)
-    fingerprint = generate_request_fingerprint(data.model_dump(mode='json'))
+    fingerprint = generate_request_fingerprint(data.model_dump(mode='json',
+        exclude={'payment_beneficiary_id'} if data.payment_beneficiary_id is None else set()))
     old = await db.scalar(select(Remittance).where(Remittance.company_id == company_id, Remittance.request_key == data.request_key))
     if old is not None:
         if old.request_fingerprint != fingerprint:
@@ -39,8 +40,15 @@ async def register_recipient_remittance(db, *, company_id, data, actor_id):
         return old
     beneficiary = await db.scalar(select(Beneficiary).where(Beneficiary.company_id == company_id,
         Beneficiary.id == data.beneficiary_id).execution_options(populate_existing=True))
-    if beneficiary is None or beneficiary.status != 'verified' or beneficiary.settlement_kind != 'recipient_payment':
+    if beneficiary is None or beneficiary.status not in ('verified','revoked') or beneficiary.settlement_kind != 'recipient_payment':
         raise DeductionExecutionError('Verified external recipient required')
+    payment_beneficiary = await db.scalar(select(Beneficiary).where(Beneficiary.company_id==company_id,
+        Beneficiary.id==(data.payment_beneficiary_id or beneficiary.id)).execution_options(populate_existing=True))
+    if payment_beneficiary is None or payment_beneficiary.status!='verified':
+        raise DeductionExecutionError('Verified payment recipient details required')
+    if any(getattr(payment_beneficiary,key)!=getattr(beneficiary,key) for key in
+            ('instruction_id','recipient_identifier','account_id','settlement_kind')):
+        raise DeductionExecutionError('New bank details must belong to the same legal recipient and liability')
     payment = await db.scalar(select(JournalEntry).options(selectinload(JournalEntry.lines)).where(
         JournalEntry.company_id == company_id, JournalEntry.id == data.journal_entry_id)
         .with_for_update().execution_options(populate_existing=True))
@@ -54,9 +62,9 @@ async def register_recipient_remittance(db, *, company_id, data, actor_id):
     amount = sum((x.amount for x in data.allocations), D(0))
     if bank_line is None or bank_line.currency_code != 'UAH' or bank_line.amount != -amount:
         raise DeductionExecutionError('Bank evidence does not match the outgoing amount')
-    if bank_line.transaction_date != payment.entry_date or normalize_employee_iban(bank_line.counterparty_account) != beneficiary.iban:
+    if bank_line.transaction_date != payment.entry_date or normalize_employee_iban(bank_line.counterparty_account) != payment_beneficiary.iban:
         raise DeductionExecutionError('Bank evidence date or recipient IBAN does not match')
-    if not beneficiary.valid_from <= payment.entry_date or (beneficiary.valid_to is not None and beneficiary.valid_to < payment.entry_date):
+    if not payment_beneficiary.valid_from <= payment.entry_date or (payment_beneficiary.valid_to is not None and payment_beneficiary.valid_to < payment.entry_date):
         raise DeductionExecutionError('Recipient is not valid on payment date')
     existing_link = await db.scalar(select(BankStatementReconciliationActiveLink.id).where(
         BankStatementReconciliationActiveLink.company_id == company_id,
@@ -95,7 +103,7 @@ async def register_recipient_remittance(db, *, company_id, data, actor_id):
         used = await remitted_commitment(db, company_id, line.id, payment.entry_date)
         if used + requested.amount > line.amount:
             raise DeductionExecutionError('Remittance exceeds outstanding recipient liability')
-    row = Remittance(company_id=company_id, beneficiary_id=beneficiary.id, journal_entry_id=payment.id,
+    row = Remittance(company_id=company_id, beneficiary_id=beneficiary.id, payment_beneficiary_id=payment_beneficiary.id, journal_entry_id=payment.id,
         bank_statement_line_id=bank_line.id, amount=amount, request_key=data.request_key,
         request_fingerprint=fingerprint, created_by=actor_id)
     db.add(row); await db.flush()

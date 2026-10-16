@@ -11,6 +11,8 @@ preserving migration-created functions, indexes and triggers.
 
 The temporary dump and database can contain real data. They are
 private and removed during normal completion and handled failures.
+Pass --upgrade-copy to upgrade only the disposable copy to the code head
+and verify schema alignment before pytest. The source revision stays unchanged.
 Requires local PostgreSQL and CREATE DATABASE permission.
 """
 
@@ -136,8 +138,10 @@ async def trigger_contract(engine):
 
 
 async def run_copy():
+    upgrade_copy = "--upgrade-copy" in sys.argv[1:]
+    test_paths = [arg for arg in sys.argv[1:] if arg != "--upgrade-copy"]
     require(
-        len(sys.argv) > 1,
+        bool(test_paths),
         "Provide at least one pytest test path",
     )
 
@@ -367,11 +371,19 @@ async def run_copy():
                         flush=True,
                     )
 
+                    if upgrade_copy:
+                        for operation in (("upgrade", "head"), ("check",)):
+                            migration = await asyncio.create_subprocess_exec(
+                                sys.executable, "-m", "alembic", *operation,
+                                env=test_env,
+                            )
+                            require(await migration.wait() == 0, "Copy migration failed")
+
                     result = await asyncio.create_subprocess_exec(
                         sys.executable,
                         "-m",
                         "pytest",
-                        *sys.argv[1:],
+                        *test_paths,
                         "-q",
                         "-p",
                         "no:cacheprovider",

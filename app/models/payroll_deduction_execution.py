@@ -89,6 +89,7 @@ class PayrollRecipientRemittance(Base):
     id = sa.Column(sa.Integer, primary_key=True)
     company_id = sa.Column(sa.Integer, nullable=False)
     beneficiary_id = sa.Column(sa.Integer, nullable=False)
+    payment_beneficiary_id = sa.Column(sa.Integer)
     journal_entry_id = sa.Column(sa.Integer, nullable=False)
     bank_statement_line_id = sa.Column(sa.Integer, nullable=False)
     amount = sa.Column(sa.Numeric(18,2), nullable=False)
@@ -103,6 +104,7 @@ class PayrollRecipientRemittance(Base):
         sa.UniqueConstraint('company_id','journal_entry_id',name='uq_prr_journal'),
         sa.UniqueConstraint('company_id','bank_statement_line_id',name='uq_prr_bank_line'),
         fk('beneficiary_id','payroll_deduction_beneficiaries','fk_prr_beneficiary'),
+        fk('payment_beneficiary_id','payroll_deduction_beneficiaries','fk_prr_payment_beneficiary'),
         fk('journal_entry_id','journal_entries','fk_prr_journal'),
         fk('bank_statement_line_id','bank_statement_lines','fk_prr_bank_line'),
         sa.CheckConstraint("amount > 0 AND amount <> 'NaN'::numeric",name='ck_prr_amount'),
@@ -121,4 +123,27 @@ class PayrollRecipientRemittanceLine(Base):
         fk('remittance_id','payroll_recipient_remittances','fk_prrl_remittance'),
         fk('withholding_line_id','payroll_withholding_lines','fk_prrl_withholding'),
         sa.CheckConstraint("amount > 0 AND amount <> 'NaN'::numeric",name='ck_prrl_amount'),
+    )
+
+
+class PayrollDeductionAssessmentClosure(Base):
+    """Dated closure of the unused part; original withholding history remains intact."""
+    __tablename__ = 'payroll_deduction_assessment_closures'
+    id = sa.Column(sa.Integer, primary_key=True)
+    company_id = sa.Column(sa.Integer, nullable=False)
+    assessment_id = sa.Column(sa.Integer, nullable=False)
+    effective_from = sa.Column(sa.Date, nullable=False)
+    reason = sa.Column(sa.String(500), nullable=False)
+    request_key = sa.Column(sa.String(100), nullable=False)
+    request_fingerprint = sa.Column(sa.String(64), nullable=False)
+    replacement_assessment_id = sa.Column(sa.Integer)
+    created_by = sa.Column(sa.Integer, sa.ForeignKey('users.id', ondelete='RESTRICT'), nullable=False)
+    created_at = sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now())
+    __table_args__ = (
+        sa.UniqueConstraint('company_id','assessment_id',name='uq_pdac_assessment'),
+        sa.UniqueConstraint('company_id','request_key',name='uq_pdac_request'),
+        fk('assessment_id','payroll_deduction_assessments','fk_pdac_assessment'),
+        fk('replacement_assessment_id','payroll_deduction_assessments','fk_pdac_replacement'),
+        sa.CheckConstraint('length(trim(reason)) > 0 AND length(trim(request_key)) > 0',name='ck_pdac_reason'),
+        sa.CheckConstraint('replacement_assessment_id IS NULL OR replacement_assessment_id <> assessment_id',name='ck_pdac_replacement'),
     )

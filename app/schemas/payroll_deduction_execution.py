@@ -41,6 +41,7 @@ class RecipientRemittanceAllocation(BaseModel):
 
 
 class RecipientRemittanceCreate(BaseModel):
+    payment_beneficiary_id: int | None = Field(default=None, gt=0)
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     beneficiary_id: int = Field(gt=0)
     journal_entry_id: int = Field(gt=0)
@@ -62,3 +63,12 @@ class DeductionRuleApprovalCreate(BaseModel):
     legal_reference: str = Field(min_length=1, max_length=500)
     valid_from: date
     valid_to: date | None = None
+
+
+class AssessmentCorrectionCreate(BaseModel):
+    """Replace the remaining claim, never repeat amounts already withheld."""
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    request_key: str = Field(min_length=1,max_length=90)
+    effective_from: date
+    reason: str = Field(min_length=1,max_length=500)
+    replacement: AssessmentCreate | None = None

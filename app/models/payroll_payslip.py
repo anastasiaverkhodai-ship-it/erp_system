@@ -22,6 +22,7 @@ from app.core.database import Base
 
 class PayrollPayslip(Base):
     __tablename__ = "payroll_payslips"
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
 
     __table_args__ = (
         UniqueConstraint(
@@ -32,7 +33,8 @@ class PayrollPayslip(Base):
         UniqueConstraint(
             "company_id",
             "payroll_calculation_id",
-            name="uq_payroll_payslips_company_calculation",
+            "revision",
+            name="uq_payroll_payslips_company_calculation_revision",
         ),
         ForeignKeyConstraint(
             ["company_id", "payroll_calculation_id"],

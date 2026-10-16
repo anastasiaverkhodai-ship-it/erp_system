@@ -549,3 +549,19 @@ async def api_revoke_deduction_rule(company_id: int, approval_id: int,
     except ValueError as exc:
         await db.rollback()
         raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+from app.schemas.payroll_deduction_execution import AssessmentCorrectionCreate
+
+
+@router.post('/companies/{company_id}/payroll-deduction-assessments/{assessment_id}/corrections',status_code=201)
+async def api_correct_deduction_assessment(company_id: int,assessment_id: int,data: AssessmentCorrectionCreate,
+    db: AsyncSession=Depends(get_db),actor: User=Depends(require_company_permission('employees.manage'))):
+    from app.services.payroll_deduction_execution_service import correct_assessment
+    try:
+        row=await correct_assessment(db,company_id=company_id,assessment_id=assessment_id,data=data,actor_id=actor.id)
+        await db.commit();await db.refresh(row)
+        return _execution_record(row)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
