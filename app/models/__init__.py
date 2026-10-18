@@ -250,3 +250,7 @@ from app.models.payroll_deduction_execution import (
     PayrollDeductionAssessment, PayrollWithholdingBatch, PayrollWithholdingLine,
     PayrollRecipientRemittance, PayrollRecipientRemittanceLine,
 )
+from app.models.payroll_leave_balance import PayrollLeaveAccount, PayrollLeaveBalanceEntry, PayrollLeaveAccrual
+from app.models.payroll_leave_compensation import PayrollLeaveCompensation, PayrollLeaveCompensationLine
+
+from app.models.payroll_leave_compensation import PayrollLeaveCompensationReversal

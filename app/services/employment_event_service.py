@@ -156,6 +156,17 @@ async def reverse_employment_event(db, *, company_id, contract_id, event_id, dat
         raise EmploymentStructureNotFoundError('Employment event not found')
     if source is not events[-1] or source.event_type=='reversal':
         raise EmploymentStructureLifecycleError('Only the latest original employment event can be reversed')
+    if source.event_type == 'termination':
+        from app.models.payroll_leave_compensation import PayrollLeaveCompensation
+        from app.services.payroll_leave_compensation_service import active_compensation_filter
+        compensation = await db.scalar(select(PayrollLeaveCompensation.id).where(
+            PayrollLeaveCompensation.company_id == company_id,
+            PayrollLeaveCompensation.termination_event_id == source.id, active_compensation_filter(),
+        ).limit(1))
+        if compensation is not None:
+            raise EmploymentStructureLifecycleError(
+                'Reverse the dependent leave compensation before reversing termination'
+            )
     if data.order_date>datetime.now(ZoneInfo('Europe/Kyiv')).date():
         raise EmploymentStructureLifecycleError('Future correction orders cannot be posted')
     await ensure_payroll_source_editable(db,company_id=company_id,date_from=source.effective_date,

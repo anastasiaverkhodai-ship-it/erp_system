@@ -433,6 +433,12 @@ async def approve_leave_request(
 
     before = snapshot(leave_request)
 
+    from app.services.payroll_leave_balance_service import require_leave_allocation, LeaveBalanceError
+    try:
+        await require_leave_allocation(db,company_id=company_id,leave_request=leave_request)
+    except LeaveBalanceError as exc:
+        raise LeaveRequestLifecycleError(str(exc)) from exc
+
     leave_request.status = LeaveRequestStatus.APPROVED
     leave_request.approved_by = approved_by
     leave_request.approved_at = datetime.now(timezone.utc)
@@ -479,29 +485,36 @@ async def reject_leave_request(
             "Only pending leave requests can be rejected"
         )
 
-    before = snapshot(leave_request)
+    async with db.begin_nested():
+        before = snapshot(leave_request)
 
-    if reason is not None:
-        leave_request.reason = reason
+        if reason is not None:
+            leave_request.reason = reason
 
-    leave_request.status = LeaveRequestStatus.REJECTED
-    leave_request.rejected_by = rejected_by
-    leave_request.rejected_at = datetime.now(timezone.utc)
+        leave_request.status = LeaveRequestStatus.REJECTED
+        leave_request.rejected_by = rejected_by
+        leave_request.rejected_at = datetime.now(timezone.utc)
 
-    await db.flush()
-    await db.refresh(leave_request)
+        from app.services.payroll_leave_balance_service import return_cancelled_leave_days, LeaveBalanceError
+        try:
+            await return_cancelled_leave_days(db,company_id=company_id,leave_request=leave_request,actor_id=rejected_by)
+        except LeaveBalanceError as exc:
+            raise LeaveRequestLifecycleError(str(exc)) from exc
 
-    await record_change(
-        db,
-        leave_request,
-        "leave_request",
-        before,
-        rejected_by,
-    )
+        await db.flush()
+        await db.refresh(leave_request)
 
-    await db.flush()
+        await record_change(
+            db,
+            leave_request,
+            "leave_request",
+            before,
+            rejected_by,
+        )
 
-    return leave_request
+        await db.flush()
+
+        return leave_request
 
 
 @serialized_payroll_mutation(LeaveRequestLifecycleError)
@@ -532,37 +545,44 @@ async def cancel_leave_request(
             "Only pending or approved leave requests can be cancelled"
         )
 
-    before = snapshot(leave_request)
+    async with db.begin_nested():
+        before = snapshot(leave_request)
 
-    was_approved = (
-        leave_request.status
-        == LeaveRequestStatus.APPROVED
-    )
-
-    if reason is not None:
-        leave_request.reason = reason
-
-    leave_request.status = LeaveRequestStatus.CANCELLED
-    leave_request.cancelled_by = cancelled_by
-    leave_request.cancelled_at = datetime.now(timezone.utc)
-
-    if was_approved:
-        await _reverse_leave_attendance(
-            db,
-            leave_request=leave_request,
+        was_approved = (
+            leave_request.status
+            == LeaveRequestStatus.APPROVED
         )
 
-    await db.flush()
-    await db.refresh(leave_request)
+        if reason is not None:
+            leave_request.reason = reason
 
-    await record_change(
-        db,
-        leave_request,
-        "leave_request",
-        before,
-        cancelled_by,
-    )
+        leave_request.status = LeaveRequestStatus.CANCELLED
+        leave_request.cancelled_by = cancelled_by
+        leave_request.cancelled_at = datetime.now(timezone.utc)
 
-    await db.flush()
+        from app.services.payroll_leave_balance_service import return_cancelled_leave_days, LeaveBalanceError
+        try:
+            await return_cancelled_leave_days(db,company_id=company_id,leave_request=leave_request,actor_id=cancelled_by)
+        except LeaveBalanceError as exc:
+            raise LeaveRequestLifecycleError(str(exc)) from exc
 
-    return leave_request
+        if was_approved:
+            await _reverse_leave_attendance(
+                db,
+                leave_request=leave_request,
+            )
+
+        await db.flush()
+        await db.refresh(leave_request)
+
+        await record_change(
+            db,
+            leave_request,
+            "leave_request",
+            before,
+            cancelled_by,
+        )
+
+        await db.flush()
+
+        return leave_request

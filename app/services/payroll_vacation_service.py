@@ -13,6 +13,7 @@ from app.models.leave_request import (
     LeaveRequest,
     LeaveRequestStatus,
     LeaveType,
+    PAID_VACATION_TYPES,
 )
 from app.models.payroll_vacation import (
     PayrollVacationCalculation,
@@ -170,9 +171,9 @@ async def calculate_vacation_pay(
             "Vacation pay requires approved leave"
         )
 
-    if leave_request.leave_type != LeaveType.ANNUAL:
+    if leave_request.leave_type not in PAID_VACATION_TYPES:
         raise PayrollVacationConflictError(
-            "Vacation pay requires annual leave"
+            "Vacation pay requires annual, additional or social leave"
         )
 
     await ensure_payroll_source_editable(db, company_id=company_id,
@@ -352,8 +353,7 @@ async def derive_vacation_pay_lines(
             == payroll_input.employment_contract_id,
             LeaveRequest.status
             == LeaveRequestStatus.APPROVED,
-            LeaveRequest.leave_type
-            == LeaveType.ANNUAL,
+            LeaveRequest.leave_type.in_(PAID_VACATION_TYPES),
             LeaveRequest.start_date
             <= period.end_date,
             LeaveRequest.end_date

@@ -21,9 +21,14 @@ from app.core.database import Base
 
 class LeaveType(str, enum.Enum):
     ANNUAL = "annual"
+    ADDITIONAL = "additional"
+    SOCIAL = "social"
     SICK = "sick"
     UNPAID = "unpaid"
     OTHER = "other"
+
+
+PAID_VACATION_TYPES = frozenset({LeaveType.ANNUAL, LeaveType.ADDITIONAL, LeaveType.SOCIAL})
 
 
 class LeaveRequestStatus(str, enum.Enum):
@@ -56,7 +61,7 @@ class LeaveRequest(Base):
             name="ck_leave_requests_date_range",
         ),
         CheckConstraint(
-            "leave_type IN ('annual','sick','unpaid','other')",
+            "leave_type IN ('annual','additional','social','sick','unpaid','other')",
             name="ck_leave_requests_type",
         ),
         CheckConstraint(

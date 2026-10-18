@@ -100,6 +100,15 @@ async def test_event_migration_and_immutable_history(employee_engine):
     spec=importlib.util.spec_from_file_location('employment_event_migration',path)
     migration=importlib.util.module_from_spec(spec);spec.loader.exec_module(migration)
     async with employee_engine.begin() as connection:
+        # Exercise the historical migration without newer incoming foreign keys.
+        from app.models.payroll_leave_balance import PayrollLeaveBalanceEntry
+        from app.models.payroll_leave_compensation import PayrollLeaveCompensation
+        from sqlalchemy.schema import DropConstraint, AddConstraint
+        incoming = [constraint for model in (PayrollLeaveBalanceEntry, PayrollLeaveCompensation)
+            for constraint in model.__table__.foreign_key_constraints
+            if constraint.referred_table.name == 'employment_events']
+        for constraint in incoming:
+            await connection.execute(DropConstraint(constraint, isolate_from_table=False))
         await connection.execute(text('DROP TABLE employment_events'))
         def run(sync, method):
             with Operations.context(MigrationContext.configure(sync)):
@@ -107,6 +116,8 @@ async def test_event_migration_and_immutable_history(employee_engine):
         await connection.run_sync(run,'upgrade')
         await connection.run_sync(run,'downgrade')
         await connection.run_sync(run,'upgrade')
+        for constraint in incoming:
+            await connection.execute(AddConstraint(constraint, isolate_from_table=False))
     async with AsyncSession(employee_engine,expire_on_commit=False) as db:
         f=await setup(db);c=await contract(db,f)
         row=await create_employment_event(db,company_id=f['company'],contract_id=c.id,

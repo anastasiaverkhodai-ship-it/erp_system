@@ -28,7 +28,7 @@ class MinimumWageAssessment:
 
 INCLUDED = frozenset({'ordinary_salary', 'production_bonus', 'regular_allowance', 'indexation'})
 EXCLUDED = frozenset({'night', 'overtime', 'hazardous', 'travelling', 'holiday_bonus',
-                      'jubilee_bonus', 'vacation_pay', 'sick_pay', 'hardship', 'reimbursement'})
+                      'jubilee_bonus', 'vacation_pay', 'sick_pay', 'leave_compensation', 'hardship', 'reimbursement'})
 
 
 def _decimal(value, name):
@@ -149,7 +149,7 @@ async def derive_minimum_wage_assessment(db, *, company_id, period, payroll_inpu
                 if len(parts) != 1:
                     raise MinimumWageError('Overtime requires exactly one salary snapshot')
                 extra_by_slice[parts[0].id] = extra_by_slice.get(parts[0].id,0) + source.minutes
-        elif kind in {'vacation_pay','sick_pay'}:
+        elif kind in {'vacation_pay','sick_pay','leave_compensation'}:
             earnings.append(MinimumWageEarning(kind,Decimal(line['amount'])))
         elif kind == 'manual_adjustment':
             if not context.get('manual_adjustment_category'):

@@ -609,13 +609,13 @@ class PayrollCalculationLine(Base):
             name="ck_payroll_calculation_lines_quantity_nonnegative",
         ),
         CheckConstraint(
-            "(line_type IN ('salary','supplement','vacation_pay','sick_pay','minimum_wage') "
+            "(line_type IN ('salary','supplement','vacation_pay','sick_pay','minimum_wage','leave_compensation') "
             "AND rate IS NOT NULL AND rate >= 0) OR "
             "(line_type = 'manual_adjustment' AND rate IS NOT NULL)",
             name="ck_payroll_calculation_lines_rate",
         ),
         CheckConstraint(
-            "(line_type IN ('salary','supplement','vacation_pay','sick_pay','minimum_wage') "
+            "(line_type IN ('salary','supplement','vacation_pay','sick_pay','minimum_wage','leave_compensation') "
             "AND amount >= 0) OR line_type = 'manual_adjustment'",
             name="ck_payroll_calculation_lines_amount",
         ),
@@ -635,9 +635,14 @@ class PayrollCalculationLine(Base):
             name="ck_payroll_calculation_line_sick_source",
         ),
         CheckConstraint(
-            "line_type IN ('salary','manual_adjustment','supplement','vacation_pay','sick_pay','minimum_wage')",
+            "line_type IN ('salary','manual_adjustment','supplement','vacation_pay','sick_pay','minimum_wage','leave_compensation')",
             name="ck_payroll_calculation_lines_type",
         ),
+        ForeignKeyConstraint(['company_id','source_leave_compensation_line_id'],
+            ['payroll_leave_compensation_lines.company_id','payroll_leave_compensation_lines.id'],
+            name='fk_pcl_leave_compensation',ondelete='RESTRICT'),
+        CheckConstraint("(line_type = 'leave_compensation') = (source_leave_compensation_line_id IS NOT NULL)",
+            name='ck_pcl_leave_compensation_source'),
         CheckConstraint(
             "currency_code = upper(currency_code) AND char_length(currency_code) = 3",
             name="ck_payroll_calculation_lines_currency",
@@ -661,6 +666,8 @@ class PayrollCalculationLine(Base):
         Integer,
         nullable=False,
     )
+
+    source_leave_compensation_line_id: Mapped[int | None] = mapped_column(Integer,nullable=True)
 
     source_supplement_id: Mapped[int | None] = mapped_column(Integer,nullable=True)
 

@@ -599,6 +599,18 @@ async def _derive_payroll_components(
         derived_lines.append(line)
         gross_amount+=line['amount']
 
+    from app.services.payroll_leave_compensation_service import derive_compensation_payroll_lines
+    from app.services.payroll_leave_balance_service import LeaveBalanceError
+    try:
+        compensation_lines = await derive_compensation_payroll_lines(db,company_id=company_id,
+            payroll_input=payroll_input,period=period)
+    except LeaveBalanceError as exc:
+        raise PayrollCalculationDerivationError(str(exc)) from exc
+    for line in compensation_lines:
+        line['line_no']=len(derived_lines)+1
+        derived_lines.append(line)
+        gross_amount+=line['amount']
+
     from app.services.payroll_minimum_wage_service import derive_minimum_wage_assessment, MinimumWageError
     correction_facts = {}
     try:

@@ -104,7 +104,7 @@ def verify_basis(calculation, lines):
                 raise MinimumWageError('Original calculation line differs from its basis')
         # No source identifier may be attached after the basis was built.
         for key in ('source_salary_rate_id', 'source_supplement_id',
-                    'source_vacation_calculation_id', 'source_sick_leave_calculation_id'):
+                    'source_vacation_calculation_id', 'source_sick_leave_calculation_id', 'source_leave_compensation_line_id'):
             if getattr(actual, key, None) != expected.get(key):
                 raise MinimumWageError('Calculation source attribution differs from its basis')
     return deepcopy(basis)

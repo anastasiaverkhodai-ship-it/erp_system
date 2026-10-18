@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy import select
 from app.models.employment_contract import EmploymentContract
-from app.models.leave_request import LeaveRequest, LeaveRequestStatus, LeaveType
+from app.models.leave_request import LeaveRequest, LeaveRequestStatus, LeaveType, PAID_VACATION_TYPES
 from app.models.payroll import PayrollCalculation, PayrollCalculationLine, PayrollPeriod
 from app.models.payroll_opening import PayrollEarningsHistory
 from app.services.payroll_mutation_guard import serialized_payroll_mutation
@@ -48,7 +48,7 @@ async def derive_leave_average_history(db, *, company_id, leave_request_id,
         raise PayrollAverageHistoryNotFoundError('Leave request not found')
     if leave.status != LeaveRequestStatus.APPROVED:
         raise PayrollAverageHistoryError('Average pay requires approved leave')
-    if leave.leave_type not in (LeaveType.ANNUAL, LeaveType.SICK):
+    if leave.leave_type not in PAID_VACATION_TYPES | {LeaveType.SICK}:
         raise PayrollAverageHistoryError('Average pay supports annual or sick leave')
     contract = await db.scalar(select(EmploymentContract).where(
         EmploymentContract.company_id == company_id,
@@ -62,7 +62,7 @@ async def derive_leave_average_history(db, *, company_id, leave_request_id,
     last = leave.start_date.replace(day=1) - timedelta(days=1)
     earliest = date(leave.start_date.year - 1, leave.start_date.month, 1)
     employment_start = contract.start_date
-    if leave.leave_type == LeaveType.ANNUAL and contract.start_date > earliest:
+    if leave.leave_type in PAID_VACATION_TYPES and contract.start_date > earliest:
         from app.services.payroll_reference_period_service import vacation_employment_month_start
         employment_start = await vacation_employment_month_start(db,
             company_id=company_id, contract=contract)
@@ -96,7 +96,7 @@ async def derive_leave_average_history(db, *, company_id, leave_request_id,
         cursor = next_month(cursor)
     if len({row.cutover_date for row in histories}) > 1:
         raise PayrollAverageHistoryError('Historical months have inconsistent cutover dates')
-    purpose = 'vacation' if leave.leave_type == LeaveType.ANNUAL else 'sick'
+    purpose = 'vacation' if leave.leave_type in PAID_VACATION_TYPES else 'sick'
     imported = {row.month: row for row in histories}
     sources = []
     for month in months:
@@ -180,7 +180,7 @@ async def _erp_vacation_source(db, *, company_id, contract_id, calculation, peri
     lines = list((await db.scalars(select(PayrollCalculationLine).where(
         PayrollCalculationLine.company_id == company_id,
         PayrollCalculationLine.payroll_calculation_id == calculation.id))).all())
-    if not lines or any(line.line_type not in {'salary', 'supplement', 'vacation_pay', 'sick_pay', 'minimum_wage'} for line in lines):
+    if not lines or any(line.line_type not in {'salary', 'supplement', 'vacation_pay', 'sick_pay', 'minimum_wage', 'leave_compensation'} for line in lines):
         raise PayrollAverageHistoryError('ERP non-salary earnings require an explicit average-pay classification')
     earnings = sum((Decimal(line.amount) for line in lines), Decimal(0))
     if earnings != calculation.gross_amount or any(line.currency_code != 'UAH' for line in lines):
@@ -189,12 +189,29 @@ async def _erp_vacation_source(db, *, company_id, contract_id, calculation, peri
         LeaveRequest.company_id == company_id, LeaveRequest.employment_contract_id == contract_id,
         LeaveRequest.status == LeaveRequestStatus.APPROVED,
         LeaveRequest.start_date <= month_end, LeaveRequest.end_date >= month))).all())
-    if any(leave.leave_type not in {LeaveType.UNPAID, LeaveType.ANNUAL, LeaveType.SICK} for leave in leaves):
+    if any(leave.leave_type not in PAID_VACATION_TYPES | {LeaveType.UNPAID, LeaveType.SICK} for leave in leaves):
         raise PayrollAverageHistoryError('ERP other absences require an explicit average-pay classification')
     await _verify_paid_leave_lines(db, company_id=company_id, contract_id=contract_id,
         leaves=leaves, lines=lines, month=month, month_end=month_end)
     excluded_earnings = await _excluded_supplement_earnings(db, company_id=company_id,
         calculation=calculation, lines=lines, month=month, month_end=month_end, purpose=purpose)
+    from app.models.payroll_leave_compensation import PayrollLeaveCompensationLine, PayrollLeaveCompensation
+    for line in lines:
+        if line.line_type != 'leave_compensation':
+            continue
+        saved = (await db.execute(select(PayrollLeaveCompensationLine, PayrollLeaveCompensation)
+            .join(PayrollLeaveCompensation,
+                (PayrollLeaveCompensation.company_id == PayrollLeaveCompensationLine.company_id) &
+                (PayrollLeaveCompensation.id == PayrollLeaveCompensationLine.compensation_id))
+            .where(PayrollLeaveCompensationLine.company_id == company_id,
+                PayrollLeaveCompensationLine.id == line.source_leave_compensation_line_id,
+                PayrollLeaveCompensation.payroll_input_id == calculation.payroll_input_id,
+                PayrollLeaveCompensation.employment_contract_id == contract_id))).one_or_none()
+        if saved is None or saved[0].amount != line.amount or saved[0].compensated_days != line.quantity:
+            raise PayrollAverageHistoryError('Compensation earning differs from its immutable source')
+        if purpose == 'vacation':
+            excluded_earnings += Decimal(line.amount)
+
     if purpose == 'sick':
         from app.models.payroll_statutory import PayrollStatutoryResult, PayrollStatutoryResultLine
         tax = (await db.execute(select(PayrollStatutoryResult, PayrollStatutoryResultLine)
@@ -282,7 +299,7 @@ async def _verify_paid_leave_lines(db, *, company_id, contract_id, leaves, lines
             current += timedelta(days=1)
         if leave.leave_type == LeaveType.UNPAID:
             continue
-        vacation = leave.leave_type == LeaveType.ANNUAL
+        vacation = leave.leave_type in PAID_VACATION_TYPES
         model = PayrollVacationCalculation if vacation else PayrollSickLeaveCalculation
         source = await db.scalar(select(model).where(model.company_id == company_id,
             model.employment_contract_id == contract_id, model.leave_request_id == leave.id))

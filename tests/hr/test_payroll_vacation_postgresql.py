@@ -186,9 +186,10 @@ async def _seed_identity(session):
     return company, user, employee, contract
 
 
+@pytest.mark.parametrize("leave_kind", [LeaveType.ANNUAL, LeaveType.ADDITIONAL, LeaveType.SOCIAL])
 @pytest.mark.parametrize("cross_month", [False, True])
 @pytest.mark.asyncio
-async def test_payroll_vacation_real_postgresql_e2e(cross_month):
+async def test_payroll_vacation_real_postgresql_e2e(cross_month, leave_kind):
     engine = create_async_engine(
         _postgres_url(),
         pool_pre_ping=True,
@@ -210,7 +211,7 @@ async def test_payroll_vacation_real_postgresql_e2e(cross_month):
                 leave = LeaveRequest(
                     company_id=company.id,
                     employment_contract_id=contract.id,
-                    leave_type=LeaveType.ANNUAL,
+                    leave_type=leave_kind,
                     start_date=date(2026, 9, 29) if cross_month else date(2026, 9, 21),
                     end_date=date(2026, 10, 3) if cross_month else date(2026, 9, 25),
                     status=LeaveRequestStatus.APPROVED,
@@ -464,7 +465,7 @@ async def test_payroll_vacation_real_postgresql_e2e(cross_month):
                 pending_leave = LeaveRequest(
                     company_id=company.id,
                     employment_contract_id=contract.id,
-                    leave_type=LeaveType.ANNUAL,
+                    leave_type=leave_kind,
                     start_date=date(2026, 10, 5),
                     end_date=date(2026, 10, 6),
                     status=LeaveRequestStatus.PENDING,

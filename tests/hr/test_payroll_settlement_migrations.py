@@ -41,7 +41,7 @@ async def test_settlement_migrations_roundtrip(employee_engine):
                 advance_fk = next(c for c in Base.metadata.tables[
                     'payroll_withholding_batches'].foreign_key_constraints
                     if c.name == 'fk_pwb_advance')
-                sync.execute(DropConstraint(advance_fk))
+                sync.execute(DropConstraint(advance_fk, isolate_from_table=False))
                 commissioning.downgrade()
                 for module in reversed(modules):
                     module.downgrade()
@@ -57,8 +57,8 @@ async def test_settlement_migrations_roundtrip(employee_engine):
                     op.drop_constraint(name, 'payroll_advances', type_='check')
                 for constraint in Base.metadata.tables['payroll_advances'].constraints:
                     if isinstance(constraint, sa.CheckConstraint) and 'withheld_amount' in str(constraint.sqltext):
-                        sync.execute(AddConstraint(constraint))
-                sync.execute(AddConstraint(advance_fk))
+                        sync.execute(AddConstraint(constraint, isolate_from_table=False))
+                sync.execute(AddConstraint(advance_fk, isolate_from_table=False))
             differences = compare_metadata(MigrationContext.configure(sync), Base.metadata)
             assert differences == [], repr(differences)
         await conn.run_sync(roundtrip)

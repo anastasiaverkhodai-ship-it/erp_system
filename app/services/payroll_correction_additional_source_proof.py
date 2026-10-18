@@ -35,7 +35,12 @@ class PayrollAdditionalSourceProofError(ValueError):
     pass
 
 
+from app.services.payroll_leave_compensation_service import derive_compensation_payroll_lines
+from app.services.payroll_leave_balance_service import LeaveBalanceError
+
+
 SOURCE_FIELDS = {
+    "leave_compensation": "source_leave_compensation_line_id",
     "supplement": "source_supplement_id",
     "vacation_pay": "source_vacation_calculation_id",
     "sick_pay": "source_sick_leave_calculation_id",
@@ -228,7 +233,10 @@ async def verify_additional_payroll_sources(
             payroll_input=payroll_input,
             period=period,
         )
+        compensation_lines = await derive_compensation_payroll_lines(
+            db,company_id=company_id,payroll_input=payroll_input,period=period)
     except (
+        LeaveBalanceError,
         PayrollSupplementError,
         PayrollVacationDerivationError,
         PayrollSickLeaveDerivationError,
@@ -243,7 +251,10 @@ async def verify_additional_payroll_sources(
         ("supplement", supplement_lines),
         ("vacation_pay", vacation_lines),
         ("sick_pay", sick_lines),
+        ("leave_compensation", compensation_lines),
     ):
+        if kind == "leave_compensation" and not derived and not grouped[kind]:
+            continue
         results[kind] = compare_additional_source_lines(
             kind=kind,
             stored_lines=grouped[kind],

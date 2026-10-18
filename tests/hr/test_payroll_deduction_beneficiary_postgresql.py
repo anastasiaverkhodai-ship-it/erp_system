@@ -194,11 +194,11 @@ async def test_cli_migration_roundtrip_preserves_existing_tables():
         assert proc.returncode == 0, output.decode()
     async def snapshot():
         async with engine.connect() as conn:
-            tables = (await conn.scalars(text("SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('alembic_version','payroll_deduction_beneficiaries','payroll_deduction_assessments','payroll_withholding_batches','payroll_withholding_lines','payroll_recipient_remittances','payroll_recipient_remittance_lines','payroll_deduction_assessment_closures') ORDER BY tablename"))).all()
+            tables = (await conn.scalars(text("SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('alembic_version','payroll_deduction_beneficiaries','payroll_deduction_assessments','payroll_withholding_batches','payroll_withholding_lines','payroll_recipient_remittances','payroll_recipient_remittance_lines','payroll_deduction_assessment_closures','payroll_leave_accounts','payroll_leave_accruals','payroll_leave_balance_entries','payroll_leave_compensations','payroll_leave_compensation_lines','payroll_leave_compensation_reversals') ORDER BY tablename"))).all()
             values = {}
             for name in tables:
                 quoted = conn.dialect.identifier_preparer.quote(name)
-                exclusions = "ARRAY['withheld_amount','source_withholding_line_id','payment_beneficiary_id']" + (" || ARRAY['revision']" if name == "payroll_payslips" else "")
+                exclusions = "ARRAY['withheld_amount','source_withholding_line_id','payment_beneficiary_id','source_leave_compensation_line_id']" + (" || ARRAY['revision']" if name == "payroll_payslips" else "")
                 values[name] = tuple((await conn.execute(text(f"SELECT count(*), md5(COALESCE(string_agg((to_jsonb(t) - ({exclusions}))::text, E'\\n' ORDER BY (to_jsonb(t) - ({exclusions}))::text),'')) FROM public.{quoted} t"))).one())
             return values
     try:
@@ -212,7 +212,10 @@ async def test_cli_migration_roundtrip_preserves_existing_tables():
         await run('check')
         assert await snapshot() == before
     finally:
-        await engine.dispose()
+        try:
+            await run('upgrade', 'head')
+        finally:
+            await engine.dispose()
 
 
 async def test_concurrent_verification_selects_one_recipient(employee_engine):
