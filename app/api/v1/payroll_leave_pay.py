@@ -50,7 +50,7 @@ async def create_vacation(company_id: int, leave_request_id: int, data: LeaveHis
     try:
         row = await calculate_vacation_from_history(db, company_id=company_id, leave_request_id=leave_request_id,
             reference_period_start=data.reference_period_start, reference_period_end=data.reference_period_end,
-            calculated_by=actor.id)
+            calculated_by=actor.id, salary_substitution=data.salary_substitution)
         result = await response(db, row)
         await db.commit()
         return result
@@ -106,3 +106,14 @@ async def read_sick(company_id:int,leave_request_id:int,db:AsyncSession=Depends(
     if row is None:
         raise HTTPException(status_code=404,detail='Sick calculation not found')
     return await sick_response(db,row)
+
+
+@router.post('/average-history', response_model=LeaveAverageHistoryRead)
+async def preview_average(company_id: int, leave_request_id: int, data: LeaveHistoryCalculationCreate,
+    db: AsyncSession = Depends(get_db), actor: User = Depends(require_company_permission('employees.read'))):
+    try:
+        return await derive_leave_average_history(db, company_id=company_id, leave_request_id=leave_request_id,
+            reference_period_start=data.reference_period_start, reference_period_end=data.reference_period_end,
+            salary_substitution=data.salary_substitution)
+    except PayrollAverageHistoryError as exc:
+        raise error(exc) from exc

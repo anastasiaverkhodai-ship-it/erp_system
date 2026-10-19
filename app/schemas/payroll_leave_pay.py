@@ -2,10 +2,12 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
+from app.schemas.payroll_leave_compensation import CompensationSalarySubstitution
 
 
 class LeaveHistoryCalculationCreate(BaseModel):
     model_config = ConfigDict(extra='forbid')
+    salary_substitution: CompensationSalarySubstitution | None = None
     reference_period_start: date | None = None
     reference_period_end: date | None = None
 
@@ -19,6 +21,7 @@ class LeaveAverageSourceRead(BaseModel):
     earnings_amount: Decimal
     eligible_days: Decimal
     source_reference: str | None
+    basis_snapshot: dict | None = None
 
 
 class LeaveAverageHistoryRead(BaseModel):

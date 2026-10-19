@@ -1,5 +1,6 @@
 """Compare retries against saved leave calculations without rewriting history."""
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+import json
 
 
 def number(value, quantum, error_type):
@@ -21,6 +22,7 @@ def source_key(source, error_type):
         number(get('earnings_amount', 0), '.01', error_type),
         number(get('eligible_days', 0), '.01', error_type),
         get('source_reference'),
+        json.dumps(get('basis_snapshot'), sort_keys=True, default=str),
     )
 
 

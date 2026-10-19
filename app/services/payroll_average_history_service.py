@@ -1,8 +1,8 @@
 """Derive average-pay inputs from complete, attributed imported months.
 
 The ordinary full-month reference window is derived from employment. This
-service validates optional supplied dates; it does not infer statutory exceptions,
-replacement salary, or the treatment of non-salary ERP earnings.
+service validates optional supplied dates and derives documented salary substitution
+for paid vacation. Unsupported earning classifications remain explicit errors.
 """
 from calendar import monthrange
 from datetime import date, timedelta
@@ -28,8 +28,8 @@ class PayrollAverageHistoryNotFoundError(PayrollAverageHistoryError):
 
 
 RULE_CODE = 'UA_VACATION_VERIFIED_HISTORY'
-RULE_VERSION = '3-hire-calendar-4928-IX'
-SUPPORTED_SAVED_VERSIONS = {'1-calendar-4928-IX', '2-calendar-4928-IX', RULE_VERSION}
+RULE_VERSION = '4-salary-substitution-4928-IX'
+SUPPORTED_SAVED_VERSIONS = {'1-calendar-4928-IX', '2-calendar-4928-IX', '3-hire-calendar-4928-IX', RULE_VERSION}
 # Full days covered by Law 2136-IX and the verified extension 4928-IX.
 # Do not assume later extensions. Historical eligible days come from imports.
 CALENDAR_RULE_START = date(2022, 3, 24)
@@ -41,7 +41,7 @@ def next_month(day):
 
 
 async def derive_leave_average_history(db, *, company_id, leave_request_id,
-                                      reference_period_start=None, reference_period_end=None):
+                                      reference_period_start=None, reference_period_end=None, salary_substitution=None):
     leave = await db.scalar(select(LeaveRequest).where(
         LeaveRequest.company_id == company_id, LeaveRequest.id == leave_request_id))
     if leave is None:
@@ -70,6 +70,11 @@ async def derive_leave_average_history(db, *, company_id, leave_request_id,
         # Procedure 1266 uses completed calendar months; the first-working-day
         # exception of vacation Procedure 100 does not apply to sick pay.
         employment_start = next_month(employment_start)
+    if leave.leave_type in PAID_VACATION_TYPES and max(earliest, employment_start) > last:
+        if reference_period_start is not None and (reference_period_start, reference_period_end) != (earliest, last):
+            raise PayrollAverageHistoryError('Salary substitution uses the preceding twelve calendar months')
+        return await _vacation_salary_basis(db, company_id=company_id, contract=contract, leave=leave,
+            earliest=earliest, last=last, context=salary_substitution, evidence=[])
     start = reference_period_start or max(earliest, employment_start)
     end = reference_period_end or last
     if start.day != 1 or end != last or start < earliest or start > end:
@@ -131,7 +136,12 @@ async def derive_leave_average_history(db, *, company_id, leave_request_id,
     earnings = sum((s['earnings_amount'] for s in sources), Decimal(0))
     days = sum((s['eligible_days'] for s in sources), Decimal(0))
     if days <= 0 or earnings <= 0:
+        if purpose == 'vacation':
+            return await _vacation_salary_basis(db, company_id=company_id, contract=contract, leave=leave,
+                earliest=earliest, last=last, context=salary_substitution, evidence=sources)
         raise PayrollAverageHistoryError('No positive historical basis; a statutory replacement-salary calculation is required')
+    if salary_substitution is not None:
+        raise PayrollAverageHistoryError('Salary substitution cannot replace positive actual earnings')
     return dict(company_id=company_id, leave_request_id=leave.id,
         employment_contract_id=contract.id, purpose=purpose,
         reference_period_start=start, reference_period_end=end,
@@ -142,12 +152,19 @@ async def derive_leave_average_history(db, *, company_id, leave_request_id,
 
 @serialized_payroll_mutation(PayrollAverageHistoryError)
 async def calculate_vacation_from_history(db, *, company_id, leave_request_id,
-                                         reference_period_start=None, reference_period_end=None, calculated_by):
+                                         reference_period_start=None, reference_period_end=None, calculated_by, salary_substitution=None):
     if (reference_period_start is None) != (reference_period_end is None):
         raise PayrollAverageHistoryError('Supply both reference dates or neither')
     existing = await get_vacation_calculation_for_leave(db, company_id=company_id,
         leave_request_id=leave_request_id)
     if existing is not None:
+        from app.services.payroll_vacation_service import list_vacation_calculation_sources
+        saved = await list_vacation_calculation_sources(db, company_id=company_id, vacation_calculation_id=existing.id)
+        replacements = [s for s in saved if s.source_type == 'salary_substitution']
+        request = salary_substitution.model_dump(mode='json') if salary_substitution else None
+        saved_request = replacements[0].basis_snapshot.get('request') if replacements and replacements[0].basis_snapshot else None
+        if request != saved_request:
+            raise PayrollVacationConflictError('Existing vacation calculation has different salary substitution evidence')
         if (existing.rule_code != RULE_CODE or existing.rule_version not in SUPPORTED_SAVED_VERSIONS
             or existing.reference_period_start != (reference_period_start or existing.reference_period_start)
             or existing.reference_period_end != (reference_period_end or existing.reference_period_end)):
@@ -155,7 +172,7 @@ async def calculate_vacation_from_history(db, *, company_id, leave_request_id,
         return existing
     basis = await derive_leave_average_history(db, company_id=company_id,
         leave_request_id=leave_request_id, reference_period_start=reference_period_start,
-        reference_period_end=reference_period_end)
+        reference_period_end=reference_period_end, salary_substitution=salary_substitution)
     leave = await db.scalar(select(LeaveRequest).where(
         LeaveRequest.company_id == company_id, LeaveRequest.id == leave_request_id))
     if not CALENDAR_RULE_START <= leave.start_date <= leave.end_date <= CALENDAR_RULE_END:
@@ -330,3 +347,22 @@ async def _verify_paid_leave_lines(db, *, company_id, contract_id, leaves, lines
         actual[key] = (Decimal(line.quantity), Decimal(line.amount))
     if expected != actual:
         raise PayrollAverageHistoryError('Paid absence lines do not reconcile to their monthly source allocation')
+
+
+async def _vacation_salary_basis(db, *, company_id, contract, leave, earliest, last, context, evidence):
+    import json
+    from app.services.payroll_leave_compensation_basis_service import _salary_substitution_basis
+    basis = await _salary_substitution_basis(db, company_id=company_id, contract=contract,
+        compensation_date=leave.start_date, start=earliest, end=last, context=context, evidence=evidence)
+    source = basis['sources'][0]
+    earnings = basis['eligible_earnings'].quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
+    days = basis['eligible_days']
+    snapshot = json.loads(json.dumps(dict(source, request=context.model_dump(mode='json')), default=str))
+    return dict(company_id=company_id, leave_request_id=leave.id, employment_contract_id=contract.id,
+        purpose='vacation', reference_period_start=earliest, reference_period_end=last,
+        eligible_earnings=earnings, eligible_days=days, currency_code='UAH',
+        average_daily_amount=(earnings/days).quantize(Decimal('.000001'), rounding=ROUND_HALF_UP),
+        sources=[dict(source_type='salary_substitution', source_id=source['source_id'],
+            source_period_start=earliest, source_period_end=last, earnings_amount=earnings,
+            eligible_days=days, source_reference='Order 100 salary substitution; documented basis attached',
+            basis_snapshot=snapshot)])

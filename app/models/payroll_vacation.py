@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Integer,
+    JSON,
     Numeric,
     String,
     UniqueConstraint,
@@ -202,9 +203,10 @@ class PayrollVacationCalculationSource(Base):
         ),
         CheckConstraint(
             "source_type IN "
-            "('earnings_history','payroll_calculation','leave_opening')",
+            "('earnings_history','payroll_calculation','leave_opening','salary_substitution')",
             name="ck_payroll_vacation_source_type",
         ),
+        CheckConstraint("(source_type = 'salary_substitution') = (basis_snapshot IS NOT NULL)", name="ck_pvcs_salary_basis"),
         CheckConstraint(
             "source_id > 0",
             name="ck_payroll_vacation_source_id",
@@ -272,6 +274,8 @@ class PayrollVacationCalculationSource(Base):
         String(500),
         nullable=True,
     )
+
+    basis_snapshot: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

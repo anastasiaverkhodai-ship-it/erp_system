@@ -44,7 +44,7 @@ async def test_reference_month_from_actual_hire_calendar(employee_engine,hire_da
         assert basis['eligible_earnings']==days*100
         result=await calculate_vacation_from_history(db,company_id=company.id,leave_request_id=leave.id,calculated_by=user.id)
         assert result.vacation_pay_amount==500
-        assert result.rule_version=='3-hire-calendar-4928-IX'
+        assert result.rule_version=='4-salary-substitution-4928-IX'
         assert (await calculate_vacation_from_history(db,company_id=company.id,
             leave_request_id=leave.id,calculated_by=user.id)).id==result.id
 
