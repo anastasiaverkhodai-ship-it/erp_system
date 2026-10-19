@@ -1,4 +1,5 @@
 from datetime import date
+from app.schemas.payroll_social_leave import SocialGround, SocialLeaveEvidence, validate_social_evidence
 from decimal import Decimal
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -35,7 +36,9 @@ class LeaveAccountCreate(BaseModel):
     planned_work_dates: list[date] = Field(default_factory=list,max_length=366)
     excluded_service_dates: list[date] = Field(default_factory=list,max_length=366)
     social_days: Literal[10,17] | None = None
-    social_grounds: list[str] = Field(default_factory=list,max_length=10)
+    social_grounds: list[SocialGround] = Field(default_factory=list,max_length=7)
+    social_evidence: list[SocialLeaveEvidence] = Field(default_factory=list,max_length=7)
+    social_year_review_reference: str | None = Field(default=None,min_length=1,max_length=1000)
     opening_id: int | None = Field(default=None,gt=0)
     opening_before_2024: Decimal | None = Field(default=None,ge=0,decimal_places=2)
     source_reference: str = Field(min_length=1,max_length=1000)
@@ -61,10 +64,15 @@ class LeaveAccountCreate(BaseModel):
                 raise ValueError('Document distinct social entitlement grounds')
             if self.social_days != (10 if len(grounds)==1 else 17):
                 raise ValueError('Social days must match the documented grounds')
+            if not self.social_year_review_reference or not self.social_year_review_reference.strip():
+                raise ValueError('Review prior use and termination compensation for this social entitlement year')
+            validate_social_evidence(year=self.period_start.year,grounds=self.social_grounds,evidence=self.social_evidence)
             if self.segments or self.excluded_service_dates:
                 raise ValueError('Social leave is not prorated by annual service')
         elif not self.segments or self.social_days is not None or self.social_grounds:
             raise ValueError('Annual leave requires dated annual allowances')
+        if self.leave_kind != 'social' and (self.social_evidence or self.social_year_review_reference is not None):
+            raise ValueError('Social evidence applies only to parental social leave')
         if self.leave_kind == 'additional':
             if not self.planned_work_dates or len(set(self.planned_work_dates)) != len(self.planned_work_dates):
                 raise ValueError('Additional leave requires the documented full-year working calendar')

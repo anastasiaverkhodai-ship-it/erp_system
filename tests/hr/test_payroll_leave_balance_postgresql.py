@@ -47,7 +47,14 @@ async def test_reserved_leave_approval_and_cancellation_restore_days(employee_en
         account=await create_leave_account(db,company_id=company.id,actor_id=user.id,data=LeaveAccountCreate(
             employment_contract_id=contract.id,leave_kind='social',entitlement_code='parental',
             period_start=date(2026,1,1),period_end=date(2026,12,31),social_days=10,
-            social_grounds=['two_children_under_15'],source_reference='Confirmed parental eligibility and non-use by other parent',request_key='social'))
+            social_grounds=['two_children_under_15'],
+            social_year_review_reference='Previous employment use and compensation reviewed',
+            social_evidence=[dict(ground='two_children_under_15',valid_from='2026-01-01',valid_to='2026-12-31',
+                dependants=[dict(document_reference='child-1',birth_date='2015-06-01'),
+                            dict(document_reference='child-2',birth_date='2018-08-01')],
+                eligibility_reference='Verified birth certificates',
+                other_parent_nonuse_reference='Other parent yearly non-use confirmation')],
+            source_reference='Confirmed parental eligibility and non-use by other parent',request_key='social'))
         await accrue_leave_days(db,company_id=company.id,account_id=account.id,actor_id=user.id,
             data=LeaveAccrualCreate(through=date(2026,9,30),source_reference='Confirmed yearly right',request_key='social-accrual'))
         leave=LeaveRequest(company_id=company.id,employment_contract_id=contract.id,leave_type='social',
@@ -68,7 +75,10 @@ async def test_reserved_leave_approval_and_cancellation_restore_days(employee_en
             await create_leave_account(db,company_id=company.id,actor_id=user.id,data=LeaveAccountCreate(
                 employment_contract_id=contract.id,leave_kind='social',entitlement_code='another-name',
                 period_start=date(2026,1,1),period_end=date(2026,12,31),social_days=10,
-                social_grounds=['another-ground'],source_reference='Cannot duplicate yearly cap',request_key='duplicate'))
+                social_grounds=['two_children_under_15'],
+                social_evidence=account.basis['social_evidence'],
+                social_year_review_reference='Yearly entitlement reviewed',
+                source_reference='Cannot duplicate yearly cap',request_key='duplicate'))
 
 
 async def test_additional_leave_prorates_against_working_calendar(employee_engine):
@@ -111,4 +121,32 @@ async def test_failed_day_return_does_not_cancel_request(employee_engine, monkey
             await cancel_leave_request(db,company_id=company.id,leave_request_id=leave_id,cancelled_by=user.id)
         await db.refresh(leave)
         assert leave.status=='pending' and leave.cancelled_by is None
+        await db.commit()
+
+
+async def test_social_second_ground_adds_only_increment_after_eligibility_date(employee_engine):
+    from copy import deepcopy
+    from test_payroll_social_leave import basis
+    async with AsyncSession(employee_engine,expire_on_commit=False) as db:
+        company,user,employee,contract=await _seed_identity(db)
+        contract.start_date=date(2025,1,1)
+        data=basis()
+        second=deepcopy(data['social_evidence'][0])
+        second.update(ground='single_parent',valid_from='2026-07-01',
+                      eligibility_reference='Sole-parent status from July')
+        data.update(employment_contract_id=contract.id,social_days=17,
+                    social_grounds=['two_children_under_15','single_parent'],
+                    social_evidence=[data['social_evidence'][0],second])
+        account=await create_leave_account(db,company_id=company.id,actor_id=user.id,
+                                          data=LeaveAccountCreate(**data))
+        first=await accrue_leave_days(db,company_id=company.id,account_id=account.id,actor_id=user.id,
+            data=LeaveAccrualCreate(through=date(2026,6,30),source_reference='June eligibility',request_key='june'))
+        assert sum(row.days for row in first)==10
+        july=LeaveAccrualCreate(through=date(2026,7,31),source_reference='July eligibility',request_key='july')
+        second=await accrue_leave_days(db,company_id=company.id,account_id=account.id,actor_id=user.id,data=july)
+        assert sum(row.days for row in second)==7
+        assert [row.id for row in await accrue_leave_days(db,company_id=company.id,account_id=account.id,
+            actor_id=user.id,data=july)]==[row.id for row in second]
+        balances=await leave_balances(db,company_id=company.id,employment_contract_id=contract.id,as_of=date(2026,7,31))
+        assert balances[0]['from_2024']==17
         await db.commit()

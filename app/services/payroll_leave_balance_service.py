@@ -21,6 +21,28 @@ async def require_account(db, company_id, account_id):
     return row
 
 
+def social_entitled_days(account, contract, through):
+    from app.schemas.payroll_leave_balance import LeaveAccountCreate
+    from app.schemas.payroll_social_leave import validate_social_evidence
+    try:
+        basis = LeaveAccountCreate.model_validate(account.basis)
+    except ValueError as exc:
+        raise LeaveBalanceError('Social entitlement needs verified statutory categories and supporting documents') from exc
+    eligible = 0
+    for evidence in basis.social_evidence:
+        try:
+            validate_social_evidence(
+                year=account.period_start.year,grounds=[evidence.ground],evidence=[evidence],
+                employment_start=contract.start_date,
+                employment_end=min(through,contract.end_date or through))
+        except ValueError:
+            # The complete basis was checked above. A ground that has not yet
+            # arisen must not grant days before its supporting event.
+            continue
+        eligible += 1
+    return Decimal(0 if eligible == 0 else 10 if eligible == 1 else 17)
+
+
 def _entry(*, company_id, account_id, kind, effective_date, bucket, days, reference,
            request_key, fingerprint, line_no, actor_id, **sources):
     return Entry(company_id=company_id,account_id=account_id,kind=kind,
@@ -31,7 +53,11 @@ def _entry(*, company_id, account_id, kind, effective_date, bucket, days, refere
 
 @serialized_payroll_mutation(LeaveBalanceError)
 async def create_leave_account(db, *, company_id, data, actor_id):
-    fingerprint=generate_request_fingerprint(data.model_dump(mode='json'))
+    payload=data.model_dump(mode='json')
+    if data.leave_kind != 'social':
+        payload.pop('social_evidence',None)
+        payload.pop('social_year_review_reference',None)
+    fingerprint=generate_request_fingerprint(payload)
     old=await db.scalar(select(Account).where(Account.company_id==company_id,Account.request_key==data.request_key))
     if old is not None:
         if old.request_fingerprint!=fingerprint:
@@ -41,6 +67,13 @@ async def create_leave_account(db, *, company_id, data, actor_id):
         EmploymentContract.company_id==company_id,EmploymentContract.id==data.employment_contract_id))
     if contract is None or contract.status=='cancelled':
         raise LeaveBalanceError('Employment contract not found or cancelled')
+    if data.leave_kind == 'social':
+        from app.schemas.payroll_social_leave import validate_social_evidence
+        try:
+            validate_social_evidence(year=data.period_start.year,grounds=data.social_grounds,
+                evidence=data.social_evidence,employment_start=contract.start_date,employment_end=contract.end_date)
+        except ValueError as exc:
+            raise LeaveBalanceError(str(exc)) from exc
     if data.period_end < contract.start_date:
         raise LeaveBalanceError('Entitlement precedes employment')
     if data.leave_kind != 'social':
@@ -139,7 +172,7 @@ async def accrue_leave_days(db, *, company_id, account_id, data, actor_id):
         if account.opening_id is not None:
             raise LeaveBalanceError('Social year already represented by its imported remainder')
         amounts={'before_2024':Decimal(0),'from_2024':Decimal(0)}
-        amounts['before_2024' if account.period_end.year<=2023 else 'from_2024']=Decimal(basis['social_days'])
+        amounts['before_2024' if account.period_end.year<=2023 else 'from_2024']=social_entitled_days(account,contract,through)
     else:
         exclusions={date.fromisoformat(d) for d in basis['excluded_service_dates']}
         cursor=account.period_start
