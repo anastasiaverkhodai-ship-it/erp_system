@@ -1,4 +1,5 @@
 from datetime import date
+from app.schemas.payroll_leave_advance import LeaveAdvanceAuthorization
 from app.schemas.payroll_social_leave import SocialGround, SocialLeaveEvidence, validate_social_evidence
 from decimal import Decimal
 from typing import Literal
@@ -97,6 +98,7 @@ class LeaveAccrualCreate(BaseModel):
 
 
 class LeaveAllocationItem(BaseModel):
+    advance_authorization: LeaveAdvanceAuthorization | None = None
     model_config = ConfigDict(extra='forbid')
     account_id: int = Field(gt=0)
     bucket: Literal['before_2024','from_2024']
@@ -126,6 +128,7 @@ class LeaveAccountRead(BaseModel):
 
 
 class LeaveBalanceEntryRead(BaseModel):
+    advance_basis: dict | None = None
     model_config = ConfigDict(from_attributes=True)
     id: int
     company_id: int

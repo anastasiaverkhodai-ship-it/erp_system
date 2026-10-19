@@ -126,3 +126,20 @@ Alembic drift check: PASS.
 - https://dsp.gov.ua/faq/khto-z-pratsivnykiv-iaki-maiut-ditei-mozhe-otrymaty-dodatkovu-vidpustku/
 - https://dp.dsp.gov.ua/novyny/zapytannia-vidpovid-2/
 - https://dp.dsp.gov.ua/novyny/chy-maie-pratsivnytsia-pravo-na-sotsialnu-vidpustku-iak-odynoka-maty-iakshcho-ii-dytyna-vikom-16-rokiv-perebuvaie-v-trudovykh-vidnosynakh/
+
+## Відпустка авансом, 19.10.2026
+
+- Додано документований дозвіл на використання річних днів до їх повного
+  нарахування: після шести місяців, у наступному робочому році та за
+  підтвердженими винятками. Соціальні дні з майбутнього року не позичаються.
+- Перевіряються дата дозволу, річний ліміт, строк договору, інвалідність,
+  вік неповнолітнього та збіг відпустки сумісника з основним місцем роботи.
+- Зберігаються фактичні підстави, використаний аванс і залишок річного права.
+  Подальше нарахування погашає аванс; скасування повертає використані дні.
+- Регресія: 27 passed; доповнені сценарії авансів: 12 passed.
+- Міграція 038 застосована після резервної копії; дані всіх 183 наявних
+  таблиць збережені, перевірка відповідності схеми пройшла.
+- Утримання/звільнення від повернення авансу при ранньому звільненні ще
+  не завершено: від'ємний залишок блокує остаточну компенсацію.
+
+Правило: https://dsp.gov.ua/faq/koly-nastaie-pravo-pratsivnyka-na-otrymannia-shchorichnoi-osnovnoi-ta-dodatkovoi-vidpustky/

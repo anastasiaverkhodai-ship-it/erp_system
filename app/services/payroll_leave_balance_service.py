@@ -260,8 +260,21 @@ async def allocate_leave_days(db, *, company_id, leave_request_id, allocations,
     implicit negative balance.
     """
     from app.models.leave_request import LeaveRequest, PAID_VACATION_TYPES
+    from app.schemas.payroll_leave_advance import LeaveAdvanceAuthorization
+    normalized=[]
+    for item in allocations:
+        item=dict(item)
+        if item.get('advance_authorization') is not None:
+            try:
+                item['advance_authorization']=LeaveAdvanceAuthorization.model_validate(
+                    item['advance_authorization']).model_dump(mode='json')
+            except ValueError as exc:
+                raise LeaveBalanceError('Invalid documented advance authorization') from exc
+        normalized.append(item)
+    allocations=normalized
     payload=dict(leave_request_id=leave_request_id,allocations=[{
-        'account_id':a['account_id'],'bucket':a['bucket'],'days':str(a['days'])} for a in allocations],
+        'account_id':a['account_id'],'bucket':a['bucket'],'days':str(a['days']),
+        **({'advance_authorization':a['advance_authorization']} if a.get('advance_authorization') is not None else {})} for a in allocations],
         source_reference=source_reference)
     fingerprint=generate_request_fingerprint(payload)
     old=list((await db.scalars(select(Entry).where(Entry.company_id==company_id,Entry.request_key==request_key))).all())
@@ -298,13 +311,18 @@ async def allocate_leave_days(db, *, company_id, leave_request_id, allocations,
         available=await db.scalar(select(func.coalesce(func.sum(Entry.days),0)).where(
             Entry.company_id==company_id,Entry.account_id==account.id,
             Entry.acquisition_bucket==bucket,Entry.effective_date<=leave.start_date))
-        if amount>available:
+        advance_basis=None
+        if item.get('advance_authorization') is not None:
+            from app.services.payroll_leave_advance_service import authorize_advance
+            advance_basis=await authorize_advance(db,company_id=company_id,account=account,leave=leave,
+                bucket=bucket,amount=amount,available=available,authorization=item['advance_authorization'])
+        elif amount>available:
             raise LeaveBalanceError('Insufficient accrued leave days; advance authorization is required')
         total+=amount
         entries.append(_entry(company_id=company_id,account_id=account.id,kind='use',
             effective_date=leave.start_date,bucket=bucket,days=-amount,reference=source_reference,
             request_key=request_key,fingerprint=fingerprint,line_no=index,actor_id=actor_id,
-            leave_request_id=leave.id))
+            leave_request_id=leave.id,advance_basis=advance_basis))
     if total!=(leave.end_date-leave.start_date).days+1:
         raise LeaveBalanceError('Allocated days do not match the leave calendar')
     db.add_all(entries);await db.flush()

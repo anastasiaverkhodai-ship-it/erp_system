@@ -55,6 +55,7 @@ class PayrollLeaveBalanceEntry(Base):
         CheckConstraint("kind <> 'use' OR leave_request_id IS NOT NULL",name='ck_plbe_use_source'),
         CheckConstraint("kind <> 'compensation' OR termination_event_id IS NOT NULL",name='ck_plbe_comp_source'),
         CheckConstraint('line_no > 0',name='ck_plbe_line'),
+        CheckConstraint("advance_basis IS NULL OR kind='use'",name='ck_plbe_advance_kind'),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     company_id: Mapped[int] = mapped_column(Integer,nullable=False)
@@ -63,6 +64,7 @@ class PayrollLeaveBalanceEntry(Base):
     effective_date: Mapped[date] = mapped_column(Date,nullable=False)
     acquisition_bucket: Mapped[str] = mapped_column(String(16),nullable=False)
     days: Mapped[Decimal] = mapped_column(Numeric(16,8),nullable=False)
+    advance_basis: Mapped[dict | None] = mapped_column(JSON(none_as_null=True),nullable=True)
     leave_request_id: Mapped[int | None] = mapped_column(Integer)
     termination_event_id: Mapped[int | None] = mapped_column(Integer)
     reversal_of_id: Mapped[int | None] = mapped_column(Integer)
