@@ -198,7 +198,7 @@ async def test_cli_migration_roundtrip_preserves_existing_tables():
             values = {}
             for name in tables:
                 quoted = conn.dialect.identifier_preparer.quote(name)
-                exclusions = "ARRAY['withheld_amount','source_withholding_line_id','payment_beneficiary_id','source_leave_compensation_line_id']" + (" || ARRAY['revision']" if name == "payroll_payslips" else "") + (" || ARRAY['basis_snapshot']" if name == "payroll_vacation_calculation_sources" else "")
+                exclusions = "ARRAY['withheld_amount','source_withholding_line_id','payment_beneficiary_id','source_leave_compensation_line_id']" + (" || ARRAY['revision']" if name == "payroll_payslips" else "") + (" || ARRAY['basis_snapshot']" if name == "payroll_vacation_calculation_sources" else "") + (" || ARRAY['average_basis']" if name == "payroll_supplements" else "")
                 values[name] = tuple((await conn.execute(text(f"SELECT count(*), md5(COALESCE(string_agg((to_jsonb(t) - ({exclusions}))::text, E'\\n' ORDER BY (to_jsonb(t) - ({exclusions}))::text),'')) FROM public.{quoted} t"))).one())
             return values
     try:

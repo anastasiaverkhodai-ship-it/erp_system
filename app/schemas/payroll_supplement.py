@@ -5,8 +5,27 @@ from pydantic import ConfigDict,Field,model_validator,field_validator
 from app.schemas.payroll_opening import SourceInput
 
 
+class BonusAverageBasis(SourceInput):
+    period_start: date
+    period_end: date
+    worked_days: int=Field(gt=0,strict=True)
+    planned_days: int=Field(gt=0,strict=True)
+
+    @model_validator(mode='after')
+    def period(self):
+        from calendar import monthrange
+        if (self.period_start.day != 1 or
+            self.period_end.day != monthrange(self.period_end.year,self.period_end.month)[1] or
+            self.period_end < self.period_start):
+            raise ValueError('Bonus earning period must contain complete calendar months')
+        if not self.worked_days <= self.planned_days <= (self.period_end-self.period_start).days+1:
+            raise ValueError('Bonus worked/planned days exceed the earning period')
+        return self
+
+
 class PayrollSupplementCreate(SourceInput):
     kind: Literal['bonus','holiday_bonus','hardship','night','overtime','rest_day','regular_extra']
+    average_basis: BonusAverageBasis | None=None
     work_date: date
     minutes: int=Field(default=0,ge=0,le=1440)
     coefficient: Decimal=Field(default=Decimal('1'),ge=0,max_digits=10,decimal_places=6)
@@ -22,6 +41,8 @@ class PayrollSupplementCreate(SourceInput):
 
     @model_validator(mode='after')
     def semantics(self):
+        if self.average_basis is not None and self.kind != 'bonus':
+            raise ValueError('Average earning basis is only applicable to a performance bonus')
         if self.kind=='night' and 'coefficient' not in self.model_fields_set:
             self.coefficient=Decimal('0.20')
         if self.kind in {'bonus','holiday_bonus','hardship'}:

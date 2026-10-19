@@ -74,7 +74,10 @@ async def test_real_payroll_extra_time_classification_and_freeze(employee_engine
         assert (await add('overtime','ot-1',minutes=120)).id == overtime_id
         with pytest.raises(PayrollSupplementError,match='Extra minutes exceed'):
             await add('overtime','ot-duplicate',minutes=120)
-        await add('bonus','bonus-1',amount=Decimal('100'))
+        bonus = await add('bonus','bonus-1',amount=Decimal('100'),
+            average_basis=dict(period_start='2026-08-01',period_end='2026-08-31',
+                worked_days=21,planned_days=21,source_reference='Verified August register'))
+        assert bonus.average_basis['period_start'] == '2026-08-01'
         await finalize_payroll_period(db,company_id=company,payroll_period_id=period_id,finalized_by=actor)
         calc = await calculate_payroll_input(db,company_id=company,payroll_input_id=input_id,calculated_by=actor)
         assert calc.gross_amount == Decimal('22600.00')  # 22000 + 250 base + 250 premium + 100 bonus

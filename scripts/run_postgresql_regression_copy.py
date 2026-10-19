@@ -28,6 +28,7 @@ from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -49,6 +50,20 @@ def require(condition, message):
     if not condition:
         raise RuntimeError("STOP: " + message)
 
+
+
+async def remove_isolated_database(conn, database_name):
+    require(NAME_PATTERN.fullmatch(database_name) is not None,
+            "Unsafe temporary database cleanup")
+    # Ordinary DROP handles autovacuum workers internally. FORCE can instead
+    # require pg_signal_backend for those server-owned workers.
+    try:
+        await conn.execute(text(f'DROP DATABASE "{database_name}"'))
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) != "55006":
+            raise
+        # Remaining client sessions may belong to this interrupted test run.
+        await conn.execute(text(f'DROP DATABASE "{database_name}" WITH (FORCE)'))
 
 def pg_environment(url):
     env = dict(os.environ)
@@ -426,12 +441,7 @@ async def run_copy():
                 )
 
                 async with admin.connect() as conn:
-                    await conn.execute(
-                        text(
-                            f'DROP DATABASE "{database_name}" '
-                            "WITH (FORCE)"
-                        )
-                    )
+                    await remove_isolated_database(conn, database_name)
 
                 print(
                     "ISOLATED DATABASE REMOVED = PASS",

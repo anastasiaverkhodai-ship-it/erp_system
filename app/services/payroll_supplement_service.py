@@ -138,7 +138,10 @@ async def derive_supplement_lines(db, *, company_id, payroll_input, period, sala
 
 @serialized_payroll_mutation(PayrollSupplementError)
 async def create_payroll_supplement(db, *, company_id,payroll_input_id,data,created_by):
-    fingerprint=generate_request_fingerprint(dict(payroll_input_id=payroll_input_id,**data.model_dump(mode='json',exclude={'request_key'})))
+    payload=data.model_dump(mode='json',exclude={'request_key'})
+    if data.average_basis is None:
+        payload.pop('average_basis',None)
+    fingerprint=generate_request_fingerprint(dict(payroll_input_id=payroll_input_id,**payload))
     existing=await db.scalar(select(PayrollSupplement).where(PayrollSupplement.company_id==company_id,
         PayrollSupplement.request_key==data.request_key))
     if existing:
@@ -148,12 +151,14 @@ async def create_payroll_supplement(db, *, company_id,payroll_input_id,data,crea
     source,period=await _sources(db,company_id,payroll_input_id,editable=True)
     if not period.start_date<=data.work_date<=period.end_date:
         raise PayrollSupplementError('Supplement date must be in its payroll period')
+    if data.average_basis is not None and data.average_basis.period_end > period.end_date:
+        raise PayrollSupplementError('Bonus earning period cannot end after its accrual month')
     from app.services.payroll_input_service import refresh_payroll_input
     source=await refresh_payroll_input(db,company_id=company_id,payroll_input_id=source.id)
     slices=list((await db.scalars(select(PayrollInputSalarySlice).where(PayrollInputSalarySlice.company_id==company_id,
         PayrollInputSalarySlice.payroll_input_id==source.id))).all())
     row=PayrollSupplement(company_id=company_id,payroll_input_id=source.id,
-        **data.model_dump(),request_fingerprint=fingerprint,created_by=created_by)
+        **dict(data.model_dump(),average_basis=data.average_basis.model_dump(mode='json') if data.average_basis else None),request_fingerprint=fingerprint,created_by=created_by)
     async with db.begin_nested():
         db.add(row);await db.flush()
         await derive_supplement_lines(db,company_id=company_id,payroll_input=source,period=period,salary_slices=slices,strict=False)

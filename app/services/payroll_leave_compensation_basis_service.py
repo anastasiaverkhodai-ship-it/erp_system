@@ -70,6 +70,9 @@ async def derive_compensation_average(db, *, company_id, employment_contract_id,
             sources.append(await _erp_vacation_source(db,company_id=company_id,contract_id=contract.id,
                 calculation=calculation,period=period,month=month,month_end=last,purpose='vacation'))
         month=next_month(month)
+    from app.services.payroll_bonus_average_service import bonus_average_sources
+    sources.extend(await bonus_average_sources(db,company_id=company_id,contract_id=contract.id,
+        start=start,end=end,sources=sources))
     earnings=sum((s['earnings_amount'] for s in sources),Decimal(0))
     days=sum((s['eligible_days'] for s in sources),Decimal(0))
     if earnings<=0 or days<=0:

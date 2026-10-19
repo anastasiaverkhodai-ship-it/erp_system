@@ -28,8 +28,8 @@ class PayrollAverageHistoryNotFoundError(PayrollAverageHistoryError):
 
 
 RULE_CODE = 'UA_VACATION_VERIFIED_HISTORY'
-RULE_VERSION = '4-salary-substitution-4928-IX'
-SUPPORTED_SAVED_VERSIONS = {'1-calendar-4928-IX', '2-calendar-4928-IX', '3-hire-calendar-4928-IX', RULE_VERSION}
+RULE_VERSION = '5-bonus-allocation-4928-IX'
+SUPPORTED_SAVED_VERSIONS = {'1-calendar-4928-IX', '2-calendar-4928-IX', '3-hire-calendar-4928-IX', '4-salary-substitution-4928-IX', RULE_VERSION}
 # Full days covered by Law 2136-IX and the verified extension 4928-IX.
 # Do not assume later extensions. Historical eligible days come from imports.
 CALENDAR_RULE_START = date(2022, 3, 24)
@@ -133,6 +133,10 @@ async def derive_leave_average_history(db, *, company_id, leave_request_id,
         sources.append(dict(source_type='earnings_history', source_id=row.id,
             source_period_start=row.month, source_period_end=month_end,
             earnings_amount=earnings, eligible_days=days, source_reference=row.source_reference))
+    if purpose == 'vacation':
+        from app.services.payroll_bonus_average_service import bonus_average_sources
+        sources.extend(await bonus_average_sources(db,company_id=company_id,contract_id=contract.id,
+            start=start,end=end,sources=sources))
     earnings = sum((s['earnings_amount'] for s in sources), Decimal(0))
     days = sum((s['eligible_days'] for s in sources), Decimal(0))
     if days <= 0 or earnings <= 0:
@@ -295,6 +299,12 @@ async def _excluded_supplement_earnings(db, *, company_id, calculation, lines, m
         if source.kind in {'holiday_bonus', 'hardship'}:
             if Decimal(line.amount) != Decimal(source.amount):
                 raise PayrollAverageHistoryError('One-off supplement differs from its source amount')
+            excluded += Decimal(line.amount)
+        elif source.kind == 'bonus':
+            if source.average_basis is None:
+                raise PayrollAverageHistoryError('Performance bonus requires allocation over its earning period')
+            if Decimal(line.amount) != Decimal(source.amount):
+                raise PayrollAverageHistoryError('Bonus differs from its attributed source amount')
             excluded += Decimal(line.amount)
         elif source.kind not in {'night', 'overtime', 'rest_day', 'regular_extra'}:
             raise PayrollAverageHistoryError('Performance bonus requires allocation over its earning period')

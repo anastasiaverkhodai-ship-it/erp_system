@@ -203,10 +203,10 @@ class PayrollVacationCalculationSource(Base):
         ),
         CheckConstraint(
             "source_type IN "
-            "('earnings_history','payroll_calculation','leave_opening','salary_substitution')",
+            "('earnings_history','payroll_calculation','leave_opening','salary_substitution','bonus_allocation')",
             name="ck_payroll_vacation_source_type",
         ),
-        CheckConstraint("(source_type = 'salary_substitution') = (basis_snapshot IS NOT NULL)", name="ck_pvcs_salary_basis"),
+        CheckConstraint("(source_type IN ('salary_substitution','bonus_allocation')) = (basis_snapshot IS NOT NULL)", name="ck_pvcs_salary_basis"),
         CheckConstraint(
             "source_id > 0",
             name="ck_payroll_vacation_source_id",

@@ -1,7 +1,7 @@
 """Documented earning supplements attached to an open payroll input."""
 from datetime import date, datetime
 from decimal import Decimal
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, ForeignKeyConstraint, Integer, Numeric, String, UniqueConstraint, func
+from sqlalchemy import JSON, CheckConstraint, Date, DateTime, ForeignKey, ForeignKeyConstraint, Integer, Numeric, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped,mapped_column
 from app.core.database import Base
 
@@ -13,9 +13,11 @@ class PayrollSupplement(Base):
         UniqueConstraint('company_id','request_key',name='uq_payroll_supplement_request'),
         ForeignKeyConstraint(['company_id','payroll_input_id'],['payroll_inputs.company_id','payroll_inputs.id'],name='fk_payroll_supplement_input',ondelete='RESTRICT'),
         CheckConstraint("kind IN ('bonus','holiday_bonus','hardship','night','overtime','rest_day','regular_extra')",name='ck_payroll_supplement_kind'),
+        CheckConstraint("average_basis IS NULL OR kind = 'bonus'",name='ck_payroll_bonus_basis_kind'),
         CheckConstraint("minutes >= 0 AND coefficient >= 0 AND amount >= 0",name='ck_payroll_supplement_values'),
         CheckConstraint("(cancelled_at IS NULL) = (cancelled_by IS NULL)",name='ck_payroll_supplement_cancel'),
     )
+    average_basis: Mapped[dict | None]=mapped_column(JSON(none_as_null=True),nullable=True)
     id: Mapped[int]=mapped_column(primary_key=True)
     company_id: Mapped[int]=mapped_column(Integer,nullable=False)
     payroll_input_id: Mapped[int]=mapped_column(Integer,nullable=False)

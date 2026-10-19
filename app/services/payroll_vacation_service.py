@@ -262,6 +262,7 @@ async def calculate_vacation_pay(
             "payroll_calculation",
             "leave_opening",
             "salary_substitution",
+            "bonus_allocation",
         }:
             raise PayrollVacationDerivationError(
                 "Unsupported vacation source type"
