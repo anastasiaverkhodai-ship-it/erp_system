@@ -100,6 +100,24 @@ async def test_termination_exemption_preserves_history_and_is_reversible(employe
         assert remaining[0]==before[0]
         if prior_rights:
             assert remaining[1]['from_2024']==0
+        with pytest.raises(LeaveBalanceError,match='before changing leave rights'):
+            await accrue_leave_days(db,company_id=company.id,account_id=account.id,actor_id=user.id,
+                data=LeaveAccrualCreate(through=date(2026,9,30),source_reference='Changed service basis',request_key='late-accrual'))
+        with pytest.raises(LeaveBalanceError,match='before changing leave rights'):
+            await allocate_leave_days(db,company_id=company.id,leave_request_id=leave.id,request_key='late-use',
+                source_reference='Changed allocation',actor_id=user.id,
+                allocations=[dict(account_id=account.id,bucket='from_2024',days=D(24))])
+        from app.schemas.payroll_leave_balance import LeaveAccountCreate
+        from app.services.payroll_leave_balance_service import create_leave_account
+        with pytest.raises(LeaveBalanceError,match='before changing leave rights'):
+            await create_leave_account(db,company_id=company.id,actor_id=user.id,
+                data=LeaveAccountCreate(employment_contract_id=contract.id,leave_kind='annual',entitlement_code='basic',
+                    period_start=date(2027,1,1),period_end=date(2027,12,31),
+                    segments=[dict(start=date(2027,1,1),end=date(2027,12,31),annual_days=24)],
+                    source_reference='Changed rights',request_key='late-account'))
+        # Replaying the original source request remains safe after settlement.
+        await accrue_leave_days(db,company_id=company.id,account_id=account.id,actor_id=user.id,
+            data=LeaveAccrualCreate(through=date(2026,9,30),source_reference='Final eligible service',request_key='final-accrual'))
         from app.schemas.employment_event import EmploymentEventRead
         assert EmploymentEventRead.model_validate(event).termination_basis.ground==ground
         from app.services.leave_request_service import cancel_leave_request, LeaveRequestLifecycleError

@@ -21,6 +21,16 @@ async def require_account(db, company_id, account_id):
     return row
 
 
+async def require_unsettled_leave_rights(db, *, company_id, contract_id):
+    from app.models.payroll_leave_compensation import PayrollLeaveCompensation
+    from app.services.payroll_leave_compensation_service import active_compensation_filter
+    if await db.scalar(select(PayrollLeaveCompensation.id).where(
+            PayrollLeaveCompensation.company_id==company_id,
+            PayrollLeaveCompensation.employment_contract_id==contract_id,
+            active_compensation_filter()).limit(1)):
+        raise LeaveBalanceError('Reverse dependent termination compensation before changing leave rights')
+
+
 def social_entitled_days(account, contract, through):
     from app.schemas.payroll_leave_balance import LeaveAccountCreate
     from app.schemas.payroll_social_leave import validate_social_evidence
@@ -67,6 +77,7 @@ async def create_leave_account(db, *, company_id, data, actor_id):
         EmploymentContract.company_id==company_id,EmploymentContract.id==data.employment_contract_id))
     if contract is None or contract.status=='cancelled':
         raise LeaveBalanceError('Employment contract not found or cancelled')
+    await require_unsettled_leave_rights(db,company_id=company_id,contract_id=contract.id)
     if data.leave_kind == 'social':
         from app.schemas.payroll_social_leave import validate_social_evidence
         try:
@@ -155,6 +166,7 @@ async def accrue_leave_days(db, *, company_id, account_id, data, actor_id):
         if document.request_fingerprint!=fingerprint:
             raise LeaveBalanceError('Request key contains different accrual data')
         return list((await db.scalars(select(Entry).where(Entry.company_id==company_id,Entry.request_key=='accrual:'+str(document.id)))).all())
+    await require_unsettled_leave_rights(db,company_id=company_id,contract_id=account.employment_contract_id)
     if not data.source_reference.strip() or not data.request_key.strip():
         raise LeaveBalanceError('Accrual needs supporting evidence')
     contract=await db.get(EmploymentContract,account.employment_contract_id)
@@ -285,6 +297,7 @@ async def allocate_leave_days(db, *, company_id, leave_request_id, allocations,
     leave=await db.scalar(select(LeaveRequest).where(LeaveRequest.company_id==company_id,LeaveRequest.id==leave_request_id))
     if leave is None or leave.status not in ('pending','approved') or leave.leave_type not in PAID_VACATION_TYPES:
         raise LeaveBalanceError('Pending or approved paid leave required')
+    await require_unsettled_leave_rights(db,company_id=company_id,contract_id=leave.employment_contract_id)
     existing=list((await db.scalars(select(Entry).where(Entry.company_id==company_id,
         Entry.leave_request_id==leave.id,Entry.kind=='use'))).all())
     reversed_ids=set((await db.scalars(select(Entry.reversal_of_id).where(Entry.company_id==company_id,
