@@ -365,6 +365,14 @@ async def reverse_leave_allocation(db, *, company_id, leave_request_id, effectiv
                 PayrollLeaveCompensationLine.account_id == source.account_id,
                 active_compensation_filter()).limit(1)):
             raise LeaveBalanceError('Reverse dependent termination compensation before returning leave days')
+        exemptions=list((await db.scalars(select(PayrollLeaveCompensation).where(
+            PayrollLeaveCompensation.company_id==company_id,
+            PayrollLeaveCompensation.employment_contract_id==leave.employment_contract_id,
+            active_compensation_filter()))).all())
+        if any(item.get('account_id')==source.account_id for header in exemptions
+               for item in (header.recovery_exemption or {}).get('balances',[])):
+            raise LeaveBalanceError('Reverse dependent termination compensation before returning leave days')
+
         latest = await db.scalar(select(func.max(Entry.effective_date)).where(
             Entry.company_id == company_id, Entry.account_id == source.account_id))
         if latest is not None and effective_date < latest:

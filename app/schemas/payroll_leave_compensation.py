@@ -45,6 +45,7 @@ class LeaveCompensationRead(BaseModel):
     termination_event_id: int
     payroll_input_id: int
     compensation_date: date
+    recovery_exemption: dict | None = None
     gross_amount: Decimal
     source_reference: str
 

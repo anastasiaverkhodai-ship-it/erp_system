@@ -80,11 +80,23 @@ async def create_leave_compensation(db, *, company_id, data, actor_id):
         if latest and latest>event.effective_date:
             raise LeaveBalanceError('Future leave ledger entries must be resolved first')
     balances=await leave_balances(db,company_id=company_id,employment_contract_id=contract.id,as_of=event.effective_date)
-    prepared=[];bases={}
+    prepared=[];bases={};exempt_balances=[]
     for balance in balances:
         before=balance['before_2024'];after=balance['from_2024']
         if before<0 or after<0:
-            raise LeaveBalanceError('Overused leave requires a documented recovery or exemption decision')
+            from app.schemas.employment_termination_basis import EmploymentTerminationBasis, EXEMPT_GROUNDS
+            try:
+                termination_basis=EmploymentTerminationBasis.model_validate(
+                    (event.request_payload or {}).get('termination_basis'))
+            except ValueError as exc:
+                raise LeaveBalanceError('Overused leave requires a documented recovery or exemption decision') from exc
+            if termination_basis.ground not in EXEMPT_GROUNDS or balance['leave_kind'] not in {'annual','additional'}:
+                raise LeaveBalanceError('Overused leave requires a documented recovery or exemption decision')
+            exempt_balances.append(dict(account_id=balance['account_id'],
+                before_2024=str(min(before,Decimal(0))),from_2024=str(min(after,Decimal(0)))))
+            # The statutory exemption is not newly earned leave. Preserve the
+            # historical negative ledger and settle only independently owed rights.
+            before=max(before,Decimal(0));after=max(after,Decimal(0))
         total=(before+after).quantize(Decimal('1'),rounding=ROUND_HALF_UP)
         rounded_before=before.quantize(Decimal('1'),rounding=ROUND_HALF_UP)
         for bucket,consumed,quantity in [('before_2024',before,rounded_before),('from_2024',after,total-rounded_before)]:
@@ -100,6 +112,9 @@ async def create_leave_compensation(db, *, company_id, data, actor_id):
     async with db.begin_nested():
         row=Compensation(company_id=company_id,employment_contract_id=contract.id,termination_event_id=event.id,
             payroll_input_id=payroll_input.id,compensation_date=event.effective_date,
+            recovery_exemption=(dict(rule='UA_LEAVE_ART22_EXEMPTION_V1',
+                termination_event_id=event.id,termination_basis=termination_basis.model_dump(mode='json'),
+                balances=exempt_balances) if exempt_balances else None),
             gross_amount=sum((item[4] for item in prepared),Decimal(0)),source_reference=data.entitlement_review_reference,
             request_key=data.request_key,request_fingerprint=fingerprint,created_by=actor_id)
         db.add(row);await db.flush()

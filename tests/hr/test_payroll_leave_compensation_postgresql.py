@@ -107,6 +107,7 @@ async def test_termination_consumes_rights_and_produces_attributed_payroll_lines
 
             for statement in (
                 'UPDATE payroll_leave_compensations SET gross_amount=0 WHERE id=:id',
+                "UPDATE payroll_leave_compensations SET recovery_exemption='{}'::json WHERE id=:id",
                 'DELETE FROM payroll_leave_compensations WHERE id=:id',
                 'TRUNCATE payroll_leave_compensation_lines CASCADE',
             ):

@@ -22,6 +22,7 @@ class PayrollLeaveCompensation(Base):
     termination_event_id: Mapped[int]=mapped_column(Integer,nullable=False)
     payroll_input_id: Mapped[int]=mapped_column(Integer,nullable=False)
     compensation_date: Mapped[date]=mapped_column(Date,nullable=False)
+    recovery_exemption: Mapped[dict | None]=mapped_column(JSON(none_as_null=True),nullable=True)
     creation_xid: Mapped[int]=mapped_column(BigInteger,nullable=False,server_default=text('txid_current()'))
     gross_amount: Mapped[Decimal]=mapped_column(Numeric(18,2),nullable=False)
     source_reference: Mapped[str]=mapped_column(String(1000),nullable=False)

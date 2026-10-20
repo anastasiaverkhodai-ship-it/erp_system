@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from app.schemas.employment_termination_basis import EmploymentTerminationBasis
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from app.models.employment_contract import EmploymentKind, WorkArrangement
@@ -6,6 +7,7 @@ from app.models.employment_contract import EmploymentKind, WorkArrangement
 
 class EmploymentEventCreate(BaseModel):
     model_config = ConfigDict(extra='forbid')
+    termination_basis: EmploymentTerminationBasis | None = None
     event_type: Literal['hire','transfer','termination']
     effective_date: date
     order_number: str = Field(min_length=1,max_length=100)
@@ -27,6 +29,8 @@ class EmploymentEventCreate(BaseModel):
 
     @model_validator(mode='after')
     def check_fields(self):
+        if self.termination_basis is not None and self.event_type != 'termination':
+            raise ValueError('Termination basis applies only to termination events')
         terms={'department_id','position_id','employment_kind','work_arrangement'} & self.model_fields_set
         if self.event_type != 'transfer' and terms:
             raise ValueError('Only transfer events change employment terms')
@@ -39,6 +43,7 @@ class EmploymentEventCreate(BaseModel):
 
 
 class EmploymentEventRead(BaseModel):
+    termination_basis: EmploymentTerminationBasis | None = None
     model_config=ConfigDict(from_attributes=True)
     id: int
     company_id: int

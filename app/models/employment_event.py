@@ -35,3 +35,7 @@ class EmploymentEvent(Base):
     reversal_of_id: Mapped[int | None] = mapped_column(Integer,nullable=True)
     created_by: Mapped[int] = mapped_column(ForeignKey('users.id',ondelete='RESTRICT'),nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),server_default=func.now(),nullable=False)
+
+    @property
+    def termination_basis(self):
+        return (self.request_payload or {}).get('termination_basis') if self.event_type == 'termination' else None
