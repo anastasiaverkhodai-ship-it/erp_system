@@ -254,3 +254,4 @@ from app.models.payroll_leave_balance import PayrollLeaveAccount, PayrollLeaveBa
 from app.models.payroll_leave_compensation import PayrollLeaveCompensation, PayrollLeaveCompensationLine
 
 from app.models.payroll_leave_compensation import PayrollLeaveCompensationReversal
+from app.models.payroll_termination_severance import PayrollTerminationSeverance

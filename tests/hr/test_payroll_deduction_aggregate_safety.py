@@ -249,7 +249,8 @@ async def test_unapproved_deduction_cannot_enter_payroll():
 
     db = database(
         7,
-        None,
+        None,  # Severance financial guard: no severance line.
+        None,  # No existing payroll deduction result.
         SimpleNamespace(
             id=4,
             payroll_period_id=2,

@@ -109,6 +109,15 @@ async def get_payslip_generation_sources(
     list[PayrollCalculationLine],
     list[PayrollStatutoryResultLine],
 ]:
+    from app.services.payroll_severance_financial_guard import (
+        require_severance_financial_classification,
+    )
+    await require_severance_financial_classification(
+        session,
+        company_id=company_id,
+        payroll_calculation_id=payroll_calculation_id,
+        error_type=PayrollPayslipValidationError,
+    )
     calculation = await session.scalar(
         select(PayrollCalculation).where(
             PayrollCalculation.id
@@ -217,6 +226,15 @@ async def generate_payroll_payslip(
     payroll_calculation_id: int,
     actor_user_id: int,
 ) -> PayrollPayslip:
+    from app.services.payroll_severance_financial_guard import (
+        require_severance_financial_classification,
+    )
+    await require_severance_financial_classification(
+        session,
+        company_id=company_id,
+        payroll_calculation_id=payroll_calculation_id,
+        error_type=PayrollPayslipValidationError,
+    )
     existing = await get_payroll_payslip_by_calculation(
         session,
         company_id=company_id,

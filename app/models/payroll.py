@@ -609,13 +609,13 @@ class PayrollCalculationLine(Base):
             name="ck_payroll_calculation_lines_quantity_nonnegative",
         ),
         CheckConstraint(
-            "(line_type IN ('salary','supplement','vacation_pay','sick_pay','minimum_wage','leave_compensation') "
+            "(line_type IN ('salary','supplement','vacation_pay','sick_pay','minimum_wage','leave_compensation','severance') "
             "AND rate IS NOT NULL AND rate >= 0) OR "
             "(line_type = 'manual_adjustment' AND rate IS NOT NULL)",
             name="ck_payroll_calculation_lines_rate",
         ),
         CheckConstraint(
-            "(line_type IN ('salary','supplement','vacation_pay','sick_pay','minimum_wage','leave_compensation') "
+            "(line_type IN ('salary','supplement','vacation_pay','sick_pay','minimum_wage','leave_compensation','severance') "
             "AND amount >= 0) OR line_type = 'manual_adjustment'",
             name="ck_payroll_calculation_lines_amount",
         ),
@@ -635,8 +635,17 @@ class PayrollCalculationLine(Base):
             name="ck_payroll_calculation_line_sick_source",
         ),
         CheckConstraint(
-            "line_type IN ('salary','manual_adjustment','supplement','vacation_pay','sick_pay','minimum_wage','leave_compensation')",
+            "line_type IN ('salary','manual_adjustment','supplement','vacation_pay','sick_pay','minimum_wage','leave_compensation','severance')",
             name="ck_payroll_calculation_lines_type",
+        ),
+        ForeignKeyConstraint(
+            ['company_id', 'source_termination_severance_id'],
+            ['payroll_termination_severances.company_id', 'payroll_termination_severances.id'],
+            name='fk_pcl_severance', ondelete='RESTRICT',
+        ),
+        CheckConstraint(
+            "(line_type = 'severance') = (source_termination_severance_id IS NOT NULL)",
+            name='ck_pcl_severance_source',
         ),
         ForeignKeyConstraint(['company_id','source_leave_compensation_line_id'],
             ['payroll_leave_compensation_lines.company_id','payroll_leave_compensation_lines.id'],
@@ -667,6 +676,7 @@ class PayrollCalculationLine(Base):
         nullable=False,
     )
 
+    source_termination_severance_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_leave_compensation_line_id: Mapped[int | None] = mapped_column(Integer,nullable=True)
 
     source_supplement_id: Mapped[int | None] = mapped_column(Integer,nullable=True)

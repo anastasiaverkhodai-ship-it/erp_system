@@ -127,6 +127,15 @@ async def calculate_payroll_deduction_result(
     payroll_calculation_id: int,
     calculated_by: int,
 ) -> PayrollDeductionResult:
+    from app.services.payroll_severance_financial_guard import (
+        require_severance_financial_classification,
+    )
+    await require_severance_financial_classification(
+        db,
+        company_id=company_id,
+        payroll_calculation_id=payroll_calculation_id,
+        error_type=PayrollDeductionResultConflictError,
+    )
     existing = await get_payroll_deduction_result(
         db,
         company_id=company_id,

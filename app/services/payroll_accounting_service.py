@@ -336,6 +336,15 @@ async def generate_and_post_payroll_journal_entry(
     payroll_calculation_id: int,
     created_by: int,
 ) -> JournalEntry:
+    from app.services.payroll_severance_financial_guard import (
+        require_severance_financial_classification,
+    )
+    await require_severance_financial_classification(
+        db,
+        company_id=company_id,
+        payroll_calculation_id=payroll_calculation_id,
+        error_type=PayrollAccountingSourceStateError,
+    )
     existing = await get_payroll_accounting_journal(
         db,
         company_id=company_id,

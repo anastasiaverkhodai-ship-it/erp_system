@@ -547,6 +547,10 @@ async def _derive_payroll_components(
     salary_slices,
     minimum_wage_context,
 ):
+    from app.services.payroll_termination_severance_lines import (
+        derive_severance_payroll_lines,
+        SeveranceLineError,
+    )
     from app.services.payroll_supplement_service import derive_supplement_lines, PayrollSupplementError
     from app.services.payroll_vacation_service import derive_vacation_pay_lines, PayrollVacationError
     from app.services.payroll_sick_leave_service import derive_sick_pay_lines, PayrollSickLeaveError
@@ -629,6 +633,21 @@ async def _derive_payroll_components(
         minimum_line['line_no'] = len(derived_lines)+1
         derived_lines.append(minimum_line)
         gross_amount += minimum_line['amount']
+    try:
+        severance_lines = await derive_severance_payroll_lines(
+            db,
+            company_id=company_id,
+            payroll_input=payroll_input,
+            period=period,
+        )
+    except SeveranceLineError as exc:
+        raise PayrollCalculationDerivationError(str(exc)) from exc
+
+    for line in severance_lines:
+        line["line_no"] = len(derived_lines) + 1
+        derived_lines.append(line)
+        gross_amount += line["amount"]
+
     gross_amount=_money(gross_amount)
 
     return (
@@ -679,6 +698,19 @@ async def calculate_payroll_input(
     if existing is not None:
         if minimum_wage_context and (existing.minimum_wage_assessment or {}).get('request') != minimum_wage_context:
             raise PayrollCalculationConflictError('Saved calculation has different minimum-wage context; use a correction')
+        from app.services.payroll_termination_severance_lines import (
+            require_matching_severance_source_for_existing,
+            SeveranceLineError,
+        )
+        try:
+            await require_matching_severance_source_for_existing(
+                db,
+                company_id=company_id,
+                payroll_input_id=payroll_input_id,
+                calculation_id=existing.id,
+            )
+        except SeveranceLineError as exc:
+            raise PayrollCalculationConflictError(str(exc)) from exc
         return existing
 
     (

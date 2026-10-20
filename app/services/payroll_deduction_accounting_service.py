@@ -77,6 +77,16 @@ async def generate_and_post_payroll_deduction_journal(
 
     require_authorized_deduction_result(result)
 
+    from app.services.payroll_severance_financial_guard import (
+        require_severance_financial_classification,
+    )
+    await require_severance_financial_classification(
+        db,
+        company_id=company_id,
+        payroll_calculation_id=result.payroll_calculation_id,
+        error_type=PayrollDeductionAccountingConflictError,
+    )
+
     existing = await get_payroll_deduction_journal(
         db,
         company_id=company_id,

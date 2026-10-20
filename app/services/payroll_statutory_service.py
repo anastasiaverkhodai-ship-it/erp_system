@@ -662,6 +662,15 @@ async def calculate_payroll_statutory_result(
     payroll_calculation_id: int,
     actor_user_id: int,
 ) -> PayrollStatutoryResult:
+    from app.services.payroll_severance_financial_guard import (
+        require_severance_financial_classification,
+    )
+    await require_severance_financial_classification(
+        session,
+        company_id=company_id,
+        payroll_calculation_id=payroll_calculation_id,
+        error_type=PayrollStatutoryValidationError,
+    )
     existing = await get_statutory_result_for_calculation(
         session,
         company_id=company_id,

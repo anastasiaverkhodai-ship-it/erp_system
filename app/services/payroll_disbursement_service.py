@@ -85,6 +85,16 @@ async def create_payroll_disbursement(
     key = request_key.strip() if request_key is not None else f"payroll:{payroll_calculation_id}"
     if not key or len(key) > 200:
         raise PayrollDisbursementSourceStateError('Invalid disbursement request key')
+    from app.services.payroll_severance_financial_guard import (
+        require_severance_financial_classification,
+    )
+    await require_severance_financial_classification(
+        db,
+        company_id=company_id,
+        payroll_calculation_id=payroll_calculation_id,
+        error_type=PayrollDisbursementSourceStateError,
+    )
+
     existing = await get_payroll_disbursement(
         db,
         company_id=company_id,
@@ -397,6 +407,33 @@ async def generate_and_post_payroll_disbursement_journal(
     payroll_disbursement_id: int,
     created_by: int,
 ) -> JournalEntry:
+    from app.services.payroll_severance_financial_guard import (
+        require_severance_financial_classification,
+    )
+
+    source_disbursement = (
+        await db.execute(
+            select(PayrollDisbursement)
+            .where(
+                PayrollDisbursement.company_id == company_id,
+                PayrollDisbursement.id == payroll_disbursement_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if source_disbursement is None:
+        raise PayrollDisbursementNotFoundError(
+            "Payroll disbursement not found"
+        )
+
+    if source_disbursement.payroll_calculation_id is not None:
+        await require_severance_financial_classification(
+            db,
+            company_id=company_id,
+            payroll_calculation_id=source_disbursement.payroll_calculation_id,
+            error_type=PayrollDisbursementSourceStateError,
+        )
+
     existing = await get_payroll_disbursement_journal(
         db,
         company_id=company_id,
