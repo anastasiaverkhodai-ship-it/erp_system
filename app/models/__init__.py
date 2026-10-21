@@ -255,3 +255,5 @@ from app.models.payroll_leave_compensation import PayrollLeaveCompensation, Payr
 
 from app.models.payroll_leave_compensation import PayrollLeaveCompensationReversal
 from app.models.payroll_termination_severance import PayrollTerminationSeverance
+
+from app.models.payroll_severance_statutory_record import PayrollSeveranceStatutoryRecord

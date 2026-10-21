@@ -159,7 +159,7 @@ def test_orm_source_fk_and_check():
 
 def test_migration_chain():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["13d4a7b8c041"]
+    assert script.get_heads() == ["13d4a7b8c042"]
     assert (
         script.get_revision("13d4a7b8c041").down_revision
         == "13d4a7b8c040"
