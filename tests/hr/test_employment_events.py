@@ -103,8 +103,9 @@ async def test_event_migration_and_immutable_history(employee_engine):
         # Exercise the historical migration without newer incoming foreign keys.
         from app.models.payroll_leave_balance import PayrollLeaveBalanceEntry
         from app.models.payroll_leave_compensation import PayrollLeaveCompensation
+        from app.models.payroll_termination_severance import PayrollTerminationSeverance
         from sqlalchemy.schema import DropConstraint, AddConstraint
-        incoming = [constraint for model in (PayrollLeaveBalanceEntry, PayrollLeaveCompensation)
+        incoming = [constraint for model in (PayrollLeaveBalanceEntry, PayrollLeaveCompensation, PayrollTerminationSeverance)
             for constraint in model.__table__.foreign_key_constraints
             if constraint.referred_table.name == 'employment_events']
         for constraint in incoming:
