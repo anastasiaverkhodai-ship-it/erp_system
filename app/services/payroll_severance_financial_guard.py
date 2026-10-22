@@ -11,11 +11,11 @@ async def require_severance_financial_classification(
     company_id: int,
     payroll_calculation_id: int,
     error_type,
-) -> None:
+    consumer=None,
+):
     """Reject financial use of an unclassified severance calculation.
 
-    Until a dated statutory classification matrix is implemented,
-    ALL severance lines are blocked. No tax-rate inference is allowed.
+    Each integrated consumer must revalidate the immutable source and policy.
     """
     severance_id = await db.scalar(
         select(PayrollCalculationLine.id)
@@ -29,6 +29,14 @@ async def require_severance_financial_classification(
     )
 
     if severance_id is not None:
+        if consumer in {"statutory", "accounting", "payslip", "payment", "deductions"}:
+            from app.services.payroll_severance_trusted_classification import require_trusted_severance_snapshot
+            try:
+                return await require_trusted_severance_snapshot(
+                    db, company_id=company_id, payroll_calculation_id=payroll_calculation_id,
+                )
+            except ValueError as exc:
+                raise error_type(f"Severance statutory classification: {exc}") from exc
         raise error_type(
             "Severance statutory classification is required "
             "before tax, deductions, payslip and accounting"

@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -81,7 +81,46 @@ async def test_full_payroll_service_with_severance():
             head = await conn.scalar(
                 text("SELECT version_num FROM alembic_version")
             )
-            assert head == "13d4a7b8c041"
+            assert head == "13d4a7b8c042"
+
+            # A revision stamp alone does not prove the snapshot schema
+            # and its database-level immutability guards are installed.
+            snapshot_table = "payroll_severance_statutory_snapshots"
+            from app.models.payroll_severance_statutory_record import (
+                PayrollSeveranceStatutoryRecord,
+            )
+
+            columns = await conn.run_sync(
+                lambda sync_conn: inspect(sync_conn).get_columns(
+                    snapshot_table, schema="public"
+                )
+            )
+            assert {
+                column.name
+                for column in PayrollSeveranceStatutoryRecord.__table__.columns
+            } <= {column["name"] for column in columns}
+
+            triggers = (await conn.execute(text("""
+                SELECT tgname, pg_get_triggerdef(oid) AS definition
+                FROM pg_trigger
+                WHERE tgrelid =
+                    'public.payroll_severance_statutory_snapshots'::regclass
+                  AND NOT tgisinternal
+                  AND tgenabled IN ('O', 'A')
+            """))).mappings().all()
+            definitions = {row["tgname"]: row["definition"] for row in triggers}
+            assert "BEFORE INSERT OR DELETE OR UPDATE" in definitions.get(
+                "trg_psss_validate", ""
+            )
+            assert "payroll_severance_snapshot_validate()" in definitions[
+                "trg_psss_validate"
+            ]
+            assert "BEFORE TRUNCATE" in definitions.get(
+                "trg_psss_no_truncate", ""
+            )
+            assert "payroll_severance_snapshot_no_truncate()" in definitions[
+                "trg_psss_no_truncate"
+            ]
 
         async with Session() as db:
             async with db.begin():
@@ -389,8 +428,7 @@ async def test_full_payroll_service_with_severance():
                     ) as forbidden_lookup:
                         with pytest.raises(
                             Exception,
-                            match="Severance statutory classification "
-                                  "is required",
+                            match="Severance statutory classification",
                         ) as caught:
                             await invoke()
 
@@ -417,8 +455,7 @@ async def test_full_payroll_service_with_severance():
 
                 with pytest.raises(
                     Exception,
-                    match="Severance statutory classification "
-                          "is required",
+                    match="Severance statutory classification",
                 ):
                     await get_payslip_generation_sources(
                         db,
@@ -511,8 +548,7 @@ async def test_full_payroll_service_with_severance():
                 ) as forbidden_journal_lookup:
                     with pytest.raises(
                         PayrollDeductionAccountingConflictError,
-                        match="Severance statutory classification "
-                              "is required",
+                        match="Severance statutory classification",
                     ):
                         await generate_and_post_payroll_deduction_journal(
                             db,

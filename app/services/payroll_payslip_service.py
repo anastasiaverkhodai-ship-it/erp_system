@@ -117,6 +117,7 @@ async def get_payslip_generation_sources(
         company_id=company_id,
         payroll_calculation_id=payroll_calculation_id,
         error_type=PayrollPayslipValidationError,
+        consumer="payslip",
     )
     calculation = await session.scalar(
         select(PayrollCalculation).where(
@@ -234,6 +235,7 @@ async def generate_payroll_payslip(
         company_id=company_id,
         payroll_calculation_id=payroll_calculation_id,
         error_type=PayrollPayslipValidationError,
+        consumer="payslip",
     )
     existing = await get_payroll_payslip_by_calculation(
         session,

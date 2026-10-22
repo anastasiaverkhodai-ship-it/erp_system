@@ -98,7 +98,7 @@ async def test_payroll_withheld_schema_probe():
 
 
 @pytest.mark.asyncio
-async def test_payroll_withheld_schema_probe_after_roundtrip():
+async def test_payroll_withheld_schema_probe_after_roundtrip(empty_migration_database):
     print()
     import asyncio
     import sys

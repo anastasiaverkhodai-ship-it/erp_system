@@ -93,6 +93,7 @@ async def create_payroll_disbursement(
         company_id=company_id,
         payroll_calculation_id=payroll_calculation_id,
         error_type=PayrollDisbursementSourceStateError,
+        consumer="payment",
     )
 
     existing = await get_payroll_disbursement(
@@ -340,6 +341,14 @@ async def create_payroll_disbursement(
             JournalEntry.entry_date > payment_date))
     reserved = Decimal(reserved or 0) + Decimal(late_reversed_payments or 0)
 
+    from app.services.payroll_severance_payment_service import severance_net
+    try:
+        protected_net = await severance_net(db, company_id=company_id, payroll_calculation_id=calculation.id)
+    except ValueError as exc:
+        raise PayrollDisbursementSourceStateError(str(exc)) from exc
+    if protected_net and advance_reserved > Decimal(statutory.net_amount) - protected_net:
+        raise PayrollDisbursementSourceStateError('Advance offset cannot consume protected severance')
+
     amount = payable_ceiling - Decimal(reserved) - advance_reserved if amount is None else Decimal(amount)
     if not amount.is_finite() or amount != amount.quantize(Decimal('0.01')):
         raise PayrollDisbursementSourceStateError('Disbursement amount must be finite money')
@@ -432,6 +441,7 @@ async def generate_and_post_payroll_disbursement_journal(
             company_id=company_id,
             payroll_calculation_id=source_disbursement.payroll_calculation_id,
             error_type=PayrollDisbursementSourceStateError,
+            consumer="payment",
         )
 
     existing = await get_payroll_disbursement_journal(
@@ -596,6 +606,9 @@ async def cancel_payroll_disbursement(db, *, company_id, payroll_disbursement_id
         payroll_disbursement_id=payroll_disbursement_id)
     if journal is not None and journal.status != JournalEntryStatus.REVERSED:
         raise PayrollDisbursementSourceStateError('Reverse or remove the disbursement journal before cancelling')
+    from app.services.payroll_severance_payment_service import require_severance_payment_reversible
+    await require_severance_payment_reversible(db, company_id=company_id,
+        payment_id=row.id, error_type=PayrollDisbursementSourceStateError)
     row.cancelled_at = datetime.now(timezone.utc)
     row.cancelled_by = cancelled_by
     await db.flush()

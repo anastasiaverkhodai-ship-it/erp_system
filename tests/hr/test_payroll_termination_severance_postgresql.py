@@ -65,7 +65,7 @@ def alembic(*arguments, success=True):
     return result
 
 
-async def test_severance_migration_and_history_e2e():
+async def test_severance_migration_and_history_e2e(empty_migration_database):
     url = isolated_url()
 
     # Wrapper upgrades the clone to the current Alembic HEAD.
@@ -310,7 +310,7 @@ async def test_severance_migration_and_history_e2e():
         in result.stderr
     )
 
-    # A failed downgrade must leave the clone at c041.
+    # A failed transactional downgrade must preserve the original head.
     # create_async_engine is already imported at module scope.
     verify_engine = create_async_engine(url)
 
@@ -320,7 +320,7 @@ async def test_severance_migration_and_history_e2e():
                 text("SELECT version_num FROM alembic_version")
             )
 
-            assert revision == "13d4a7b8c041"
+            assert revision == "13d4a7b8c042"
     finally:
         await verify_engine.dispose()
 

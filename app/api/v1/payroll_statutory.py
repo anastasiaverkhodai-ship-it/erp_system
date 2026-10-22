@@ -212,3 +212,35 @@ async def list_company_payroll_statutory_result_lines(
         )
     except PayrollStatutoryError as exc:
         _raise_statutory_http(exc)
+
+
+@router.post(
+    '/companies/{company_id}/payroll-calculations/{payroll_calculation_id}/severance-classification',
+    status_code=status.HTTP_200_OK,
+)
+async def classify_company_severance(
+    company_id: int,
+    payroll_calculation_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_company_permission('employees.manage')),
+):
+    """Derive dated classification from the immutable termination source.
+
+    No caller policy, tax flag, amount or income date is accepted.
+    """
+    from app.services.payroll_severance_trusted_classification import persist_trusted_severance_snapshot
+    from app.services.payroll_severance_snapshot_persistence_service import snapshot_from_record
+    from dataclasses import asdict
+    try:
+        record = await persist_trusted_severance_snapshot(
+            db, company_id=company_id, payroll_calculation_id=payroll_calculation_id)
+        response = dict(id=record.id, **asdict(snapshot_from_record(record)))
+        await db.commit()
+        return response
+    except (ValueError, IntegrityError) as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail='Severance classification conflict: ' + str(exc) if isinstance(exc, ValueError)
+                            else 'Severance classification conflict') from exc
+    except Exception:
+        await db.rollback()
+        raise

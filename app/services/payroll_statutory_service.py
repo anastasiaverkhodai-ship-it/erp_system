@@ -670,6 +670,7 @@ async def calculate_payroll_statutory_result(
         company_id=company_id,
         payroll_calculation_id=payroll_calculation_id,
         error_type=PayrollStatutoryValidationError,
+        consumer="statutory",
     )
     existing = await get_statutory_result_for_calculation(
         session,

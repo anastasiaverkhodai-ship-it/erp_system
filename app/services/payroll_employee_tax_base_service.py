@@ -97,7 +97,20 @@ async def employee_component_base(db, *, company_id, period, calculation, contra
         EmploymentContract.status != 'cancelled', EmploymentContract.start_date <= period.end_date,
         or_(EmploymentContract.end_date.is_(None), EmploymentContract.end_date >= period.start_date),
     ).order_by(EmploymentContract.id))).all())
-    normal = calculate_statutory_component_base(gross_amount=Decimal(calculation.gross_amount),profile=profile,rule=rule)
+    # Keep ordinary wage bases separate throughout employee-wide allocation.
+    # Severance is added after wage benefits/limits, and never enters USC.
+    from app.services.payroll_severance_financial_guard import require_severance_financial_classification
+    severances = {}
+    async def ordinary_gross(source):
+        evidence = await require_severance_financial_classification(
+            db, company_id=company_id, payroll_calculation_id=source.id,
+            error_type=Error, consumer="statutory",
+        )
+        severances[source.id] = evidence.severance_gross if evidence else Decimal(0)
+        return Decimal(source.gross_amount) - severances[source.id]
+
+    ordinary = {calculation.id: await ordinary_gross(calculation)}
+    normal = calculate_statutory_component_base(gross_amount=ordinary[calculation.id],profile=profile,rule=rule)
     if len(contracts) <= 1:
         contexts = [(contract, calculation, rule, normal, profile)]
     else:
@@ -123,7 +136,9 @@ async def employee_component_base(db, *, company_id, period, calculation, contra
                 employment_kind=employment.employment_kind,
                 tax_profile_category=tax_profile.category if tax_profile else None,
                 effective_date=min(period.end_date, employment.end_date or period.end_date))
-            values = calculate_statutory_component_base(gross_amount=Decimal(by_contract[employment.id].gross_amount),
+            source = by_contract[employment.id]
+            ordinary[source.id] = await ordinary_gross(source)
+            values = calculate_statutory_component_base(gross_amount=ordinary[source.id],
                 profile=tax_profile,rule=base_rule)
             contexts.append((employment,by_contract[employment.id],base_rule,values,tax_profile))
     for employment,source,base_rule,values,tax_profile in contexts:
@@ -134,6 +149,7 @@ async def employee_component_base(db, *, company_id, period, calculation, contra
     ordered = sorted(contexts,key=lambda item:(item[0].employment_kind != 'primary',item[0].id))
     total_gross = sum((Decimal(c.gross_amount) for e,c,r,v,p in ordered),Decimal(0))
     metadata = dict(employee_gross_amount=total_gross)
+    ordinary_total = sum(ordinary[c.id] for e,c,r,v,p in ordered)
     beneficiaries = [item for item in ordered if item[2] and item[2].base_mode == 'gross_after_benefit'
                      and item[4] and item[4].category == 'benefit_eligible']
     if beneficiaries and component != Component.PERSONAL_INCOME_TAX:
@@ -154,15 +170,15 @@ async def employee_component_base(db, *, company_id, period, calculation, contra
         if len(parameters) != 1:
             raise Error('Conflicting employee social-benefit entitlements')
         benefit,limit = next(iter(parameters))
-        available = min(benefit,total_gross) if total_gross <= limit else Decimal(0)
+        available = min(benefit,ordinary_total) if ordinary_total <= limit else Decimal(0)
         selected_rule,selected_profile = beneficiaries[0][2],beneficiaries[0][4]
         metadata.update(benefit_income_limit_applied=limit,source_tax_profile_id=selected_profile.id,
             source_base_rule_id=selected_rule.id,base_rule_code=selected_rule.rule_code,
             base_rule_version=selected_rule.rule_version)
         for e,c,r,v,p in ordered:
-            applied = min(Decimal(c.gross_amount),available)
+            applied = min(ordinary[c.id],available)
             available -= applied
-            values_by_contract[e.id]=(round_money(Decimal(c.gross_amount)-applied),applied,None,None,False)
+            values_by_contract[e.id]=(round_money(ordinary[c.id]-applied),applied,None,None,False)
     elif component == Component.UNIFIED_SOCIAL_CONTRIBUTION and len(ordered)>1:
         maxima = {Decimal(r.maximum_base_amount) for e,c,r,v,p in ordered
                   if not v[4] and r and r.maximum_base_amount is not None}
@@ -178,7 +194,7 @@ async def employee_component_base(db, *, company_id, period, calculation, contra
             if base_rule and base_rule.minimum_base_amount is not None and not values[4] and Decimal(rate)==Decimal('.22'):
                 if await qualifies_for_monthly_usc_floor(db, company_id=company_id, period=period, contract=employment):
                     floor=Decimal(base_rule.minimum_base_amount);floor_contract=employment.id
-        bases={e.id:Decimal(0) if v[4] else Decimal(c.gross_amount) for e,c,r,v,p in ordered}
+        bases={e.id:Decimal(0) if v[4] else ordinary[c.id] for e,c,r,v,p in ordered}
         total=sum(bases.values(),Decimal(0))
         if 0<total<floor:
             bases[floor_contract]+=floor-total
@@ -193,7 +209,7 @@ async def employee_component_base(db, *, company_id, period, calculation, contra
     if component == Component.UNIFIED_SOCIAL_CONTRIBUTION and len(ordered)==1:
         e,c,r,v,p = ordered[0]
         if r and r.minimum_base_amount is not None and not v[4]:
-            gross=Decimal(c.gross_amount)
+            gross=ordinary[c.id]
             applies=(e.employment_kind=='primary' and Decimal(rate)==Decimal('.22') and gross>0)
             if applies:
                 applies = await qualifies_for_monthly_usc_floor(db, company_id=company_id, period=period, contract=e)
@@ -207,6 +223,13 @@ async def employee_component_base(db, *, company_id, period, calculation, contra
     for employment,source,base_rule,values,tax_profile in ordered:
         values=values_by_contract[employment.id]
         base=values[0]
+        severance = severances[source.id]
+        if severance and component != Component.UNIFIED_SOCIAL_CONTRIBUTION:
+            expected_rate = Decimal('.18') if component == Component.PERSONAL_INCOME_TAX else Decimal('.05')
+            if Decimal(rate) != expected_rate or values[4]:
+                raise Error('Severance requires ordinary other-income tax rate without wage exemption')
+            base += severance
+            values = (base, *values[1:])
         cumulative_base+=base
         cumulative_amount=round_money(cumulative_base*Decimal(rate))
         amount=cumulative_amount-previous_amount;previous_amount=cumulative_amount

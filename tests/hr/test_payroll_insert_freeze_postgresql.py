@@ -203,7 +203,9 @@ async def test_current_head_seal_guards():
                     "SELECT version_num FROM alembic_version"
                 )
             )
-            assert head == "13d4a7b8c041"
+            from alembic.config import Config
+            from alembic.script import ScriptDirectory
+            assert head == ScriptDirectory.from_config(Config('alembic.ini')).get_current_head()
 
             args, salary_id = await seed(db)
             calc = await calculate_payroll_input(

@@ -13,7 +13,7 @@ OLD = "13d4a7b8c041"
 NEW = "13d4a7b8c042"
 
 
-def test_empty_severance_snapshot_downgrade_and_restore():
+def test_empty_severance_snapshot_downgrade_and_restore(empty_migration_database):
     assert os.environ.get("RUN_POSTGRES_E2E") == "1"
 
     configured = make_url(str(settings.database_url))

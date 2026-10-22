@@ -339,11 +339,12 @@ async def generate_and_post_payroll_journal_entry(
     from app.services.payroll_severance_financial_guard import (
         require_severance_financial_classification,
     )
-    await require_severance_financial_classification(
+    severance_evidence = await require_severance_financial_classification(
         db,
         company_id=company_id,
         payroll_calculation_id=payroll_calculation_id,
         error_type=PayrollAccountingSourceStateError,
+        consumer="accounting",
     )
     existing = await get_payroll_accounting_journal(
         db,
@@ -436,7 +437,7 @@ async def generate_and_post_payroll_journal_entry(
     journal = JournalEntry(
         company_id=company_id,
         payroll_calculation_id=calculation.id,
-        entry_date=period.end_date,
+        entry_date=severance_evidence.income_date if severance_evidence else period.end_date,
         description=(
             "Payroll accounting for payroll calculation "
             f"{calculation.id}"

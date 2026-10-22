@@ -469,6 +469,9 @@ async def reverse_journal_entry(
             error_type=AccountingReversalError)
 
     if original_entry.payroll_disbursement_id is not None:
+        from app.services.payroll_severance_payment_service import require_severance_payment_reversible
+        await require_severance_payment_reversible(db, company_id=company_id,
+            payment_id=original_entry.payroll_disbursement_id, error_type=AccountingReversalError, reversal_date=reversal_date)
         from app.models.bank_statement_reconciliation import BankStatementReconciliationActiveLink
         matched = await db.scalar(select(BankStatementReconciliationActiveLink.id).where(
             BankStatementReconciliationActiveLink.company_id == company_id,

@@ -252,10 +252,17 @@ async def execute_payment(db, *, company_id, data, actor_id):
             raise DeductionExecutionError('Payment already has an accounting lifecycle')
         if payment.currency_code != 'UAH':
             raise DeductionExecutionError('Operational deductions support UAH only')
-        allocations, _ = await _allocate(db, company_id, employee_id, data.payment_date, net, data.protected_amount)
+        protected = data.protected_amount
+        if data.kind == 'salary':
+            from app.services.payroll_severance_payment_service import payment_protected_minimum
+            try:
+                protected = max(protected, await payment_protected_minimum(db, company_id=company_id, payment=payment))
+            except ValueError as exc:
+                raise DeductionExecutionError(str(exc)) from exc
+        allocations, _ = await _allocate(db, company_id, employee_id, data.payment_date, net, protected)
         total = sum((x.withheld_amount for x in allocations), D(0))
         batch = Batch(company_id=company_id, employee_id=employee_id, payment_date=data.payment_date,
-            net_before=net, protected_amount=data.protected_amount, withheld_amount=total,
+            net_before=net, protected_amount=protected, withheld_amount=total,
             income_reference=data.income_reference, request_key=data.request_key, request_fingerprint=fingerprint,
             created_by=actor_id, **source)
         db.add(batch); await db.flush()
@@ -305,6 +312,14 @@ async def validate_payment_batch(db, *, company_id, employee_id, payment_date, a
     paid = payment.paid_amount if advance_id is not None else payment.amount
     if payment.withheld_amount != batch.withheld_amount or paid + batch.withheld_amount != batch.net_before:
         raise DeductionExecutionError('Withholding payment amounts do not reconcile')
+    if disbursement_id is not None:
+        from app.services.payroll_severance_payment_service import payment_protected_minimum
+        try:
+            minimum = await payment_protected_minimum(db, company_id=company_id, payment=payment)
+        except ValueError as exc:
+            raise DeductionExecutionError(str(exc)) from exc
+        if batch.protected_amount < minimum:
+            raise DeductionExecutionError('Withholding would consume protected severance')
     expected, _ = await _allocate(db, company_id, employee_id, payment_date, batch.net_before, batch.protected_amount)
     lines = (await db.scalars(select(Line).where(Line.company_id == company_id, Line.batch_id == batch.id))).all()
     if sorted((x.assessment_id,x.requested_amount,x.amount) for x in lines) != sorted(

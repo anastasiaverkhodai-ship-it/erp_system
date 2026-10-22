@@ -71,6 +71,12 @@ def require_clone():
 
 
 async def test_severance_snapshot_service_persistence_e2e():
+    await _run_severance_snapshot_service_e2e()
+
+
+async def _run_severance_snapshot_service_e2e(*, exercise_financial_path=False, trusted_policy=False, financial_callback=None, termination_day=30, termination_month=9):
+    from calendar import monthrange
+    last_day = monthrange(2026, termination_month)[1]
     engine = create_async_engine(
         require_clone(), pool_pre_ping=True
     )
@@ -98,20 +104,20 @@ async def test_severance_snapshot_service_persistence_e2e():
                 )
 
                 contract.status = "ended"
-                contract.end_date = date(2026, 9, 30)
+                contract.end_date = date(2026, termination_month, termination_day)
                 await db.flush()
 
                 period = PayrollPeriod(
                     company_id=company.id,
                     year=2026,
-                    month=9,
-                    start_date=date(2026, 9, 1),
-                    end_date=date(2026, 9, 30),
+                    month=termination_month,
+                    start_date=date(2026, termination_month, 1),
+                    end_date=date(2026, termination_month, last_day),
                     status=PayrollPeriodStatus.FINALIZED,
                     created_by=user.id,
                     finalized_by=user.id,
                     finalized_at=datetime(
-                        2026, 10, 1, 12, 0, tzinfo=UTC
+                        2026, termination_month, termination_day, 12, 0, tzinfo=UTC
                     ),
                 )
                 db.add(period)
@@ -137,8 +143,8 @@ async def test_severance_snapshot_service_persistence_e2e():
                     rate_type="hourly",
                     amount=Decimal("20.00"),
                     currency_code="UAH",
-                    effective_from=date(2026, 9, 1),
-                    effective_to=date(2026, 9, 30),
+                    effective_from=date(2026, termination_month, 1),
+                    effective_to=date(2026, termination_month, last_day),
                     created_by=user.id,
                 )
                 db.add(rate)
@@ -151,8 +157,8 @@ async def test_severance_snapshot_service_persistence_e2e():
                     salary_rate_type="hourly",
                     salary_rate_amount=Decimal("20.00"),
                     currency_code="UAH",
-                    effective_from=date(2026, 9, 1),
-                    effective_to=date(2026, 9, 30),
+                    effective_from=date(2026, termination_month, 1),
+                    effective_to=date(2026, termination_month, last_day),
                     scheduled_minutes=1200,
                     worked_minutes=1200,
                 )
@@ -162,9 +168,9 @@ async def test_severance_snapshot_service_persistence_e2e():
                     company_id=company.id,
                     employment_contract_id=contract.id,
                     event_type="termination",
-                    effective_date=date(2026, 9, 30),
+                    effective_date=date(2026, termination_month, termination_day),
                     order_number=f"TERM-{token}",
-                    order_date=date(2026, 9, 30),
+                    order_date=date(2026, termination_month, termination_day),
                     reason="Documented redundancy",
                     request_key=f"term-{token}",
                     before_state={},
@@ -189,14 +195,14 @@ async def test_severance_snapshot_service_persistence_e2e():
                     revision=1,
                     supersedes_id=None,
                     request_key=f"severance-{token}",
-                    termination_date=date(2026, 9, 30),
+                    termination_date=date(2026, termination_month, termination_day),
                     order_number=event.order_number,
                     policy_ground="redundancy",
                     policy_category="average_months",
                     labour_code_provision="40.1",
                     source_reference="Verified termination order",
                     multiplier=1,
-                    basis_as_of=date(2026, 9, 30),
+                    basis_as_of=date(2026, termination_month, termination_day),
                     basis_reference="Verified average monthly earnings",
                     base_amount=Decimal("12000.00"),
                     gross_amount=Decimal("12000.00"),
@@ -299,8 +305,8 @@ async def test_severance_snapshot_service_persistence_e2e():
 
                 policy = SeveranceTaxPolicy(
                     code="TEST-ONLY-B4-POSTGRESQL",
-                    valid_from=calendar_date(2026, 9, 1),
-                    valid_to=calendar_date(2026, 9, 30),
+                    valid_from=calendar_date(2026, termination_month, 1),
+                    valid_to=calendar_date(2026, termination_month, last_day),
                     source_reference="SYNTHETIC-TEST-NOT-LEGAL-APPROVAL",
                     personal_income_tax_included=True,
                     military_levy_included=True,
@@ -308,11 +314,16 @@ async def test_severance_snapshot_service_persistence_e2e():
                     income_code_4df="127",
                 )
 
+                if trusted_policy:
+                    from app.services.payroll_severance_trusted_classification import TRUSTED_POLICIES
+                    from app.services.payroll_severance_tax_classification import select_severance_tax_policy
+                    policy = select_severance_tax_policy(income_date=contract.end_date, policies=TRUSTED_POLICIES)
+
                 snapshot = await preview_severance_statutory_snapshot(
                     db,
                     company_id=company.id,
                     payroll_calculation_id=calculation.id,
-                    income_date=calendar_date(2026, 9, 30),
+                    income_date=calendar_date(2026, termination_month, termination_day),
                     policies=[policy],
                 )
 
@@ -351,11 +362,31 @@ async def test_severance_snapshot_service_persistence_e2e():
                 assert count_after_rollback == 0
                 print("SERVICE SAVEPOINT ROLLBACK = PASS", flush=True)
 
+                if exercise_financial_path:
+                    # No persisted evidence must fail before any financial write.
+                    with pytest.raises(PayrollStatutoryValidationError, match="trusted dated classification"):
+                        await calculate_payroll_statutory_result(
+                            db, company_id=company.id, payroll_calculation_id=calculation.id,
+                            actor_user_id=user.id,
+                        )
+                    from app.models.payroll_statutory import PayrollStatutoryComponent as Component
+                    from app.services.payroll_statutory_service import create_statutory_rate
+                    for component, value in ((Component.PERSONAL_INCOME_TAX, "0.18"),
+                                             (Component.MILITARY_LEVY, "0.05"),
+                                             (Component.UNIFIED_SOCIAL_CONTRIBUTION, "0.22")):
+                        await create_statutory_rate(
+                            db, company_id=company.id, component=component, rate=Decimal(value),
+                            effective_from=date(2026, 1, 1), effective_to=None, actor_user_id=user.id,
+                        )
+
                 # 2. Genuine positive insert with the production service.
-                first = await persist_severance_statutory_snapshot(
-                    db,
-                    snapshot=snapshot,
-                )
+                if trusted_policy:
+                    from app.services.payroll_severance_trusted_classification import persist_trusted_severance_snapshot
+                    first = await persist_trusted_severance_snapshot(
+                        db, company_id=company.id, payroll_calculation_id=calculation.id,
+                    )
+                else:
+                    first = await persist_severance_statutory_snapshot(db, snapshot=snapshot)
 
                 assert first.id is not None
                 first_id = first.id
@@ -481,6 +512,54 @@ async def test_severance_snapshot_service_persistence_e2e():
                         snapshot=snapshot,
                     )
                     assert third.id == first_id
+
+                if exercise_financial_path:
+                    from app.models.payroll_statutory import PayrollStatutoryResult, PayrollStatutoryResultLine
+                    if not trusted_policy:
+                        # A valid SHA and syntactically correct policy are insufficient.
+                        with pytest.raises(PayrollStatutoryValidationError, match="trusted dated classification"):
+                            await calculate_payroll_statutory_result(
+                                verify_session, company_id=company.id,
+                                payroll_calculation_id=calculation.id, actor_user_id=user.id,
+                            )
+                        from app.services.payroll_severance_financial_guard import require_severance_financial_classification
+                        for consumer in ('accounting', 'payment', 'payslip', 'deductions'):
+                            with pytest.raises(ValueError, match="trusted dated classification"):
+                                await require_severance_financial_classification(verify_session, company_id=company.id,
+                                    payroll_calculation_id=calculation.id, error_type=ValueError, consumer=consumer)
+                        assert await verify_session.scalar(select(func.count(PayrollStatutoryResult.id)).where(
+                            PayrollStatutoryResult.company_id == company.id,
+                        )) == 0
+                        return
+                    result = await calculate_payroll_statutory_result(
+                        verify_session, company_id=company.id,
+                        payroll_calculation_id=calculation.id, actor_user_id=user.id,
+                    )
+                    tax_lines = (await verify_session.scalars(select(PayrollStatutoryResultLine).where(
+                        PayrollStatutoryResultLine.payroll_statutory_result_id == result.id,
+                        PayrollStatutoryResultLine.company_id == company.id,
+                    ))).all()
+                    assert {line.component: (line.base_amount, line.amount) for line in tax_lines} == {
+                        "personal_income_tax": (Decimal("13040.00"), Decimal("2347.20")),
+                        "military_levy": (Decimal("13040.00"), Decimal("652.00")),
+                        "unified_social_contribution": (Decimal("1040.00"), Decimal("228.80")),
+                    }
+                    assert result.gross_amount == Decimal("13040.00")
+                    assert result.employee_withholding_amount == Decimal("2999.20")
+                    assert result.net_amount == Decimal("10040.80")
+                    retry = await calculate_payroll_statutory_result(
+                        verify_session, company_id=company.id,
+                        payroll_calculation_id=calculation.id, actor_user_id=user.id,
+                    )
+                    assert retry.id == result.id
+                    if financial_callback is not None:
+                        await financial_callback(verify_session, company, user, employee, contract, calculation, result)
+                    from app.services.payroll_severance_financial_guard import require_severance_financial_classification
+                    with pytest.raises(ValueError, match="Severance statutory classification"):
+                        await require_severance_financial_classification(
+                            verify_session, company_id=company.id,
+                            payroll_calculation_id=calculation.id, error_type=ValueError,
+                        )
 
             print(
                 "COMMITTED RELOAD + CROSS-SESSION IDEMPOTENCY = PASS",

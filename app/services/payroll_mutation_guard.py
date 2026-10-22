@@ -83,6 +83,11 @@ async def require_posted_payroll_accrual(db, *, company_id, disbursement, error_
         await require_opening_debt_for_payout(db, company_id=company_id,
             disbursement=disbursement, error_type=error_type)
         return
+    from app.services.payroll_severance_payment_service import payment_protected_minimum
+    try:
+        await payment_protected_minimum(db, company_id=company_id, payment=disbursement)
+    except ValueError as exc:
+        raise error_type(str(exc)) from exc
     accrual = await db.scalar(select(JournalEntry).where(
         JournalEntry.company_id == company_id,
         JournalEntry.payroll_calculation_id == disbursement.payroll_calculation_id,

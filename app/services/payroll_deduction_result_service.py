@@ -135,6 +135,7 @@ async def calculate_payroll_deduction_result(
         company_id=company_id,
         payroll_calculation_id=payroll_calculation_id,
         error_type=PayrollDeductionResultConflictError,
+        consumer="deductions",
     )
     existing = await get_payroll_deduction_result(
         db,

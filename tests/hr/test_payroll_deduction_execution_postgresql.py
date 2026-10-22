@@ -50,10 +50,12 @@ async def protect(engine):
                         await conn.execute(text(sql))
 
 
-async def authorize(db, company, user, contract, claim_amount=D(1000)):
+async def authorize(db, company, user, contract, claim_amount=D(1000), migrated=False):
     verifier = User(**minimal_kwargs(User, dict(email=f'verifier-{company.id}@example.test',password_hash='unused',first_name='Verifier',last_name='Test')))
     role = Role(name=f'deduction-manager-{company.id}')
-    permission = Permission(name='employees.manage')
+    permission = await db.scalar(select(Permission).where(Permission.name=='employees.manage'))
+    if permission is None:
+        permission = Permission(name='employees.manage')
     account = Account(company_id=company.id,code='6851',name='Recipients',account_type='liability',normal_balance='credit',is_active=True,is_postable=True)
     db.add_all([verifier,role,permission,account]);await db.flush()
     await db.execute(role_permissions.insert(),dict(role_id=role.id,permission_id=permission.id))
@@ -65,10 +67,22 @@ async def authorize(db, company, user, contract, claim_amount=D(1000)):
     db.add(PayrollDeductionLegalEvidence(company_id=company.id,payroll_deduction_instruction_id=instruction.id,
         legal_category='enforcement_other',document_reference='Verified order',verification_status='verified',
         verified_by=verifier.id,verified_at=datetime.now(timezone.utc),created_by=user.id,created_at=datetime.now(timezone.utc)))
-    approval = PayrollDeductionRuleApproval(company_id=company.id,legal_category='enforcement_other',rule_version='2026-manual-assessment-v1',
-        legal_reference='Article 70: independently approved rule',valid_from=date(2026,1,1),status='approved',
-        created_by=user.id,created_at=datetime.now(timezone.utc),approved_by=verifier.id,approved_at=datetime.now(timezone.utc))
-    db.add(approval);await db.flush()
+    if migrated:
+        from app.services.payroll_deduction_rule_approval_write_service import create_pending_rule_approval,approve_rule_approval
+        for name in ('payroll_deduction_rule_approval.create','payroll_deduction_rule_approval.approve'):
+            permission=await db.scalar(select(Permission).where(Permission.name==name))
+            if permission is None:
+                permission=Permission(name=name);db.add(permission);await db.flush()
+            await db.execute(role_permissions.insert(),dict(role_id=role.id,permission_id=permission.id))
+        approval=await create_pending_rule_approval(db=db,company_id=company.id,legal_category='enforcement_other',
+            rule_version='2026-manual-assessment-v1',legal_reference='Article 70: independently approved rule',
+            valid_from=date(2026,1,1),valid_to=None,actor_id=user.id)
+        await approve_rule_approval(db=db,company_id=company.id,approval_id=approval.id,actor_id=verifier.id)
+    else:
+        approval = PayrollDeductionRuleApproval(company_id=company.id,legal_category='enforcement_other',rule_version='2026-manual-assessment-v1',
+            legal_reference='Article 70: independently approved rule',valid_from=date(2026,1,1),status='approved',
+            created_by=user.id,created_at=datetime.now(timezone.utc),approved_by=verifier.id,approved_at=datetime.now(timezone.utc))
+        db.add(approval);await db.flush()
     beneficiary = await create_beneficiary(db,company_id=company.id,instruction_id=instruction.id,actor_id=user.id,
         data=DeductionBeneficiaryCreate(request_key='recipient',recipient_name='Executor',recipient_identifier='TEST-ID',iban=IBAN,
             settlement_kind='recipient_payment',account_id=account.id,document_reference='Verified bank details',valid_from=date(2026,9,1)))
