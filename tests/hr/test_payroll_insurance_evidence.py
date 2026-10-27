@@ -153,7 +153,16 @@ async def test_automatic_sick_requires_attributed_primary_basis(employee_engine,
         contract.employment_kind=kind
         await review_insurance_evidence(db,company_id=company.id,evidence_id=evidence.id,
             reviewed_by=reviewer.id,approved=True)
-        with pytest.raises(PayrollSickLeaveDerivationError,match='combined attributed'):
+        with pytest.raises(
+            PayrollSickLeaveDerivationError,
+            match=(
+                'Complete same-company primary employment evidence required'
+                if kind == 'internal_secondary'
+                else (
+                    'External secondary employment requires verified other-employer insurance earnings'
+                )
+            ),
+        ):
             await calculate_sick_from_history(db,company_id=company.id,leave_request_id=leave.id,
                 insurance_evidence_id=evidence.id,calculated_by=user.id)
 

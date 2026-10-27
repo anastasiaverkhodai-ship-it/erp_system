@@ -15,6 +15,8 @@ class PayrollRegisterRow(BaseModel):
     net_amount: Decimal | None
     accrual_status: str
     paid_amount: Decimal
+    returned_amount: Decimal = Decimal(0)
+    overpaid_amount: Decimal = Decimal(0)
     reserved_amount: Decimal
     advance_paid_amount: Decimal = Decimal(0)
     advance_reserved_amount: Decimal = Decimal(0)

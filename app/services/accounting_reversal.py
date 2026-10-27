@@ -455,6 +455,13 @@ async def reverse_journal_entry(
             "Journal entry not found"
         )
 
+    from app.models.payroll_sick_correction_application import PayrollSickPayrollRevision
+    sick_difference = await db.scalar(select(PayrollSickPayrollRevision.id).where(
+        PayrollSickPayrollRevision.company_id == company_id,
+        PayrollSickPayrollRevision.journal_entry_id == original_entry.id))
+    if sick_difference is not None:
+        raise AccountingReversalError('Applied sick payroll difference requires another documented correction')
+
     from app.services.payroll_recipient_remittance_service import ensure_withholding_reversible
     await ensure_withholding_reversible(db, company_id=company_id, journal=original_entry,
         reversal_date=reversal_date, error_type=AccountingReversalError)
@@ -701,6 +708,20 @@ async def reverse_journal_entry(
                 f"{sorted(invalid_account_ids)}"
             )
         )
+
+    # A direct reversal must not bypass physical cash provenance.
+    from app.services.cash_direct_gl_guard import (
+        DirectCashJournalSourceError,
+        require_typed_cash_journal_source,
+    )
+    try:
+        await require_typed_cash_journal_source(
+            db,
+            company_id=company_id,
+            journal_entry=original_entry,
+        )
+    except DirectCashJournalSourceError as exc:
+        raise AccountingReversalError(str(exc)) from exc
 
     reversal_entry = JournalEntry(
         year_end_closing_id=getattr(original_entry, "year_end_closing_id", None),

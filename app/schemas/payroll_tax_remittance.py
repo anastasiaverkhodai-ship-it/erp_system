@@ -67,6 +67,7 @@ class TaxBalanceTotals(BaseModel):
     accrued_amount: Decimal
     paid_amount: Decimal
     outstanding_amount: Decimal
+    overpaid_amount: Decimal = Decimal(0)
 
 
 class TaxBalanceRow(TaxBalanceTotals):

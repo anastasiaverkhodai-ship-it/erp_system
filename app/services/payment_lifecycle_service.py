@@ -571,6 +571,49 @@ async def confirm_payment(
         payment=payment,
     )
 
+    # c054: take the desk lock BEFORE finalizing the Payment.
+    # The lock must be held until the caller commits/rolls back.
+    # This prevents a concurrent desk-account remapping between
+    # cash snapshot capture and journal generation.
+    if payment.cash_desk_id is not None:
+        if payment.bank_account_id is not None:
+            raise PaymentStatusError(
+                "Cash payment cannot also use a bank account"
+            )
+
+        locked_cash_desk = await db.scalar(
+            select(CashDesk)
+            .where(
+                CashDesk.company_id == company_id,
+                CashDesk.id == payment.cash_desk_id,
+                CashDesk.is_active.is_(True),
+            )
+            .with_for_update()
+        )
+
+        if locked_cash_desk is None:
+            raise PaymentStatusError(
+                "Active company cash desk is required"
+            )
+
+        if locked_cash_desk.currency_code != payment.currency_code:
+            raise PaymentCurrencyError(
+                "Cash desk and Payment currency mismatch"
+            )
+
+        if payment.cash_account_id_snapshot is not None:
+            raise PaymentStatusError(
+                "Draft Payment already has a cash GL snapshot"
+            )
+
+        payment.cash_account_id_snapshot = (
+            locked_cash_desk.accounting_account_id
+        )
+    elif payment.cash_account_id_snapshot is not None:
+        raise PaymentStatusError(
+            "Noncash Payment cannot contain cash GL snapshot"
+        )
+
     payment.status = (
         PaymentStatus.CONFIRMED
     )
@@ -599,6 +642,16 @@ async def confirm_payment(
             f"{exc}"
         ) from exc
 
+    if payment.cash_desk_id is not None:
+        from app.services.cash_physical_posting_enforcement import (
+            enforce_cash_posting_chronology,
+        )
+        await enforce_cash_posting_chronology(
+            db,
+            company_id=company_id,
+            cash_desk_id=payment.cash_desk_id,
+            as_of_date=payment.payment_date,
+        )
     return payment
 
 
@@ -660,6 +713,15 @@ async def cancel_payment(
         timezone.utc
     )
 
+    if was_confirmed and payment.cash_desk_id is not None:
+        from app.services.cash_physical_posting_enforcement import (
+            lock_cash_posting_scope,
+        )
+        await lock_cash_posting_scope(
+            db,
+            company_id=company_id,
+            cash_desk_id=payment.cash_desk_id,
+        )
     if was_confirmed:
         try:
             await reverse_payment_journal_entry(
@@ -677,6 +739,16 @@ async def cancel_payment(
                 f"failed: {exc}"
             ) from exc
 
+    if was_confirmed and payment.cash_desk_id is not None:
+        from app.services.cash_physical_posting_enforcement import (
+            enforce_cash_posting_chronology,
+        )
+        await enforce_cash_posting_chronology(
+            db,
+            company_id=company_id,
+            cash_desk_id=payment.cash_desk_id,
+            as_of_date=cancellation_time.date(),
+        )
     payment.status = (
         PaymentStatus.CANCELLED
     )

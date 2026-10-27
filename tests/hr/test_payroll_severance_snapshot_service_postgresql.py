@@ -94,7 +94,7 @@ async def _run_severance_snapshot_service_e2e(*, exercise_financial_path=False, 
             head = await conn.scalar(
                 text("SELECT version_num FROM alembic_version")
             )
-            assert head == "13d4a7b8c042"
+            assert head == "13d4a7b8c063"
 
         async with Session() as db:
             async with db.begin():

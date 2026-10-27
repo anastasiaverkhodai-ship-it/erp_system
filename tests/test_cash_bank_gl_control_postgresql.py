@@ -41,7 +41,9 @@ async def test_cash_bank_source_control(destination):
                             if destination=='cash' else BankAccount(company_id=1, name='Bank', account_number='CONTROL-ACCOUNT',
                                 currency_code='UAH', accounting_account_id=account.id))
                         db.add(money); await db.flush()
-                        if destination=='cash': payment.cash_desk_id=money.id
+                        if destination == 'cash':
+                            payment.cash_desk_id = money.id
+                            payment.cash_account_id_snapshot = account.id
                         else: payment.bank_account_id=money.id
                         await db.flush()
                     await generate_and_post_payment_journal_entry(db,payment=payment,created_by=1)
@@ -59,7 +61,28 @@ async def test_cash_bank_source_control(destination):
                     payment.cancelled_at=datetime.combine(D4, datetime.min.time(), timezone.utc)
                     payment.status='cancelled'
                     payment.cancelled_by=1
-                    await reverse_payment_journal_entry(db, company_id=1, payment_id=1, reversal_date=D4, reversed_by=1)
+                    if destination == 'cash':
+                        from app.services.payment_journal_service import PaymentJournalError
+                        with pytest.raises(
+                            PaymentJournalError,
+                            match="Cash Payment provenance mismatch",
+                        ):
+                            await reverse_payment_journal_entry(
+                                db,
+                                company_id=1,
+                                payment_id=1,
+                                reversal_date=D4,
+                                reversed_by=1,
+                            )
+                        return
+
+                    await reverse_payment_journal_entry(
+                        db,
+                        company_id=1,
+                        payment_id=1,
+                        reversal_date=D4,
+                        reversed_by=1,
+                    )
                     await db.flush()
                     cancelled=await reconcile_cash_bank_gl(db, company_id=1, date_from=D1, date_to=D4)
                     assert cancelled.matched and cancelled.expected_amount==cancelled.posted_amount==0, cancelled

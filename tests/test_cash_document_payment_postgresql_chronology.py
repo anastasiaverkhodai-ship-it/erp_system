@@ -10,6 +10,10 @@ from sqlalchemy.orm import selectinload
 from app.core.database import AsyncSessionLocal
 from app.models.account import Account
 from app.models.cash_desk import CashDesk
+from app.models.payroll_disbursement import CashDeskOpeningEvidence
+from app.services.cash_desk_opening_review_service import (
+    record_independent_cash_opening_review,
+)
 from app.models.cash_document import CashDocument
 from app.models.company import Company
 from app.models.counterparty import Counterparty
@@ -257,6 +261,41 @@ async def test_cash_document_payment_postgresql_chronology():
             )
             db.add(cash_desk)
             await db.flush()
+
+            # Synthetic, transaction-local reviewed opening for this fixture.
+            # Reentry spends 400 after the original receipt is reversed.
+            opening_reviewer = User(
+                email=f"{marker.lower()}-opening-review@example.invalid",
+                password_hash="not-used",
+                first_name="Opening",
+                last_name="Reviewer",
+                is_active=True,
+            )
+            db.add(opening_reviewer)
+            await db.flush()
+            assert opening_reviewer.id != user.id
+
+            opening_evidence = CashDeskOpeningEvidence(
+                company_id=company.id,
+                cash_desk_id=cash_desk.id,
+                effective_date=date.today(),
+                declared_amount=Decimal("400.00"),
+                currency_code="UAH",
+                evidence_reference=f"{marker}-TEST-OPENING",
+                attested_by=user.id,
+            )
+            db.add(opening_evidence)
+            await db.flush()
+            opening_review = await record_independent_cash_opening_review(
+                db,
+                company_id=company.id,
+                opening_evidence_id=opening_evidence.id,
+                reviewed_by=opening_reviewer.id,
+                review_reference=f"{marker}-TEST-OPENING-REVIEW",
+            )
+            assert opening_review.id is not None
+            assert opening_review.reviewed_by != opening_evidence.attested_by
+            assert opening_review.opening_evidence_id == opening_evidence.id
 
             # =============================================
             # 1. CREATE

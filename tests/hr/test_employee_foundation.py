@@ -83,8 +83,26 @@ def minimal_kwargs(model, explicit):
 
 @pytest_asyncio.fixture
 async def employee_engine():
+    import os
+    import re
+
+    migration_url = os.environ.get("ERP_MIGRATION_DATABASE_URL")
+    owner_role = os.environ.get("ERP_MIGRATION_OWNER_ROLE")
+
+    if bool(migration_url) != bool(owner_role):
+        raise RuntimeError(
+            "Migration URL and owner role must be configured together"
+        )
+
+    if owner_role and not re.fullmatch(
+        r"[a-z_][a-z0-9_]{0,62}", owner_role
+    ):
+        raise ValueError("Invalid migration owner role")
+
+    admin_url = migration_url or settings.database_url
+
     admin = create_async_engine(
-        settings.database_url,
+        admin_url,
         poolclass=NullPool,
     )
 
@@ -100,31 +118,108 @@ async def employee_engine():
         },
     )
 
+    async def activate_owner(conn):
+        if owner_role:
+            await conn.execute(
+                text('SET LOCAL ROLE "' + owner_role + '"')
+            )
+            active = await conn.scalar(
+                text("SELECT current_user")
+            )
+            assert active == owner_role
+
     try:
         async with admin.begin() as conn:
+            await activate_owner(conn)
             await conn.execute(
                 text(f'CREATE SCHEMA "{schema}"')
             )
 
-        async with engine.begin() as conn:
-            await conn.run_sync(
-                Base.metadata.create_all
+            if owner_role:
+                await conn.execute(text(
+                    f'GRANT USAGE ON SCHEMA "{schema}" '
+                    'TO erp_runtime'
+                ))
+
+        if owner_role:
+            setup_engine = create_async_engine(
+                admin_url,
+                poolclass=NullPool,
+                connect_args={
+                    "server_settings": {
+                        "search_path": schema,
+                    }
+                },
             )
+        else:
+            setup_engine = engine
+
+        try:
+            async with setup_engine.begin() as conn:
+                await activate_owner(conn)
+
+                from app.models.payroll_advance_tax_remittance import (
+                    PayrollAdvanceTaxRemittance,
+                )
+                assert (
+                    PayrollAdvanceTaxRemittance.__tablename__
+                    in Base.metadata.tables
+                ), "Advance tax model missing from metadata"
+
+                await conn.run_sync(Base.metadata.create_all)
+
+                table_exists = await conn.scalar(
+                    text(
+                        "SELECT to_regclass("
+                        "'payroll_advance_tax_remittances'"
+                        ")"
+                    )
+                )
+                assert table_exists is not None
+
+                if owner_role:
+                    await conn.execute(text(
+                        f'GRANT SELECT, INSERT, UPDATE, DELETE '
+                        f'ON ALL TABLES IN SCHEMA "{schema}" '
+                        'TO erp_runtime'
+                    ))
+                    await conn.execute(text(
+                        f'GRANT USAGE, SELECT '
+                        f'ON ALL SEQUENCES IN SCHEMA "{schema}" '
+                        'TO erp_runtime'
+                    ))
+        finally:
+            if owner_role:
+                await setup_engine.dispose()
+
+        if owner_role:
+            async with engine.connect() as conn:
+                current_user = await conn.scalar(
+                    text("SELECT current_user")
+                )
+                assert current_user == "erp_runtime", current_user
+                can_create = await conn.scalar(text(
+                    "SELECT has_database_privilege("
+                    "current_user, current_database(), 'CREATE')"
+                ))
+                assert can_create is False
+                await conn.rollback()
 
         yield engine
 
     finally:
         await engine.dispose()
-
-        async with admin.begin() as conn:
-            await conn.execute(
-                text(
-                    f'DROP SCHEMA IF EXISTS '
-                    f'"{schema}" CASCADE'
+        try:
+            async with admin.begin() as conn:
+                await activate_owner(conn)
+                await conn.execute(
+                    text(
+                        f'DROP SCHEMA IF EXISTS '
+                        f'"{schema}" CASCADE'
+                    )
                 )
-            )
-
-        await admin.dispose()
+        finally:
+            await admin.dispose()
 
 
 async def seed(db):

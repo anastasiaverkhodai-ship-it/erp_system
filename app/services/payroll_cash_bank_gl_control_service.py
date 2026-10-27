@@ -6,6 +6,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import aliased
 
 from app.models.bank_account import BankAccount
+from app.models.cash_desk import CashDesk
 from app.models.journal_entry import JournalEntry
 from app.models.journal_entry_line import JournalEntryLine
 from app.models.payroll_disbursement import PayrollDisbursement
@@ -24,17 +25,28 @@ async def reconcile_payroll_bank_sources(db, *, company_id, date_from, date_to):
                 ranged.payroll_disbursement_id == PayrollDisbursement.id,
                 ranged.entry_date.between(date_from, date_to)).exists()),
     ).order_by(PayrollDisbursement.id).limit(10001)
-    rows = (await db.execute(select(PayrollDisbursement, BankAccount, JournalEntry, JournalEntryLine)
+    rows = (await db.execute(select(PayrollDisbursement, BankAccount, CashDesk, JournalEntry, JournalEntryLine)
         .outerjoin(BankAccount, and_(BankAccount.company_id == company_id,
                                     BankAccount.id == PayrollDisbursement.bank_account_id))
+        .outerjoin(CashDesk, and_(
+            CashDesk.company_id == company_id,
+            CashDesk.id == PayrollDisbursement.cash_desk_id))
         .outerjoin(JournalEntry, and_(JournalEntry.company_id == company_id,
                                      JournalEntry.payroll_disbursement_id == PayrollDisbursement.id))
         .outerjoin(JournalEntryLine, JournalEntryLine.journal_entry_id == JournalEntry.id)
         .where(PayrollDisbursement.company_id == company_id, PayrollDisbursement.id.in_(selected))
         .execution_options(populate_existing=True))).all()
     groups = {}
-    for payout, bank, entry, line in rows:
-        group = groups.setdefault(payout.id, dict(payout=payout, bank=bank, rows=[]))
+    for payout, bank, cash_desk, entry, line in rows:
+        group = groups.setdefault(
+            payout.id,
+            dict(
+                payout=payout,
+                bank=bank,
+                cash_desk=cash_desk,
+                rows=[],
+            ),
+        )
         if entry is not None:
             group['rows'].append((entry, line))
     if len(groups) > 10000:
@@ -50,12 +62,47 @@ async def reconcile_payroll_bank_sources(db, *, company_id, date_from, date_to):
     spec = EventControlSpec(PayrollDisbursement, 'payroll_disbursement_id',
                             'recognition_date', 'amount', 'debit', 'credit')
     for group in groups.values():
-        payout, bank = group['payout'], group['bank']
-        if bank is None or bank.currency_code != payout.currency_code:
-            raise ValueError('Payroll payout has an invalid bank or currency')
-        money_id = bank.accounting_account_id
+        payout = group["payout"]
+        bank = group["bank"]
+        cash_desk = group["cash_desk"]
+
+        if (
+            (payout.bank_account_id is None)
+            == (payout.cash_desk_id is None)
+        ):
+            raise ValueError(
+                "Payroll payout must have exactly one money source"
+            )
+
+        if payout.bank_account_id is not None:
+            if bank is None or cash_desk is not None:
+                raise ValueError(
+                    "Payroll bank payout has invalid source identity"
+                )
+            if bank.currency_code != payout.currency_code:
+                raise ValueError(
+                    "Payroll bank payout currency mismatch"
+                )
+            money_id = bank.accounting_account_id
+        else:
+            if cash_desk is None or bank is not None:
+                raise ValueError(
+                    "Payroll cash payout has invalid source identity"
+                )
+            if payout.employee_iban_snapshot is not None:
+                raise ValueError(
+                    "Payroll cash payout cannot have an employee IBAN"
+                )
+            if payout.cash_account_id_snapshot is None:
+                raise ValueError(
+                    "Cash payroll has no verified historical account"
+                )
+            money_id = payout.cash_account_id_snapshot
+
         if money_id == counterpart:
-            raise ValueError('Payroll payable and bank accounts must be distinct')
+            raise ValueError(
+                "Payroll payable and money accounts must be distinct"
+            )
         originals = {entry.id: entry for entry, _ in group['rows'] if entry.reversal_of_id is None}
         original = next(iter(originals.values())) if len(originals) == 1 else None
         for reversal in (False, True):

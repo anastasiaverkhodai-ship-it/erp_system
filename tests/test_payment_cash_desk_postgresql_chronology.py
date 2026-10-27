@@ -10,6 +10,10 @@ from sqlalchemy.orm import selectinload
 from app.core.database import AsyncSessionLocal
 from app.models.account import Account
 from app.models.cash_desk import CashDesk
+from app.models.payroll_disbursement import CashDeskOpeningEvidence
+from app.services.cash_desk_opening_review_service import (
+    record_independent_cash_opening_review,
+)
 from app.models.company import Company
 from app.models.counterparty import Counterparty
 from app.models.journal_entry import (
@@ -289,6 +293,41 @@ async def test_cash_payment_gl_postgresql_chronology():
             db.add(cash_desk)
             await db.flush()
 
+            # Synthetic, transaction-local reviewed opening for this fixture.
+            # The ordinary-payment case spends 700 after receipt reversal.
+            opening_reviewer = User(
+                email=f"{marker.lower()}-opening-review@example.invalid",
+                password_hash="not-used",
+                first_name="Opening",
+                last_name="Reviewer",
+                is_active=True,
+            )
+            db.add(opening_reviewer)
+            await db.flush()
+            assert opening_reviewer.id != user.id
+
+            opening_evidence = CashDeskOpeningEvidence(
+                company_id=company.id,
+                cash_desk_id=cash_desk.id,
+                effective_date=date.today(),
+                declared_amount=Decimal("700.00"),
+                currency_code="UAH",
+                evidence_reference=f"{marker}-TEST-OPENING",
+                attested_by=user.id,
+            )
+            db.add(opening_evidence)
+            await db.flush()
+            opening_review = await record_independent_cash_opening_review(
+                db,
+                company_id=company.id,
+                opening_evidence_id=opening_evidence.id,
+                reviewed_by=opening_reviewer.id,
+                review_reference=f"{marker}-TEST-OPENING-REVIEW",
+            )
+            assert opening_review.id is not None
+            assert opening_review.reviewed_by != opening_evidence.attested_by
+            assert opening_review.opening_evidence_id == opening_evidence.id
+
             # =================================================
             # 1. INCOMING CASH PAYMENT
             #
@@ -315,6 +354,9 @@ async def test_cash_payment_gl_postgresql_chronology():
                 payment_id=incoming.id,
                 confirmed_by=user.id,
             )
+            await db.flush()
+            assert incoming.cash_account_id_snapshot == cash_a.id
+            print('PAYMENT INCOMING CASH SNAPSHOT = PASS')
 
             await db.refresh(incoming)
 
@@ -496,6 +538,67 @@ async def test_cash_payment_gl_postgresql_chronology():
                 payment_id=outgoing.id,
                 confirmed_by=user.id,
             )
+            from app.services.cash_payment_gl_evidence_service import (
+                verify_payment_cash_gl,
+                PaymentCashGLEvidenceError,
+            )
+            from app.services.cash_physical_event_reader import (
+                read_physical_cash_events,
+            )
+
+            in_original, in_reversal = await verify_payment_cash_gl(
+                db,
+                company_id=company.id,
+                payment_id=incoming.id,
+            )
+
+            out_original, out_reversal = await verify_payment_cash_gl(
+                db,
+                company_id=company.id,
+                payment_id=outgoing.id,
+            )
+
+            assert in_original != out_original
+            assert out_reversal is None
+            assert incoming.cash_account_id_snapshot == cash_a.id
+            assert outgoing.cash_account_id_snapshot == cash_b.id
+
+            with pytest.raises(PaymentCashGLEvidenceError):
+                await verify_payment_cash_gl(
+                    db,
+                    company_id=company.id,
+                    payment_id=0,
+                )
+
+            events = await read_physical_cash_events(
+                db,
+                company_id=company.id,
+                cash_desk_id=cash_desk.id,
+                currency_code="UAH",
+                effective_date=date.today(),
+            )
+
+            assert any(
+                event.source_kind == "payment_issue"
+                and event.source_id == in_original
+                for event in events
+            )
+            assert any(
+                event.source_kind == "payment_issue"
+                and event.source_id == out_original
+                for event in events
+            )
+
+            assert len({e.source_id for e in events}) == len(events)
+
+            print("ORDINARY PAYMENT STRICT GL POSTGRESQL = PASS")
+            print("PAYMENT ORIGINAL CASH DEBIT / CREDIT = VERIFIED")
+            print("HISTORICAL PAYMENT ACCOUNT REMAPPING = VERIFIED")
+            print("UNIFIED ORDINARY CASH EVENT READER = PASS")
+
+            await db.flush()
+            assert outgoing.cash_account_id_snapshot == cash_b.id
+            print('PAYMENT OUTGOING CASH SNAPSHOT = PASS')
 
             outgoing_entries = await _payment_entries(
                 db,

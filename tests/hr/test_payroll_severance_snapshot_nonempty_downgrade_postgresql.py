@@ -88,7 +88,7 @@ async def test_nonempty_snapshot_blocks_downgrade():
             head = await conn.scalar(
                 text("SELECT version_num FROM alembic_version")
             )
-            assert head == "13d4a7b8c042"
+            assert head == "13d4a7b8c063"
 
         async with Session() as db:
             async with db.begin():
@@ -481,7 +481,7 @@ async def test_nonempty_snapshot_blocks_downgrade():
                 text("SELECT version_num FROM alembic_version")
             )
 
-            assert revision == "13d4a7b8c042"
+            assert revision == "13d4a7b8c063"
 
             remaining = (
                 await conn.execute(
@@ -517,7 +517,7 @@ async def test_nonempty_snapshot_blocks_downgrade():
             flush=True,
         )
         print(
-            "ALEMBIC REVISION AFTER REJECTED DOWNGRADE = c042",
+            "ALEMBIC REVISION AFTER REJECTED DOWNGRADE = c048",
             flush=True,
         )
 

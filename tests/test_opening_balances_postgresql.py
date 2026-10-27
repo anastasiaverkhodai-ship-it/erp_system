@@ -223,11 +223,36 @@ async def test_migration_roundtrip_and_legacy_backfill(opening_engine):
         def migrate(sync):
             with Operations.context(MigrationContext.configure(sync)):
                 # The later funding FK depends on the journal candidate key.
+                # The isolated fixture may not register the c043 model.
+                # Preserve this FK only when the actual table exists.
+                advance_table_exists = sync.execute(text(
+                    "SELECT to_regclass('payroll_advance_tax_remittances') "
+                    "IS NOT NULL"
+                )).scalar_one()
+                fk_advance_definition = None
+                if advance_table_exists:
+                    fk_advance_definition = sync.execute(text('''
+                        SELECT pg_get_constraintdef(oid)
+                        FROM pg_constraint
+                        WHERE conname = 'fk_advance_tax_remittance_journal'
+                          AND conrelid =
+                              to_regclass('payroll_advance_tax_remittances')
+                          AND contype = 'f'
+                    ''')).scalar_one()
+                    assert fk_advance_definition.startswith('FOREIGN KEY')
+                    sync.execute(text(
+                        'ALTER TABLE payroll_advance_tax_remittances '
+                        'DROP CONSTRAINT fk_advance_tax_remittance_journal'
+                    ))
                 tax_remittance.downgrade()
                 opening_payout.downgrade()
                 insurance_funding.downgrade()
                 # Install the actual revision, including its immutable triggers:
                 # metadata.create_all creates only the empty table definitions.
+                sync.execute(text(
+                    'ALTER TABLE payroll_leave_accounts '
+                    'DROP CONSTRAINT fk_pla_opening'
+                ))
                 for table in ('payroll_opening_debts', 'payroll_opening_packages',
                               'payroll_leave_openings', 'payroll_earnings_history'):
                     sync.execute(text(f'DROP TABLE {table}'))
@@ -236,6 +261,31 @@ async def test_migration_roundtrip_and_legacy_backfill(opening_engine):
                 fa_opening.downgrade()
                 detail.downgrade()
                 year_end.downgrade()
+                # Preserve the newer remittance FK during historical rollback.
+                fk_prr_definition = sync.execute(text("""
+                    SELECT pg_get_constraintdef(oid)
+                    FROM pg_constraint
+                    WHERE conname = 'fk_prr_journal'
+                      AND conrelid = 'payroll_recipient_remittances'::regclass
+                """)).scalar_one()
+                assert fk_prr_definition.startswith('FOREIGN KEY')
+                sync.execute(text(
+                    'ALTER TABLE payroll_recipient_remittances '
+                    'DROP CONSTRAINT fk_prr_journal'
+                ))
+                # Later sick ledgers are empty in this historical migration fixture.
+                sick_fks = []
+                for table, constraint in (
+                    ('payroll_sick_payroll_revisions', 'fk_sick_payroll_revision_journal'),
+                    ('payroll_sick_returns', 'fk_sick_return_journal'),
+                ):
+                    assert sync.execute(text(f'SELECT count(*) FROM {table}')).scalar_one() == 0
+                    definition = sync.execute(text(
+                        "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                        "WHERE conrelid=to_regclass(:table) AND conname=:name"
+                    ), dict(table=table, name=constraint)).scalar_one()
+                    sick_fks.append((table, constraint, definition))
+                    sync.execute(text(f'ALTER TABLE {table} DROP CONSTRAINT {constraint}'))
                 hardening.downgrade()
                 foundation.downgrade()
                 foundation.upgrade()
@@ -244,13 +294,55 @@ async def test_migration_roundtrip_and_legacy_backfill(opening_engine):
                 sync.execute(text("INSERT INTO opening_balances (id,company_id,opening_date,journal_entry_id,created_by,created_at) VALUES (99,1,'2026-08-01',99,1,now())"))
                 sync.execute(text("UPDATE journal_entries SET opening_balance_id=99 WHERE id=99"))
                 hardening.upgrade()
+                for table, constraint, definition in sick_fks:
+                    sync.execute(text(f'ALTER TABLE {table} ADD CONSTRAINT {constraint} {definition}'))
+                    assert sync.execute(text(
+                        "SELECT convalidated FROM pg_constraint "
+                        "WHERE conrelid=to_regclass(:table) AND conname=:name"
+                    ), dict(table=table, name=constraint)).scalar_one() is True
+                sync.execute(text(
+                    'ALTER TABLE payroll_recipient_remittances '
+                    'ADD CONSTRAINT fk_prr_journal ' + fk_prr_definition
+                ))
+                assert sync.execute(text("""
+                    SELECT convalidated
+                    FROM pg_constraint
+                    WHERE conname = 'fk_prr_journal'
+                      AND conrelid = 'payroll_recipient_remittances'::regclass
+                """)).scalar_one() is True
                 year_end.upgrade()
                 detail.upgrade()
                 fa_opening.upgrade()
                 payroll_opening.upgrade()
+                sync.execute(text(
+                    'ALTER TABLE payroll_leave_accounts '
+                    'ADD CONSTRAINT fk_pla_opening '
+                    'FOREIGN KEY (company_id, opening_id) '
+                    'REFERENCES payroll_leave_openings(company_id, id) '
+                    'ON DELETE RESTRICT'
+                ))
                 insurance_funding.upgrade()
                 opening_payout.upgrade()
                 tax_remittance.upgrade()
+                if advance_table_exists:
+                    assert fk_advance_definition is not None
+                    sync.execute(text(
+                        'ALTER TABLE payroll_advance_tax_remittances '
+                        'ADD CONSTRAINT fk_advance_tax_remittance_journal '
+                        + fk_advance_definition
+                    ))
+                    assert sync.execute(text('''
+                        SELECT convalidated
+                        FROM pg_constraint
+                        WHERE conname = 'fk_advance_tax_remittance_journal'
+                          AND conrelid =
+                              to_regclass('payroll_advance_tax_remittances')
+                    ''')).scalar_one() is True
+                else:
+                    assert sync.execute(text(
+                        "SELECT to_regclass("
+                        "'payroll_advance_tax_remittances') IS NULL"
+                    )).scalar_one() is True
         await conn.run_sync(migrate)
         row = (await conn.execute(text("SELECT request_key, request_fingerprint, journal_entry_id FROM opening_balances WHERE id=99"))).one()
         assert row == ("legacy:99", "0"*64, 99)

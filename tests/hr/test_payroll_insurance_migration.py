@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import pytest
 from sqlalchemy import select,func
+from sqlalchemy.schema import AddConstraint, DropConstraint
 from sqlalchemy.ext.asyncio import AsyncSession
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
@@ -22,7 +23,13 @@ async def test_insurance_schema_roundtrip_and_history_guard(employee_engine):
     async with employee_engine.begin() as connection:
         def roundtrip(sync):
             with Operations.context(MigrationContext.configure(sync)):
+                # The registry introduced in 060 references this older table.
+                # Suspend only that later FK in this empty schema round trip.
+                later_fk=next(c for c in Base.metadata.tables['payroll_sick_corrections'].foreign_key_constraints
+                              if c.name=='fk_sick_correction_evidence')
+                sync.execute(DropConstraint(later_fk,isolate_from_table=False))
                 replacement.downgrade();migration.downgrade();migration.upgrade();replacement.upgrade()
+                sync.execute(AddConstraint(later_fk,isolate_from_table=False))
             assert compare_metadata(MigrationContext.configure(sync),Base.metadata)==[]
         await connection.run_sync(roundtrip)
     async with AsyncSession(employee_engine,expire_on_commit=False) as db:

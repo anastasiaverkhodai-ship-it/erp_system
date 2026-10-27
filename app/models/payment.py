@@ -23,7 +23,13 @@ from app.services.payment_types import (
 )
 
 
+import sqlalchemy as _payment_snapshot_sa
+
 class Payment(Base):
+    # Historical physical cash GL account at confirmation.
+    # NULL is preserved for pre-c054 legacy payments.
+    cash_account_id_snapshot: Mapped[int | None] = mapped_column(_payment_snapshot_sa.Integer, nullable=True)
+
     """
     Persistent commercial money-movement document.
 
@@ -317,3 +323,29 @@ class Payment(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+
+
+# c054: Mirror database constraints in SQLAlchemy metadata.
+# These are additive and apply to the nullable historical snapshot.
+# Legacy Payment rows remain NULL; no historical backfill is assumed.
+Payment.__table__.append_constraint(
+    _payment_snapshot_sa.ForeignKeyConstraint(
+        ["cash_account_id_snapshot"],
+        ["accounts.id"],
+        name="fk_payment_cash_account_snapshot",
+        ondelete="RESTRICT",
+    )
+)
+
+Payment.__table__.append_constraint(
+    _payment_snapshot_sa.CheckConstraint(
+        "("
+        "cash_desk_id IS NOT NULL "
+        "OR cash_account_id_snapshot IS NULL"
+        ") AND ("
+        "bank_account_id IS NULL "
+        "OR cash_account_id_snapshot IS NULL"
+        ")",
+        name="ck_payment_cash_snapshot_source",
+    )
+)

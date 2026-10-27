@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.payroll_sick_revision_service import current_sick_calculation_filter
+
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -96,6 +98,7 @@ async def get_sick_leave_calculation_for_leave(
             PayrollSickLeaveCalculation.company_id == company_id,
             PayrollSickLeaveCalculation.leave_request_id
             == leave_request_id,
+            current_sick_calculation_filter(),
         )
     )
 
@@ -141,8 +144,9 @@ async def calculate_sick_leave_pay(
     rule_version: str,
     calculated_by: int,
     sources: list[dict] | None = None,
+    _preview: bool = False,
 ) -> PayrollSickLeaveCalculation:
-    existing = await get_sick_leave_calculation_for_leave(
+    existing = None if _preview else await get_sick_leave_calculation_for_leave(
         db,
         company_id=company_id,
         leave_request_id=leave_request_id,
@@ -198,10 +202,11 @@ async def calculate_sick_leave_pay(
             "Sick leave pay requires sick leave"
         )
 
-    await ensure_payroll_source_editable(db, company_id=company_id,
-        contract_id=leave_request.employment_contract_id,
-        date_from=leave_request.start_date, date_to=leave_request.end_date,
-        error_type=PayrollSickLeaveConflictError)
+    if not _preview:
+        await ensure_payroll_source_editable(db, company_id=company_id,
+            contract_id=leave_request.employment_contract_id,
+            date_from=leave_request.start_date, date_to=leave_request.end_date,
+            error_type=PayrollSickLeaveConflictError)
 
     from app.services.payroll_sick_allocation import FIRST_DAY_VERSION
     replacement_basis = (reference_period_start is None and reference_period_end is None
@@ -337,9 +342,11 @@ async def calculate_sick_leave_pay(
         calculated_by=calculated_by,
     )
 
-    db.add(calculation)
-    await db.flush()
+    if not _preview:
+        db.add(calculation)
+        await db.flush()
 
+    source_rows = []
     for source in sources or []:
         source_type = str(source["source_type"]).strip()
 
@@ -378,7 +385,7 @@ async def calculate_sick_leave_pay(
                 "Sick leave source days cannot be negative"
             )
 
-        db.add(
+        source_rows.append(
             PayrollSickLeaveCalculationSource(
                 company_id=company_id,
                 sick_leave_calculation_id=calculation.id,
@@ -398,6 +405,9 @@ async def calculate_sick_leave_pay(
             )
         )
 
+    if _preview:
+        return calculation, source_rows
+    db.add_all(source_rows)
     await db.flush()
 
     return calculation
@@ -428,6 +438,7 @@ async def derive_sick_pay_lines(
             PayrollSickLeaveCalculation.employment_contract_id
             == payroll_input.employment_contract_id,
             LeaveRequest.status == LeaveRequestStatus.APPROVED,
+            current_sick_calculation_filter(),
             LeaveRequest.leave_type == LeaveType.SICK,
             LeaveRequest.start_date <= period.end_date,
             LeaveRequest.end_date >= period.start_date,

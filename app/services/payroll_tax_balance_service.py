@@ -57,27 +57,61 @@ async def payroll_tax_balances(db, *, company_id: int, as_of: date):
         .where(lines.company_id == company_id, JournalEntry.status.in_(('posted','reversed')),
             JournalEntry.entry_date <= as_of, or_(reversal.id.is_(None), reversal.entry_date > as_of))
         .group_by(lines.payroll_calculation_id, header.component))).all()
-    paid = {(calculation_id, component): amount for calculation_id, component, amount in payments}
+    from app.models.payroll_sick_correction_application import PayrollSickPayrollRevision, PayrollSickCorrectionApplication
+    edges = list((await db.scalars(select(PayrollSickPayrollRevision)
+        .join(PayrollSickCorrectionApplication,
+            (PayrollSickCorrectionApplication.company_id==PayrollSickPayrollRevision.company_id) &
+            (PayrollSickCorrectionApplication.id==PayrollSickPayrollRevision.application_id))
+        .where(PayrollSickPayrollRevision.company_id==company_id,
+            PayrollSickCorrectionApplication.correction_date<=as_of))).all())
+    successor = {edge.original_calculation_id: edge.replacement_calculation_id for edge in edges}
+    by_journal = {edge.journal_entry_id: edge for edge in edges if edge.journal_entry_id is not None}
+    def current_at(identifier):
+        seen = set()
+        while identifier in successor:
+            if identifier in seen:
+                raise TaxRemittanceError('Cyclic sick tax correction lineage')
+            seen.add(identifier)
+            identifier = successor[identifier]
+        return identifier
+    paid = {}
+    for calculation_id, component, amount in payments:
+        key = (current_at(calculation_id), component)
+        paid[key] = paid.get(key,D(0))+amount
     rows = {}
+    snapshot_components = dict(personal_income_tax='personal_income_tax', military_levy='military_levy',
+        unified_social_contribution='employer_contribution')
+    counted_differences = set()
     for item in accruals:
         if item.component not in ROLES or item.currency_code != 'UAH':
             raise TaxRemittanceError('Tax balance contains unsupported component or currency')
-        key = (item.id, item.component)
-        row = rows.setdefault(key, dict(payroll_calculation_id=item.id, employee_id=item.employee_id,
+        key = (current_at(item.id), item.component)
+        row = rows.setdefault(key, dict(payroll_calculation_id=key[0], employee_id=item.employee_id,
             employment_contract_id=item.employment_contract_id, period_start=item.start_date,
             period_end=item.end_date, component=item.component, accrued_amount=D(0),
             paid_amount=paid.pop(key, D(0)), accrual_journal_id=item.accrual_journal_id))
-        row['accrued_amount'] += item.amount
+        edge = by_journal.get(item.accrual_journal_id)
+        if edge is None:
+            row['accrued_amount'] += item.amount
+        else:
+            difference_key = (edge.id, item.component)
+            if difference_key in counted_differences:
+                continue
+            counted_differences.add(difference_key)
+            field = snapshot_components[item.component]
+            row['accrued_amount'] += D(edge.replacement_financial[field])-D(edge.original_financial[field])
     if paid:
         # Never silently drop a payment whose recognized source is missing.
         raise TaxRemittanceError('Attributed tax payment has no active accrual at the requested date')
     totals = {component: dict(component=component, accrued_amount=D(0), paid_amount=D(0),
-        outstanding_amount=D(0)) for component in ROLES}
+        outstanding_amount=D(0), overpaid_amount=D(0)) for component in ROLES}
     for row in rows.values():
         row['outstanding_amount'] = row['accrued_amount'] - row['paid_amount']
-        if row['outstanding_amount'] < 0:
+        row['overpaid_amount'] = max(D(0), -row['outstanding_amount'])
+        if row['overpaid_amount'] and row['payroll_calculation_id'] not in successor.values():
             raise TaxRemittanceError('Attributed tax payments exceed the recognized balance')
-        for field in ('accrued_amount','paid_amount','outstanding_amount'):
+        row['outstanding_amount'] = max(D(0), row['outstanding_amount'])
+        for field in ('accrued_amount','paid_amount','outstanding_amount','overpaid_amount'):
             totals[row['component']][field] += row[field]
     return dict(company_id=company_id, as_of=as_of, currency_code='UAH',
         scope='posted_payroll_and_attributed_bank_payments', rows=list(rows.values()),

@@ -11,6 +11,7 @@ from app.core.config import settings
 
 OLD = "13d4a7b8c041"
 NEW = "13d4a7b8c042"
+HEAD = "13d4a7b8c063"
 
 
 def test_empty_severance_snapshot_downgrade_and_restore(empty_migration_database):
@@ -50,7 +51,8 @@ def test_empty_severance_snapshot_downgrade_and_restore(empty_migration_database
         assert len(versions) == 1, result.stdout
         return versions[0]
 
-    assert revision() == NEW
+    assert revision() == HEAD
+    assert NEW == "13d4a7b8c042"
 
     # Existing runner copies from a c041 database:
     # c042 snapshots must be empty before this test.
@@ -96,12 +98,12 @@ def test_empty_severance_snapshot_downgrade_and_restore(empty_migration_database
     finally:
         # Restore the disposable clone for cleanup and final checks.
         if revision() == OLD:
-            up = alembic("upgrade", NEW)
+            up = alembic("upgrade", HEAD)
             assert up.returncode == 0, (
                 up.stdout, up.stderr
             )
 
-    assert revision() == NEW
+    assert revision() == HEAD
 
     check = alembic("check")
     assert check.returncode == 0, (
@@ -110,5 +112,5 @@ def test_empty_severance_snapshot_downgrade_and_restore(empty_migration_database
 
     print("EMPTY DOWNGRADE c042 -> c041 = PASS")
     print("SNAPSHOT TABLE REMOVED = PASS")
-    print("RESTORE c041 -> c042 = PASS")
+    print("RESTORE c041 -> c048 = PASS")
     print("ALEMBIC CHECK AFTER RESTORE = PASS")

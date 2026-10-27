@@ -55,6 +55,11 @@ async def register_insurance_funding(db, *, company_id, data, created_by):
     receipt=await db.scalar(select(JournalEntry).options(selectinload(JournalEntry.lines)).where(
         JournalEntry.company_id==company_id,JournalEntry.id==data.journal_entry_id)
         .with_for_update().execution_options(populate_existing=True))
+    from app.models.payroll_sick_return import PayrollSickReturn
+    if await db.scalar(select(PayrollSickReturn.id).where(
+        PayrollSickReturn.company_id==company_id,
+        PayrollSickReturn.journal_entry_id==data.journal_entry_id)) is not None:
+        raise InsuranceFundingError('Bank journal already attributed to a sick correction return')
     if receipt is None or receipt.status!='posted' or receipt.reversal_of_id is not None:
         raise InsuranceFundingError('An original posted bank receipt is required')
     if any(getattr(receipt,c.name) is not None for c in JournalEntry.__table__.columns
@@ -88,16 +93,16 @@ async def register_insurance_funding(db, *, company_id, data, created_by):
         if calculation is None:
             raise InsuranceFundingNotFoundError('Payroll calculation not found in company')
         period=await db.get(PayrollPeriod,calculation.payroll_period_id)
-        accrual=await db.scalar(select(JournalEntry).options(selectinload(JournalEntry.lines)).where(
-            JournalEntry.company_id==company_id,JournalEntry.payroll_calculation_id==calculation.id,
-            JournalEntry.reversal_of_id.is_(None),JournalEntry.status=='posted'))
-        if accrual is None or accrual.entry_date>receipt.entry_date:
-            raise InsuranceFundingError('Post the payroll receivable before registering its funding')
+        from app.services.payroll_revision_service import require_current_calculation
+        from app.services.payroll_sick_financial_sources import recognized_sick_chain
+        await require_current_calculation(db, calculation=calculation, error_type=InsuranceFundingError)
+        accruals = await recognized_sick_chain(db, company_id=company_id, calculation_id=calculation.id,
+            as_of=receipt.entry_date, error_type=InsuranceFundingError)
         try:
             _, entitled=await sick_funding_for_calculation(db,company_id=company_id,calculation=calculation,period=period)
         except ValueError as exc:
             raise InsuranceFundingError(str(exc)) from exc
-        recognized=sum((x.debit-x.credit for x in accrual.lines if x.account_id==receivable),D(0))
+        recognized=sum((x.debit-x.credit for accrual in accruals for x in accrual.lines if x.account_id==receivable),D(0))
         if recognized!=entitled:
             raise InsuranceFundingError('Posted insurer receivable differs from payroll source')
         used=await funding_commitment(db,company_id=company_id,calculation_id=calculation.id,
@@ -133,14 +138,19 @@ def peak_commitment(rows, from_date):
 
 
 async def funding_commitment(db, *, company_id, calculation_id, from_date):
+    from app.services.payroll_sick_financial_sources import sick_settlement_chain
+    calculation_ids = await sick_settlement_chain(db, company_id=company_id, calculation_id=calculation_id)
     reversal=aliased(JournalEntry)
     rows=(await db.execute(select(Line.amount,JournalEntry.entry_date,reversal.entry_date)
         .join(Funding,(Funding.company_id==Line.company_id)&(Funding.id==Line.funding_id))
         .join(JournalEntry,(JournalEntry.company_id==Funding.company_id)&(JournalEntry.id==Funding.journal_entry_id))
         .outerjoin(reversal,(reversal.company_id==JournalEntry.company_id)&(reversal.reversal_of_id==JournalEntry.id)&(reversal.status=='posted'))
-        .where(Line.company_id==company_id,Line.payroll_calculation_id==calculation_id,
+        .where(Line.company_id==company_id,Line.payroll_calculation_id.in_(calculation_ids),
                JournalEntry.status.in_(('posted','reversed'))))).all()
-    return peak_commitment(rows,from_date)
+    from app.services.payroll_sick_settlement_service import available_return_credit
+    returned = await available_return_credit(db, company_id=company_id,
+        calculation_ids=calculation_ids, kind='insurer', from_date=from_date)
+    return peak_commitment(rows,from_date)-returned
 
 
 async def ensure_no_insurance_funding(db, *, company_id, calculation_id, reversal_date, error_type):

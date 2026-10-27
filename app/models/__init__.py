@@ -257,3 +257,11 @@ from app.models.payroll_leave_compensation import PayrollLeaveCompensationRevers
 from app.models.payroll_termination_severance import PayrollTerminationSeverance
 
 from app.models.payroll_severance_statutory_record import PayrollSeveranceStatutoryRecord
+
+from app.models.payroll_sick_correction_application import (
+    PayrollSickCorrectionApplication, PayrollSickPayrollRevision,
+)
+
+from app.models.payroll_sick_return import PayrollSickReturn
+
+from app.models.payroll_sick_correction import PayrollSickCorrection

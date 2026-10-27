@@ -320,7 +320,7 @@ async def test_severance_migration_and_history_e2e(empty_migration_database):
                 text("SELECT version_num FROM alembic_version")
             )
 
-            assert revision == "13d4a7b8c042"
+            assert revision == "13d4a7b8c063"
     finally:
         await verify_engine.dispose()
 

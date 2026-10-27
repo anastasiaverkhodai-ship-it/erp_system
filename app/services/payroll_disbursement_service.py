@@ -74,12 +74,25 @@ async def create_payroll_disbursement(
     *,
     company_id: int,
     payroll_calculation_id: int,
-    bank_account_id: int,
+    bank_account_id: int | None,
     payment_date: date,
     created_by: int,
     amount: Decimal | None = None,
     request_key: str | None = None,
+    cash_desk_id: int | None = None,
 ) -> PayrollDisbursement:
+    if (bank_account_id is None) == (cash_desk_id is None):
+        raise PayrollDisbursementSourceStateError(
+            "Exactly one bank or cash source is required"
+        )
+    if bank_account_id is not None and bank_account_id <= 0:
+        raise PayrollDisbursementSourceStateError(
+            "Invalid bank account ID"
+        )
+    if cash_desk_id is not None and cash_desk_id <= 0:
+        raise PayrollDisbursementSourceStateError(
+            "Invalid cash desk ID"
+        )
     if amount is not None and request_key is None:
         raise PayrollDisbursementSourceStateError('Partial disbursement requires request_key')
     key = request_key.strip() if request_key is not None else f"payroll:{payroll_calculation_id}"
@@ -106,7 +119,7 @@ async def create_payroll_disbursement(
         if existing.cancelled_at is not None:
             raise PayrollDisbursementSourceStateError('Disbursement cancelled; use a new request key')
         requested_amount = existing.amount if amount is None else amount
-        if (existing.bank_account_id != bank_account_id or existing.payment_date != payment_date
+        if (existing.bank_account_id != bank_account_id or existing.cash_desk_id != cash_desk_id or existing.payment_date != payment_date
             or (requested_amount is None or Decimal(existing.amount) != Decimal(requested_amount))):
             raise PayrollDisbursementSourceStateError(
                 'Existing disbursement has different bank account or payment date')
@@ -169,37 +182,75 @@ async def create_payroll_disbursement(
             "Employee not found"
         )
 
-    iban = getattr(employee, "payment_iban", None)
-    if not iban:
-        raise PayrollDisbursementSourceStateError(
-            "Employee payment IBAN is required"
-        )
+    iban = None
+    bank_account = None
+    cash_desk = None
 
-    bank_account = (
-        await db.execute(
+    if bank_account_id is not None:
+        iban = getattr(employee, "payment_iban", None)
+        if not iban:
+            raise PayrollDisbursementSourceStateError(
+                "Employee payment IBAN is required"
+            )
+        bank_account = await db.scalar(
             select(BankAccount).where(
                 BankAccount.company_id == company_id,
                 BankAccount.id == bank_account_id,
             )
         )
-    ).scalar_one_or_none()
-    if bank_account is None:
-        raise PayrollDisbursementNotFoundError(
-            "Bank account not found"
+        if bank_account is None:
+            raise PayrollDisbursementNotFoundError(
+                "Bank account not found"
+            )
+        if not bank_account.is_active:
+            raise PayrollDisbursementSourceStateError(
+                "Bank account must be active"
+            )
+        if (
+            bank_account.currency_code != calculation.currency_code
+            or statutory.currency_code != calculation.currency_code
+        ):
+            raise PayrollDisbursementCurrencyError(
+                "Payroll and bank account currencies must match"
+            )
+    else:
+        from app.models.cash_desk import CashDesk
+
+        cash_desk = await db.scalar(
+            select(CashDesk).where(
+                CashDesk.company_id == company_id,
+                CashDesk.id == cash_desk_id,
+            )
         )
-    if not bank_account.is_active:
-        raise PayrollDisbursementSourceStateError(
-            "Bank account must be active"
+        if cash_desk is None:
+            raise PayrollDisbursementNotFoundError(
+                "Cash desk not found in company"
+            )
+        if not cash_desk.is_active:
+            raise PayrollDisbursementSourceStateError(
+                "Cash desk must be active"
+            )
+        if (
+            cash_desk.currency_code != calculation.currency_code
+            or statutory.currency_code != calculation.currency_code
+        ):
+            raise PayrollDisbursementCurrencyError(
+                "Payroll and cash desk currencies must match"
+            )
+        cash_gl = await db.scalar(
+            select(Account).where(
+                Account.company_id == company_id,
+                Account.id == cash_desk.accounting_account_id,
+            )
         )
-    if (
-        bank_account.currency_code
-        != calculation.currency_code
-        or statutory.currency_code
-        != calculation.currency_code
-    ):
-        raise PayrollDisbursementCurrencyError(
-            "Payroll and bank account currencies must match"
-        )
+        if (
+            cash_gl is None
+            or not cash_gl.is_active
+            or not cash_gl.is_postable
+        ):
+            raise PayrollDisbursementSourceStateError(
+                "Cash desk accounting account must be active and postable"
+            )
 
     deduction_result = await db.scalar(
         select(PayrollDeductionResult).where(
@@ -272,13 +323,17 @@ async def create_payroll_disbursement(
                 raise PayrollDisbursementSourceStateError('Disbursement cannot precede deduction reversal')
             payable_ceiling = Decimal(statutory.net_amount)
 
+    from app.services.payroll_sick_financial_sources import sick_settlement_chain
+    settlement_calculation_ids = await sick_settlement_chain(db,
+        company_id=company_id, calculation_id=calculation.id)
+
     reserved = await db.scalar(select(func.coalesce(func.sum(PayrollDisbursement.amount + PayrollDisbursement.withheld_amount), 0))
         .outerjoin(JournalEntry, and_(
             JournalEntry.company_id == PayrollDisbursement.company_id,
             JournalEntry.payroll_disbursement_id == PayrollDisbursement.id,
             JournalEntry.reversal_of_id.is_(None)))
         .where(PayrollDisbursement.company_id == company_id,
-            PayrollDisbursement.payroll_calculation_id == calculation.id,
+            PayrollDisbursement.payroll_calculation_id.in_(settlement_calculation_ids),
             PayrollDisbursement.cancelled_at.is_(None),
             or_(JournalEntry.id.is_(None), JournalEntry.status != JournalEntryStatus.REVERSED)))
     advance_reserved = await db.scalar(
@@ -336,10 +391,14 @@ async def create_payroll_disbursement(
             JournalEntry.reversal_of_id == original_payment.id,
             JournalEntry.status == JournalEntryStatus.POSTED))
         .where(PayrollDisbursement.company_id == company_id,
-            PayrollDisbursement.payroll_calculation_id == calculation.id,
+            PayrollDisbursement.payroll_calculation_id.in_(settlement_calculation_ids),
             original_payment.status == JournalEntryStatus.REVERSED,
             JournalEntry.entry_date > payment_date))
     reserved = Decimal(reserved or 0) + Decimal(late_reversed_payments or 0)
+    from app.services.payroll_sick_settlement_service import available_return_credit
+    reserved -= await available_return_credit(db, company_id=company_id,
+        calculation_ids=settlement_calculation_ids, kind='employee', from_date=payment_date)
+
 
     from app.services.payroll_severance_payment_service import severance_net
     try:
@@ -376,7 +435,15 @@ async def create_payroll_disbursement(
         request_key=key,
         payroll_calculation_id=calculation.id,
         employee_id=employee.id,
-        bank_account_id=bank_account.id,
+        bank_account_id=(
+            bank_account.id if bank_account is not None else None
+        ),
+        cash_desk_id=(
+            cash_desk.id if cash_desk is not None else None
+        ),
+        cash_account_id_snapshot=(
+            cash_gl.id if cash_desk is not None else None
+        ),
         employee_iban_snapshot=iban,
         amount=amount,
         currency_code=calculation.currency_code,
@@ -467,40 +534,84 @@ async def generate_and_post_payroll_disbursement_journal(
             "Payroll disbursement not found"
         )
 
-    bank_account = (
-        await db.execute(
+    if (disbursement.bank_account_id is None) == (
+        disbursement.cash_desk_id is None
+    ):
+        raise PayrollDisbursementSourceStateError(
+            "Invalid payroll payment source"
+        )
+
+    money_gl = None
+
+    if disbursement.bank_account_id is not None:
+        bank_account = await db.scalar(
             select(BankAccount).where(
                 BankAccount.company_id == company_id,
                 BankAccount.id == disbursement.bank_account_id,
             )
         )
-    ).scalar_one_or_none()
-    if bank_account is None or not bank_account.is_active:
-        raise PayrollDisbursementSourceStateError(
-            "Active bank account is required"
-        )
-
-    if bank_account.currency_code != disbursement.currency_code:
-        raise PayrollDisbursementCurrencyError(
-            "Bank account currency does not match disbursement"
-        )
-
-    bank_gl = (
-        await db.execute(
+        if bank_account is None or not bank_account.is_active:
+            raise PayrollDisbursementSourceStateError(
+                "Active bank account is required"
+            )
+        if bank_account.currency_code != disbursement.currency_code:
+            raise PayrollDisbursementCurrencyError(
+                "Bank account currency does not match disbursement"
+            )
+        if not disbursement.employee_iban_snapshot:
+            raise PayrollDisbursementSourceStateError(
+                "Bank disbursement requires employee IBAN"
+            )
+        money_gl = await db.scalar(
             select(Account).where(
                 Account.company_id == company_id,
                 Account.id == bank_account.accounting_account_id,
             )
         )
-    ).scalar_one_or_none()
-    if bank_gl is None:
-        raise PayrollDisbursementSourceStateError(
-            "Bank accounting account not found"
+        if money_gl is None:
+            raise PayrollDisbursementSourceStateError(
+                "Bank accounting account not found"
+            )
+        if not money_gl.is_active or not money_gl.is_postable:
+            raise PayrollDisbursementSourceStateError(
+                "Bank accounting account must be active and postable"
+            )
+    else:
+        from app.models.cash_desk import CashDesk
+
+        cash_desk = await db.scalar(
+            select(CashDesk).where(
+                CashDesk.company_id == company_id,
+                CashDesk.id == disbursement.cash_desk_id,
+            )
         )
-    if not bank_gl.is_active or not bank_gl.is_postable:
-        raise PayrollDisbursementSourceStateError(
-            "Bank accounting account must be active and postable"
+        if cash_desk is None or not cash_desk.is_active:
+            raise PayrollDisbursementSourceStateError(
+                "Active company cash desk is required"
+            )
+        if cash_desk.currency_code != disbursement.currency_code:
+            raise PayrollDisbursementCurrencyError(
+                "Cash desk currency does not match disbursement"
+            )
+        if disbursement.employee_iban_snapshot is not None:
+            raise PayrollDisbursementSourceStateError(
+                "Cash disbursement cannot contain employee IBAN"
+            )
+        money_gl = await db.scalar(
+            select(Account).where(
+                Account.company_id == company_id,
+                Account.id == disbursement.cash_account_id_snapshot,
+            )
         )
+        if (
+            disbursement.cash_account_id_snapshot is None
+            or money_gl is None
+            or not money_gl.is_active
+            or not money_gl.is_postable
+        ):
+            raise PayrollDisbursementSourceStateError(
+                "Cash accounting account must be active and postable"
+            )
 
     try:
         accounts = await resolve_company_account_roles(
@@ -516,6 +627,20 @@ async def generate_and_post_payroll_disbursement_journal(
     ]
     amount = Decimal(disbursement.amount)
 
+    if money_gl.id == payable.id:
+        raise PayrollDisbursementSourceStateError(
+            "Payroll payable and money accounts must be distinct"
+        )
+
+    if disbursement.cash_desk_id is not None:
+        from app.services.cash_physical_posting_enforcement import (
+            lock_cash_posting_scope,
+        )
+        await lock_cash_posting_scope(
+            db,
+            company_id=company_id,
+            cash_desk_id=disbursement.cash_desk_id,
+        )
     journal = JournalEntry(
         company_id=company_id,
         payroll_disbursement_id=disbursement.id,
@@ -537,10 +662,14 @@ async def generate_and_post_payroll_disbursement_journal(
         ),
         JournalEntryLine(
             line_no=2,
-            account_id=bank_gl.id,
+            account_id=money_gl.id,
             debit=Decimal("0.00"),
             credit=amount,
-            description="Payroll bank disbursement",
+            description=(
+                "Payroll bank disbursement"
+                if disbursement.bank_account_id is not None
+                else "Payroll cash disbursement"
+            ),
         ),
     ]
 
@@ -550,11 +679,39 @@ async def generate_and_post_payroll_disbursement_journal(
     db.add(journal)
     await db.flush()
 
-    return await post_journal_entry(
-        db,
-        company_id,
-        journal.id,
+    from app.services.cash_direct_gl_guard import (
+        cash_gl_lifecycle_scope,
     )
+    with cash_gl_lifecycle_scope(
+        db, "payroll", disbursement.id, "post"
+    ):
+        posted_journal = await post_journal_entry(
+            db, company_id, journal.id
+        )
+
+    if disbursement.cash_desk_id is not None:
+        from app.services.payroll_cash_document_service import (
+            ensure_payroll_cash_issue_document,
+        )
+
+        await ensure_payroll_cash_issue_document(
+            db,
+            company_id=company_id,
+            payroll_disbursement_id=disbursement.id,
+            created_by=created_by,
+        )
+
+    if disbursement.cash_desk_id is not None:
+        from app.services.cash_physical_posting_enforcement import (
+            enforce_cash_posting_chronology,
+        )
+        await enforce_cash_posting_chronology(
+            db,
+            company_id=company_id,
+            cash_desk_id=disbursement.cash_desk_id,
+            as_of_date=disbursement.payment_date,
+        )
+    return posted_journal
 
 
 @serialized_payroll_mutation(PayrollDisbursementSourceStateError)
@@ -576,13 +733,75 @@ async def reverse_payroll_disbursement_journal(
             "Payroll disbursement journal not found"
         )
 
-    return await reverse_journal_entry(
-        db,
-        company_id,
-        original.id,
-        reversal_date,
-        reversed_by,
+    cash_reversal_source = await db.scalar(
+        select(PayrollDisbursement).where(
+            PayrollDisbursement.company_id == company_id,
+            PayrollDisbursement.id == payroll_disbursement_id,
+        )
     )
+    if (
+        cash_reversal_source is not None
+        and cash_reversal_source.cash_desk_id is not None
+    ):
+        from app.services.cash_physical_posting_enforcement import (
+            lock_cash_posting_scope,
+        )
+        await lock_cash_posting_scope(
+            db,
+            company_id=company_id,
+            cash_desk_id=cash_reversal_source.cash_desk_id,
+        )
+    from app.services.cash_direct_gl_guard import (
+        cash_gl_lifecycle_scope,
+    )
+    with cash_gl_lifecycle_scope(
+        db, "payroll", payroll_disbursement_id, "reverse"
+    ):
+        reversal_journal = await reverse_journal_entry(
+            db,
+            company_id,
+            original.id,
+            reversal_date,
+            reversed_by,
+        )
+
+    if original.payroll_disbursement_id is not None:
+        from app.services.payroll_cash_document_service import (
+            ensure_payroll_cash_reversal_document,
+        )
+
+        cash_payout = await db.scalar(
+            select(PayrollDisbursement).where(
+                PayrollDisbursement.company_id == company_id,
+                PayrollDisbursement.id == payroll_disbursement_id,
+            )
+        )
+
+        if (
+            cash_payout is not None
+            and cash_payout.cash_desk_id is not None
+        ):
+            await ensure_payroll_cash_reversal_document(
+                db,
+                company_id=company_id,
+                payroll_disbursement_id=payroll_disbursement_id,
+                created_by=reversed_by,
+            )
+
+    if (
+        cash_reversal_source is not None
+        and cash_reversal_source.cash_desk_id is not None
+    ):
+        from app.services.cash_physical_posting_enforcement import (
+            enforce_cash_posting_chronology,
+        )
+        await enforce_cash_posting_chronology(
+            db,
+            company_id=company_id,
+            cash_desk_id=cash_reversal_source.cash_desk_id,
+            as_of_date=reversal_date,
+        )
+    return reversal_journal
 
 
 async def list_payroll_disbursements(db, *, company_id, payroll_calculation_id):

@@ -70,7 +70,7 @@ async def _run_on_isolated_db(callback):
                     text("SELECT version_num FROM alembic_version")
                 )
             ).scalar_one()
-            assert version == "13d4a7b8c042"
+            assert version == "13d4a7b8c063"
 
             return await callback(conn)
     finally:

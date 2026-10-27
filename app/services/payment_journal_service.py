@@ -364,6 +364,19 @@ async def generate_and_post_payment_journal_entry(
             cash_desk.accounting_account_id
         )
 
+        # The Payment lifecycle must capture the historical
+        # account BEFORE status becomes CONFIRMED. The journal
+        # may only use that already captured account.
+        if (
+            payment.cash_account_id_snapshot is None
+            or payment.cash_account_id_snapshot
+            != cash_accounting_account_id
+        ):
+            raise PaymentJournalSourceStateError(
+                "Cash payment snapshot missing or does not match "
+                "the locked cash desk accounting account"
+            )
+
     lines = await _build_journal_lines(
         db,
         company_id=payment.company_id,
@@ -391,10 +404,16 @@ async def generate_and_post_payment_journal_entry(
 
     journal_entry.lines = lines
 
-    return await _validate_and_post(
-        db,
-        journal_entry=journal_entry,
+    from app.services.cash_direct_gl_guard import (
+        cash_gl_lifecycle_scope,
     )
+    with cash_gl_lifecycle_scope(
+        db, "payment", payment.id, "post"
+    ):
+        return await _validate_and_post(
+            db,
+            journal_entry=journal_entry,
+        )
 
 
 async def generate_and_post_settlement_journal_entry(
@@ -630,13 +649,19 @@ async def reverse_payment_journal_entry(
     )
 
     try:
-        return await reverse_journal_entry(
-            db=db,
-            company_id=company_id,
-            journal_entry_id=original.id,
-            reversal_date=reversal_date,
-            reversed_by=reversed_by,
+        from app.services.cash_direct_gl_guard import (
+            cash_gl_lifecycle_scope,
         )
+        with cash_gl_lifecycle_scope(
+            db, "payment", payment_id, "reverse"
+        ):
+            return await reverse_journal_entry(
+                db=db,
+                company_id=company_id,
+                journal_entry_id=original.id,
+                reversal_date=reversal_date,
+                reversed_by=reversed_by,
+            )
     except AccountingReversalError as exc:
         raise PaymentJournalError(
             str(exc)

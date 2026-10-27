@@ -28,6 +28,8 @@ from app.services.payroll_disbursement_service import (
 from app.services.accounting_posting import AccountingPostingError
 from app.services.accounting_reversal import AccountingReversalError
 
+from app.schemas.payroll_disbursement import PayrollOpeningBankDisbursementCreate
+
 router = APIRouter(tags=["payroll-disbursements"])
 
 
@@ -91,6 +93,7 @@ async def api_create_payroll_disbursement(
             company_id=company_id,
             payroll_calculation_id=payroll_calculation_id,
             bank_account_id=payload.bank_account_id,
+            cash_desk_id=payload.cash_desk_id,
             payment_date=payload.payment_date,
             created_by=current_user.id,
             amount=payload.amount,
@@ -262,7 +265,7 @@ async def api_unmatch_payroll_bank(company_id: int, payroll_disbursement_id: int
 @router.post('/companies/{company_id}/payroll-opening-debts/{opening_debt_id}/disbursements',
              response_model=PayrollDisbursementRead,status_code=status.HTTP_201_CREATED)
 async def api_create_opening_disbursement(company_id:int,opening_debt_id:int,
-    payload:PayrollDisbursementCreate,db:AsyncSession=Depends(get_db),
+    payload:PayrollOpeningBankDisbursementCreate,db:AsyncSession=Depends(get_db),
     actor:User=Depends(require_company_permission('journal_entries.create'))):
     from app.services.payroll_opening_disbursement_service import create_opening_disbursement
     try:

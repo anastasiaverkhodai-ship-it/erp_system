@@ -104,10 +104,23 @@ async def test_event_migration_and_immutable_history(employee_engine):
         from app.models.payroll_leave_balance import PayrollLeaveBalanceEntry
         from app.models.payroll_leave_compensation import PayrollLeaveCompensation
         from app.models.payroll_termination_severance import PayrollTerminationSeverance
+        from app.models.payroll_d5_professional_evidence import PayrollD5ProfessionalEvidence
         from sqlalchemy.schema import DropConstraint, AddConstraint
-        incoming = [constraint for model in (PayrollLeaveBalanceEntry, PayrollLeaveCompensation, PayrollTerminationSeverance)
+        incoming = [constraint for model in (PayrollLeaveBalanceEntry, PayrollLeaveCompensation, PayrollTerminationSeverance, PayrollD5ProfessionalEvidence)
             for constraint in model.__table__.foreign_key_constraints
             if constraint.referred_table.name == 'employment_events']
+        from sqlalchemy import inspect as sa_inspect
+        existing_incoming = []
+        for constraint in incoming:
+            table_exists = await connection.run_sync(
+                lambda sync_conn: sa_inspect(sync_conn).has_table(
+                    constraint.table.name,
+                    schema=constraint.table.schema,
+                )
+            )
+            if table_exists:
+                existing_incoming.append(constraint)
+        incoming = existing_incoming
         for constraint in incoming:
             await connection.execute(DropConstraint(constraint, isolate_from_table=False))
         await connection.execute(text('DROP TABLE employment_events'))

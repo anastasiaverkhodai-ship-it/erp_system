@@ -48,13 +48,15 @@ async def remittance_response(db, row):
 
 
 async def remittance_commitment(db, *, company_id, calculation_id, component, from_date):
+    from app.services.payroll_sick_financial_sources import sick_settlement_chain
+    calculation_ids = await sick_settlement_chain(db, company_id=company_id, calculation_id=calculation_id)
     reversal = aliased(JournalEntry)
     rows = (await db.execute(select(Line.amount, JournalEntry.entry_date, reversal.entry_date)
         .join(Remittance, (Remittance.company_id == Line.company_id) & (Remittance.id == Line.remittance_id))
         .join(JournalEntry, (JournalEntry.company_id == Remittance.company_id) & (JournalEntry.id == Remittance.journal_entry_id))
         .outerjoin(reversal, (reversal.company_id == JournalEntry.company_id) &
             (reversal.reversal_of_id == JournalEntry.id) & (reversal.status == 'posted'))
-        .where(Line.company_id == company_id, Line.payroll_calculation_id == calculation_id,
+        .where(Line.company_id == company_id, Line.payroll_calculation_id.in_(calculation_ids),
             Remittance.component == component, JournalEntry.status.in_(('posted', 'reversed'))))).all()
     return peak_commitment(rows, from_date)
 
@@ -64,11 +66,11 @@ async def recognized_tax(db, *, company_id, calculation_id, component, payment_d
         PayrollCalculation.company_id == company_id, PayrollCalculation.id == calculation_id))
     if calculation is None:
         raise TaxRemittanceNotFoundError('Payroll calculation not found in company')
-    accrual = await db.scalar(select(JournalEntry).options(selectinload(JournalEntry.lines)).where(
-        JournalEntry.company_id == company_id, JournalEntry.payroll_calculation_id == calculation_id,
-        JournalEntry.reversal_of_id.is_(None), JournalEntry.status == 'posted'))
-    if accrual is None or accrual.entry_date > payment_date:
-        raise TaxRemittanceError('Post payroll accrual before attributing its tax payment')
+    from app.services.payroll_revision_service import require_current_calculation
+    from app.services.payroll_sick_financial_sources import recognized_sick_chain
+    await require_current_calculation(db, calculation=calculation, error_type=TaxRemittanceError)
+    accruals = await recognized_sick_chain(db, company_id=company_id, calculation_id=calculation_id,
+        as_of=payment_date, error_type=TaxRemittanceError)
     lines = (await db.scalars(select(PayrollStatutoryResultLine)
         .join(PayrollStatutoryResult,
             (PayrollStatutoryResult.company_id == PayrollStatutoryResultLine.company_id) &
@@ -85,7 +87,7 @@ async def recognized_tax(db, *, company_id, calculation_id, component, payment_d
     # liability on that account, while tracking each tax separately below.
     expected = sum((amount for key, amount in amounts.items()
                     if accounts[ROLES[key]].id == account_id), D(0))
-    recognized = sum((line.credit - line.debit for line in accrual.lines
+    recognized = sum((line.credit - line.debit for accrual in accruals for line in accrual.lines
                       if line.account_id == account_id), D(0))
     if expected != recognized or amounts[component] <= 0:
         raise TaxRemittanceError('Posted tax liability differs from statutory payroll source')
@@ -109,11 +111,34 @@ async def register_tax_remittance(db, *, company_id, data, created_by):
     payment = await db.scalar(select(JournalEntry).options(selectinload(JournalEntry.lines)).where(
         JournalEntry.company_id == company_id, JournalEntry.id == data.journal_entry_id)
         .with_for_update().execution_options(populate_existing=True))
+    from app.models.payroll_sick_return import PayrollSickReturn
+    if await db.scalar(select(PayrollSickReturn.id).where(
+        PayrollSickReturn.company_id==company_id,
+        PayrollSickReturn.journal_entry_id==data.journal_entry_id)) is not None:
+        raise TaxRemittanceError('Bank journal already attributed to a sick correction return')
     if payment is None or payment.status != 'posted' or payment.reversal_of_id is not None:
         raise TaxRemittanceError('An original posted bank tax payment is required')
     if any(getattr(payment, column.name) is not None for column in JournalEntry.__table__.columns
            if column.name.endswith('_id') and column.name not in {'company_id','id','reversal_of_id','accounting_rule_id'}):
         raise TaxRemittanceError('Payment is already owned by another business document')
+    # A single posted bank journal cannot settle both advance and
+    # monthly payroll taxes. Check while holding its FOR UPDATE lock.
+    from app.models.payroll_advance_tax_remittance import (
+        PayrollAdvanceTaxRemittance,
+    )
+
+    advance_attribution = await db.scalar(
+        select(PayrollAdvanceTaxRemittance.id).where(
+            PayrollAdvanceTaxRemittance.company_id == company_id,
+            PayrollAdvanceTaxRemittance.journal_entry_id
+            == data.journal_entry_id,
+        )
+    )
+    if advance_attribution is not None:
+        raise TaxRemittanceError(
+            'Payment journal already attributed to advance tax'
+        )
+
     bank = await db.scalar(select(BankAccount).where(BankAccount.company_id == company_id,
         BankAccount.id == data.bank_account_id, BankAccount.is_active.is_(True)))
     if bank is None or bank.currency_code != 'UAH':

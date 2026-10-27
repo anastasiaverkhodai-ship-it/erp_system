@@ -9,6 +9,7 @@ import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.autogenerate import compare_metadata
 from app.core.database import Base
+from app.models.payroll_advance_tax_remittance import PayrollAdvanceTaxRemittance
 from sqlalchemy.schema import AddConstraint, DropConstraint
 from test_employee_foundation import employee_engine
 
@@ -42,6 +43,22 @@ async def test_settlement_migrations_roundtrip(employee_engine):
                     'payroll_withholding_batches'].foreign_key_constraints
                     if c.name == 'fk_pwb_advance')
                 sync.execute(DropConstraint(advance_fk, isolate_from_table=False))
+
+                # Revision c043 adds a FK to payroll_advances. Older
+                # migrations temporarily drop/recreate payroll_advances.
+                # Suspend only this dependency inside the test transaction.
+                advance_tax_fk = next(
+                    c for c in Base.metadata.tables[
+                        'payroll_advance_tax_remittances'
+                    ].foreign_key_constraints
+                    if c.name == 'fk_advance_tax_remittance_advance'
+                )
+                sync.execute(
+                    DropConstraint(
+                        advance_tax_fk,
+                        isolate_from_table=False,
+                    )
+                )
                 commissioning.downgrade()
                 for module in reversed(modules):
                     module.downgrade()
@@ -59,6 +76,12 @@ async def test_settlement_migrations_roundtrip(employee_engine):
                     if isinstance(constraint, sa.CheckConstraint) and 'withheld_amount' in str(constraint.sqltext):
                         sync.execute(AddConstraint(constraint, isolate_from_table=False))
                 sync.execute(AddConstraint(advance_fk, isolate_from_table=False))
+                sync.execute(
+                    AddConstraint(
+                        advance_tax_fk,
+                        isolate_from_table=False,
+                    )
+                )
             differences = compare_metadata(MigrationContext.configure(sync), Base.metadata)
             assert differences == [], repr(differences)
         await conn.run_sync(roundtrip)

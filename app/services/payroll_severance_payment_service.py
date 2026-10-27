@@ -28,7 +28,15 @@ async def severance_net(db, *, company_id, payroll_calculation_id):
     lines = list((await db.scalars(select(PayrollStatutoryResultLine).where(
         PayrollStatutoryResultLine.company_id == company_id,
         PayrollStatutoryResultLine.payroll_statutory_result_id == result.id))).all())
-    components = {line.component: line for line in lines}
+    # Multiple rows cannot be mapped to one component without
+    # verified dated severance attribution. Fail closed.
+    components = {}
+    for line in lines:
+        if line.component in components:
+            raise ValueError(
+                "Severance statutory component has multiple lines"
+            )
+        components[line.component] = line
     tax = Decimal('0.00')
     for component, rate in [('personal_income_tax', Decimal('.18')), ('military_levy', Decimal('.05'))]:
         line = components.get(component)
@@ -53,6 +61,9 @@ async def payment_protected_minimum(db, *, company_id, payment):
         payroll_calculation_id=payment.payroll_calculation_id)
     if not protected:
         return protected
+    from app.services.payroll_sick_financial_sources import sick_settlement_chain
+    settlement_ids = await sick_settlement_chain(db, company_id=company_id,
+        calculation_id=payment.payroll_calculation_id)
     reversal = aliased(JournalEntry)
     rows = (await db.execute(select(Payment, JournalEntry.status, reversal.entry_date)
         .outerjoin(JournalEntry, and_(JournalEntry.company_id == Payment.company_id,
@@ -60,7 +71,7 @@ async def payment_protected_minimum(db, *, company_id, payment):
         .outerjoin(reversal, and_(reversal.company_id == JournalEntry.company_id,
             reversal.reversal_of_id == JournalEntry.id, reversal.status == 'posted'))
         .where(Payment.company_id == company_id,
-            Payment.payroll_calculation_id == payment.payroll_calculation_id,
+            Payment.payroll_calculation_id.in_(settlement_ids),
             Payment.id < payment.id,
             or_(Payment.cancelled_at.is_(None), JournalEntry.status.in_(('posted','reversed')))))).all()
     consumed = Decimal('0.00')

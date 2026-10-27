@@ -247,3 +247,6 @@ app.include_router(payroll_tax_remittance_router, prefix='/api/v1')
 
 from app.api.v1.payroll_leave_balances import router as payroll_leave_balances_router
 app.include_router(payroll_leave_balances_router, prefix='/api/v1')
+
+from app.api.v1.payroll_sick_correction_applications import router as payroll_sick_correction_applications_router
+app.include_router(payroll_sick_correction_applications_router, prefix='/api/v1')

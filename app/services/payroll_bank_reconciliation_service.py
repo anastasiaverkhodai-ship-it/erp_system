@@ -34,6 +34,14 @@ async def _reconcile_payroll_payment(db, *, company_id, payout_id, is_advance,
     ).execution_options(populate_existing=True))
     if line is None or payout is None:
         raise BankStatementReconciliationError('Statement line or payroll disbursement not found')
+    if not is_advance and (
+        payout.bank_account_id is None
+        or payout.cash_desk_id is not None
+    ):
+        raise BankStatementReconciliationError(
+            "Cash payroll disbursement cannot be bank reconciled"
+        )
+
     posted = await db.scalar(select(JournalEntry.id).where(
         JournalEntry.company_id == company_id,
         journal_source == payout.id,

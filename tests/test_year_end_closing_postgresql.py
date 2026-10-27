@@ -219,12 +219,45 @@ async def test_year_end_migration_roundtrip(year_engine):
         spec=spec_from_file_location(filename, 'alembic/versions/' + filename)
         dependency=module_from_spec(spec);spec.loader.exec_module(dependency)
         payroll_dependencies.append(dependency)
+    cash_dependencies = []
+    for filename in (
+        '13d4a7b8c049_payroll_cash_disbursement_source.py',
+        '13d4a7b8c050_payroll_cash_account_snapshot.py',
+        '13d4a7b8c051_payroll_cash_document_evidence.py',
+    ):
+        spec = spec_from_file_location(filename, 'alembic/versions/' + filename)
+        dependency = module_from_spec(spec); spec.loader.exec_module(dependency)
+        cash_dependencies.append(dependency)
     async with year_engine.begin() as conn:
         def roundtrip(sync):
             with Operations.context(MigrationContext.configure(sync)):
                 # A later check references year_end_closing_id. Remove that
                 # dependency first, as an ordered Alembic downgrade would do,
                 # then restore it after reintroducing the year-end column.
+                # Preserve the newer FK before the historical rollback.
+                # The child table is not itself downgraded here.
+                pwb_fk_definition = sync.execute(text("""
+                    SELECT pg_get_constraintdef(c.oid)
+                    FROM pg_constraint c
+                    WHERE c.conname = 'fk_pwb_disbursement'
+                      AND c.contype = 'f'
+                      AND c.conrelid = to_regclass('payroll_withholding_batches')
+                      AND c.confrelid = to_regclass('payroll_disbursements')
+                """)).scalar_one_or_none()
+                if pwb_fk_definition is not None:
+                    assert pwb_fk_definition.startswith("FOREIGN KEY")
+                    sync.execute(text(
+                        "ALTER TABLE payroll_withholding_batches "
+                        "DROP CONSTRAINT fk_pwb_disbursement"
+                    ))
+                # This fixture starts from metadata, without c050/c051 triggers.
+                # Remove only their empty structures before the older roundtrip.
+                assert sync.execute(text('SELECT count(*) FROM payroll_cash_documents')).scalar_one() == 0
+                assert sync.execute(text('SELECT count(*) FROM payroll_disbursements')).scalar_one() == 0
+                Base.metadata.tables['payroll_cash_documents'].drop(sync)
+                sync.execute(text('ALTER TABLE payroll_disbursements DROP CONSTRAINT uq_payroll_disbursements_company_id_cash_desk'))
+                sync.execute(text('ALTER TABLE payroll_disbursements DROP COLUMN cash_account_id_snapshot'))
+                sync.execute(text('ALTER TABLE payroll_disbursements DROP COLUMN cash_desk_id'))
                 for dependency in reversed(payroll_dependencies):
                     dependency.downgrade()
                 commissioning_source.downgrade()
@@ -233,7 +266,57 @@ async def test_year_end_migration_roundtrip(year_engine):
                 commissioning_source.upgrade()
                 for dependency in payroll_dependencies:
                     dependency.upgrade()
-            assert compare_metadata(MigrationContext.configure(sync),Base.metadata) == []
+
+                # A newer payroll execution migration (c030) adds this
+                # column and check. Recreating the older foundation
+                # must not silently discard their schema contract.
+                withheld_col = sync.execute(text("""
+                    SELECT 1
+                    FROM pg_attribute
+                    WHERE attrelid = to_regclass('payroll_disbursements')
+                      AND attname = 'withheld_amount'
+                      AND NOT attisdropped
+                """)).scalar_one_or_none()
+                assert withheld_col is None, (
+                    "STOP: Unexpected disbursement column lifecycle"
+                )
+                sync.execute(text(
+                    "ALTER TABLE payroll_disbursements "
+                    "ADD COLUMN withheld_amount NUMERIC(18,2) "
+                    "NOT NULL DEFAULT 0"
+                ))
+                sync.execute(text(
+                    "ALTER TABLE payroll_disbursements "
+                    "ADD CONSTRAINT ck_payroll_disbursement_withheld "
+                    "CHECK (withheld_amount >= 0 AND "
+                    "withheld_amount <> 'NaN'::numeric)"
+                ))
+
+                for dependency in cash_dependencies:
+                    dependency.upgrade()
+
+                # Restore the original FK only after the table is
+                # fully reconstructed, and require validation.
+                if pwb_fk_definition is not None:
+                    sync.execute(text(
+                        "ALTER TABLE payroll_withholding_batches "
+                        "ADD CONSTRAINT fk_pwb_disbursement "
+                        + pwb_fk_definition
+                    ))
+                    assert sync.execute(text("""
+                        SELECT convalidated
+                        FROM pg_constraint
+                        WHERE conname = 'fk_pwb_disbursement'
+                          AND conrelid =
+                              to_regclass('payroll_withholding_batches')
+                          AND confrelid =
+                              to_regclass('payroll_disbursements')
+                    """)).scalar_one() is True
+            schema_diff = compare_metadata(MigrationContext.configure(sync), Base.metadata)
+            print("YEAR_END_SCHEMA_DIFF_COUNT =", len(schema_diff), flush=True)
+            for index, item in enumerate(schema_diff, 1):
+                print("YEAR_END_SCHEMA_DIFF", index, "=", repr(item), flush=True)
+            assert schema_diff == []
         await conn.run_sync(roundtrip)
 
 

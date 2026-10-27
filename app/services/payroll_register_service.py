@@ -1,4 +1,5 @@
 """Current settlements for a payroll period, with explicit missing-source states."""
+from datetime import date
 from decimal import Decimal
 from sqlalchemy import and_, select
 from app.models.company import Company
@@ -39,13 +40,17 @@ async def get_payroll_register(db, *, company_id: int, payroll_period_id: int):
     if len(records) > 10000:
         raise PayrollPeriodError('Payroll register exceeds 10000 inputs')
     calculation_ids = [calc.id for _, _, calc, _, _ in records if calc is not None]
+    from app.services.payroll_sick_financial_sources import sick_settlement_chain
+    chains = {identifier: await sick_settlement_chain(db, company_id=company_id,
+        calculation_id=identifier) for identifier in calculation_ids}
+    owner = {historical: current for current, chain in chains.items() for historical in chain}
     payouts = (await db.scalars(select(PayrollDisbursement).where(
         PayrollDisbursement.company_id == company_id,
-        PayrollDisbursement.payroll_calculation_id.in_(calculation_ids))
+        PayrollDisbursement.payroll_calculation_id.in_(owner))
         .execution_options(populate_existing=True))).all() if calculation_ids else []
     by_calculation = {}
     for payout in payouts:
-        by_calculation.setdefault(payout.payroll_calculation_id, []).append(payout)
+        by_calculation.setdefault(owner[payout.payroll_calculation_id], []).append(payout)
     from app.models.payroll_advance import PayrollAdvance
     from app.models.payroll_deduction_result import PayrollDeductionResult
     advances = (await db.execute(select(PayrollAdvance, JournalEntry)
@@ -75,6 +80,10 @@ async def get_payroll_register(db, *, company_id: int, payroll_period_id: int):
             issues.append('calculation_missing')
         elif statutory is None:
             issues.append('statutory_result_missing')
+        corrected = calc is not None and len(chains.get(calc.id,())) > 1
+        if corrected and journal is None:
+            from app.services.payroll_accounting_service import get_payroll_accounting_journal
+            journal = await get_payroll_accounting_journal(db, company_id=company_id, payroll_calculation_id=calc.id)
         status = str(getattr(journal.status, 'value', journal.status)) if journal else 'missing'
         if status != 'posted':
             issues.append('accrual_not_posted')
@@ -127,11 +136,17 @@ async def get_payroll_register(db, *, company_id: int, payroll_period_id: int):
         if missing_deduction:
             issues.append('deduction_result_missing')
         final_payable = net - (Decimal(0) if deduction_reversed else deduction_amount) if net is not None and not missing_deduction else None
-        balance = (net if status == 'posted' else Decimal(0)) - paid - advance_paid - deduction_posted if net is not None else None
-        available = max(Decimal(0), final_payable - paid - reserved - advance_paid - advance_reserved) if final_payable is not None else None
-        if balance is not None and balance < 0:
+        returned = Decimal(0)
+        if corrected:
+            from app.services.payroll_sick_settlement_service import confirmed_returns
+            returned = await confirmed_returns(db, company_id=company_id, calculation_ids=chains[calc.id],
+                kind='employee', as_of=date.max)
+        balance = (net if status == 'posted' else Decimal(0)) - paid - advance_paid - deduction_posted + returned if net is not None else None
+        available = max(Decimal(0), final_payable - paid - reserved - advance_paid - advance_reserved + returned) if final_payable is not None else None
+        if balance is not None and balance < 0 and not corrected:
             issues.append('paid_exceeds_recognized_net')
-        if final_payable is not None and paid + reserved + advance_paid + advance_reserved > final_payable:
+        if final_payable is not None and ((not corrected and paid + reserved + advance_paid + advance_reserved > final_payable) or
+                (corrected and reserved + advance_reserved > max(Decimal(0), final_payable-paid-advance_paid+returned))):
             issues.append('reserved_exceeds_net')
         rows.append(PayrollRegisterRow(payroll_input_id=source.id,
             employment_contract_id=contract.id, employee_id=contract.employee_id,
@@ -140,6 +155,7 @@ async def get_payroll_register(db, *, company_id: int, payroll_period_id: int):
             employee_withholding_amount=statutory.employee_withholding_amount if statutory else None,
             employer_contribution_amount=statutory.employer_contribution_amount if statutory else None,
             net_amount=net, accrual_status=status, paid_amount=paid, reserved_amount=reserved,
+            returned_amount=returned, overpaid_amount=max(Decimal(0), -(balance or Decimal(0))),
             advance_paid_amount=advance_paid, advance_reserved_amount=advance_reserved,
             deduction_amount=None if missing_deduction else deduction_amount, deduction_posted_amount=deduction_posted,
             final_payable_amount=final_payable, recognized_balance=balance, available_to_pay=available, issues=issues))

@@ -236,12 +236,15 @@ async def employee_component_base(db, *, company_id, period, calculation, contra
         if employment.id==contract.id:
             selected=(values,amount,metadata)
         from app.models.payroll_statutory import PayrollStatutoryResult, PayrollStatutoryResultLine
-        saved=(await db.execute(select(PayrollStatutoryResultLine.base_amount,
+        saved = (await db.execute(select(PayrollStatutoryResultLine.base_amount,
             PayrollStatutoryResultLine.amount,PayrollStatutoryResultLine.rate).join(PayrollStatutoryResult,
             (PayrollStatutoryResult.id==PayrollStatutoryResultLine.payroll_statutory_result_id)&
             (PayrollStatutoryResult.company_id==company_id)).where(
                 PayrollStatutoryResultLine.company_id==company_id,PayrollStatutoryResult.payroll_calculation_id==source.id,
-                PayrollStatutoryResultLine.component==component.value))).first()
+                PayrollStatutoryResultLine.component==component.value))).all()
+        if len(saved) > 1:
+            raise Error('Multiple peer statutory tax lines require dated employee-wide reconciliation')
+        saved = saved[0] if saved else None
         if saved is not None and tuple(saved)!=(base,amount,Decimal(rate)):
             raise Error('Saved peer tax allocation differs; correct the employee month as a whole')
     return selected

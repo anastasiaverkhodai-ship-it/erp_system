@@ -311,7 +311,7 @@ async def get_payroll_accounting_journal(
     company_id: int,
     payroll_calculation_id: int,
 ) -> JournalEntry | None:
-    return (
+    journal = (
         await db.execute(
             select(JournalEntry).execution_options(populate_existing=True)
             .options(
@@ -327,6 +327,22 @@ async def get_payroll_accounting_journal(
         )
     ).scalar_one_or_none()
 
+    if journal is not None:
+        return journal
+    from app.models.payroll_sick_correction_application import PayrollSickPayrollRevision
+    edge = await db.scalar(select(PayrollSickPayrollRevision).where(
+        PayrollSickPayrollRevision.company_id == company_id,
+        PayrollSickPayrollRevision.replacement_calculation_id == payroll_calculation_id))
+    if edge is None:
+        return None
+    # A zero financial difference still has an applied revision; generating a
+    # fresh full accrual here would duplicate the original payroll liability.
+    from app.services.payroll_sick_financial_sources import recognized_sick_chain
+    journals = await recognized_sick_chain(db, company_id=company_id,
+        calculation_id=payroll_calculation_id, as_of=date.max,
+        error_type=PayrollAccountingSourceStateError)
+    return journals[0]
+
 
 @serialized_payroll_mutation(PayrollAccountingSourceStateError)
 async def generate_and_post_payroll_journal_entry(
@@ -335,6 +351,7 @@ async def generate_and_post_payroll_journal_entry(
     company_id: int,
     payroll_calculation_id: int,
     created_by: int,
+    posting_date: date | None = None,
 ) -> JournalEntry:
     from app.services.payroll_severance_financial_guard import (
         require_severance_financial_classification,
@@ -437,7 +454,7 @@ async def generate_and_post_payroll_journal_entry(
     journal = JournalEntry(
         company_id=company_id,
         payroll_calculation_id=calculation.id,
-        entry_date=severance_evidence.income_date if severance_evidence else period.end_date,
+        entry_date=posting_date or (severance_evidence.income_date if severance_evidence else period.end_date),
         description=(
             "Payroll accounting for payroll calculation "
             f"{calculation.id}"

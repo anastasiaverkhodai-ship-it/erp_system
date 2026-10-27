@@ -2,6 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Date,
     DateTime,
@@ -23,6 +24,14 @@ class PayrollSickLeaveCalculation(Base):
     __tablename__ = "payroll_sick_leave_calculations"
 
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["company_id", "supersedes_id"],
+            ["payroll_sick_leave_calculations.company_id", "payroll_sick_leave_calculations.id"],
+            name="fk_sick_revision_parent", ondelete="RESTRICT",
+        ),
+        UniqueConstraint("company_id", "supersedes_id", name="uq_sick_revision_parent"),
+        CheckConstraint("(revision = 1 AND supersedes_id IS NULL) OR (revision > 1 AND supersedes_id IS NOT NULL)",
+                        name="ck_sick_revision_parent"),
         ForeignKeyConstraint(['company_id', 'insurance_evidence_id'],
             ['payroll_insurance_evidence.company_id', 'payroll_insurance_evidence.id'],
             name='fk_payroll_sick_insurance_evidence', ondelete='RESTRICT'),
@@ -35,8 +44,8 @@ class PayrollSickLeaveCalculation(Base):
         ),
         UniqueConstraint(
             "company_id",
-            "leave_request_id",
-            name="uq_payroll_sick_leave_calculations_leave_request",
+            "leave_request_id", "revision",
+            name="uq_payroll_sick_leave_calculations_leave_revision",
         ),
         ForeignKeyConstraint(
             ["company_id", "leave_request_id"],
@@ -143,6 +152,10 @@ class PayrollSickLeaveCalculation(Base):
         Integer,
         nullable=False,
     )
+
+    history_creation_xid: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=func.txid_current())
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    supersedes_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     insurance_evidence_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     insurance_assessment: Mapped[dict | None] = mapped_column(JSON, nullable=True)

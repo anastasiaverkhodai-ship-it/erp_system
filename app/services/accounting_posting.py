@@ -240,6 +240,20 @@ async def post_journal_entry(
         journal_entry=journal_entry,
     )
 
+    # Reject untyped physical cash movements before POSTED.
+    from app.services.cash_direct_gl_guard import (
+        DirectCashJournalSourceError,
+        require_typed_cash_journal_source,
+    )
+    try:
+        await require_typed_cash_journal_source(
+            db,
+            company_id=company_id,
+            journal_entry=journal_entry,
+        )
+    except DirectCashJournalSourceError as exc:
+        raise AccountingPostingError(str(exc)) from exc
+
     journal_entry.status = (
         JournalEntryStatus.POSTED
     )

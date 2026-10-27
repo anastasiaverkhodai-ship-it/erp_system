@@ -27,7 +27,7 @@ async def test_tax_balances_preserve_dates_reversals_and_components(employee_eng
         journal=await payment(db,company,user,accounts,bank,D(300))
         row=await register_tax_remittance(db,company_id=company.id,data=request(journal,bank,calc,D(300),'balance'),created_by=user.id)
         report=await payroll_tax_balances(db,**args)
-        assert component(report,'personal_income_tax')==dict(component='personal_income_tax',accrued_amount=D(702),paid_amount=D(300),outstanding_amount=D(402))
+        assert component(report,'personal_income_tax')==dict(component='personal_income_tax',accrued_amount=D(702),paid_amount=D(300),outstanding_amount=D(402),overpaid_amount=D(0))
         assert component(report,'military_levy')['outstanding_amount']==195
         assert component(report,'unified_social_contribution')['outstanding_amount']==858
         assert len(report['rows'])==3

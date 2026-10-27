@@ -210,7 +210,33 @@ async def test_cli_migration_roundtrip_preserves_existing_tables(empty_migration
         await run('check')
         assert await snapshot() == before
         await run('downgrade', '13d4a7b8c028')
-        assert await snapshot() == before
+
+        # A table introduced after c028 must disappear on downgrade.
+        # Every table that predates that revision must retain its data.
+        downgraded = await snapshot()
+        expected_removed = {
+            'payroll_advance_tax_remittances',
+            'payroll_dated_statutory_seals',
+            'payroll_statutory_line_sources',
+            'payroll_d5_professional_evidence',
+            'payroll_cash_documents',
+            'cash_desk_opening_evidence',
+            'cash_desk_opening_reviews',
+            'payroll_sick_corrections',
+            'payroll_sick_correction_applications',
+            'payroll_sick_payroll_revisions',
+            'payroll_sick_returns',
+        }
+
+        assert expected_removed <= set(before)
+        assert set(before) - set(downgraded) == expected_removed
+        assert set(downgraded) - set(before) == set()
+        assert downgraded == {
+            name: value
+            for name, value in before.items()
+            if name not in expected_removed
+        }
+
         await run('upgrade', 'head')
         await run('check')
         assert await snapshot() == before

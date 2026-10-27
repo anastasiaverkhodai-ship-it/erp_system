@@ -260,7 +260,28 @@ async def verify_payroll_correction_provenance(
         ],
     }
 
-    if _fingerprint(snapshot) != fingerprint:
+    evidence_schema = evidence.get("source_evidence_schema")
+
+    if evidence_schema == "payroll-correction-source-v1":
+        fingerprint_snapshot = snapshot
+    elif evidence_schema == "payroll-minimum-context-evidence-v1":
+        # The capture service fingerprints only the immutable
+        # calculation and its lines for sealed correction bases.
+        # Recompute independently, never trust a supplied snapshot.
+        fingerprint_snapshot = {
+            "schema": "payroll-minimum-context-evidence-v1",
+            "calculation": _model_snapshot(original),
+            "calculation_lines": [
+                _model_snapshot(item)
+                for item in original_lines
+            ],
+        }
+    else:
+        raise PayrollProvenanceIntegrationError(
+            "Unsupported payroll source evidence schema"
+        )
+
+    if _fingerprint(fingerprint_snapshot) != fingerprint:
         raise PayrollProvenanceIntegrationError(
             "Source snapshot differs from captured evidence"
         )

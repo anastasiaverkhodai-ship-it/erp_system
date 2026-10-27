@@ -39,12 +39,17 @@ async def employee_payroll_balance(db, *, company_id:int, employee_id:int, as_of
         .outerjoin(PayrollStatutoryResult,and_(PayrollStatutoryResult.company_id==company_id,PayrollStatutoryResult.payroll_calculation_id==PayrollCalculation.id))
         .where(JournalEntry.company_id==company_id,EmploymentContract.employee_id==employee_id,
             JournalEntry.status.in_(('posted','reversed')),JournalEntry.entry_date<=as_of))).all()
+    from app.models.payroll_sick_correction_application import PayrollSickPayrollRevision
+    correction_amounts = dict((await db.execute(select(
+        PayrollSickPayrollRevision.journal_entry_id, PayrollSickPayrollRevision.net_delta
+    ).where(PayrollSickPayrollRevision.company_id == company_id,
+            PayrollSickPayrollRevision.journal_entry_id.in_([journal.id for journal, _ in accruals])))).all())
     for journal,result in accruals:
         if result is None:
             issues.append('posted_accrual_missing_statutory_result')
             continue
         sign=-1 if journal.reversal_of_id is not None else 1
-        totals(result.currency_code)['accrued_net']+=sign*result.net_amount
+        totals(result.currency_code)['accrued_net']+=sign*correction_amounts.get(journal.id, result.net_amount)
     payouts=(await db.scalars(select(PayrollDisbursement).where(PayrollDisbursement.company_id==company_id,
         PayrollDisbursement.employee_id==employee_id,PayrollDisbursement.confirmed_at.is_not(None),
         PayrollDisbursement.payment_date<=as_of))).all()
@@ -99,9 +104,24 @@ async def employee_payroll_balance(db, *, company_id:int, employee_id:int, as_of
             employee_id=employee_id, as_of=as_of):
         target = totals('UAH')
         target['deducted_amount'] = target.get('deducted_amount', Decimal(0)) + line.amount
+    from app.models.payroll_sick_return import PayrollSickReturn
+    from app.services.payroll_sick_settlement_service import effective_journal
+    returned = (await db.execute(select(PayrollSickReturn.amount, PayrollCalculation.currency_code)
+        .join(PayrollCalculation, (PayrollCalculation.company_id==PayrollSickReturn.company_id) &
+            (PayrollCalculation.id==PayrollSickReturn.payroll_calculation_id))
+        .join(EmploymentContract, (EmploymentContract.company_id==PayrollCalculation.company_id) &
+            (EmploymentContract.id==PayrollCalculation.employment_contract_id))
+        .join(JournalEntry, (JournalEntry.company_id==PayrollSickReturn.company_id) &
+            (JournalEntry.id==PayrollSickReturn.journal_entry_id))
+        .where(PayrollSickReturn.company_id==company_id, PayrollSickReturn.kind=='employee',
+            EmploymentContract.employee_id==employee_id, *effective_journal(as_of)))).all()
+    for amount, currency in returned:
+        target = totals(currency)
+        target['returned_amount'] = target.get('returned_amount', Decimal(0))+amount
     for row in currencies.values():
+        row.setdefault('returned_amount', Decimal(0))
         row.setdefault('advance_paid', Decimal(0))
         row.setdefault('deducted_amount', Decimal(0))
-        row['balance']=None if issues else row['opening_amount']+row['accrued_net']-row['paid_net']-row['advance_paid']-row['deducted_amount']
+        row['balance']=None if issues else row['opening_amount']+row['accrued_net']-row['paid_net']-row['advance_paid']-row['deducted_amount']+row['returned_amount']
     return dict(company_id=company_id,employee_id=employee_id,as_of=as_of,complete=not issues,
         issues=sorted(set(issues)),balances=[currencies[key] for key in sorted(currencies)])

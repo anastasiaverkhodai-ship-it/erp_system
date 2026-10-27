@@ -11,17 +11,22 @@ from alembic import context
 from app.core.database import Base
 import app.models
 from app.core.config import settings
+from app.core.migration_database_url import resolve_migration_database_url
+from app.core.migration_role import apply_migration_owner_role
 
 config = context.config
 config.set_main_option(
     "sqlalchemy.url",
-    settings.database_url,
+    resolve_migration_database_url(settings.database_url).replace("%", "%%"),
 )
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 
+from app.models.payroll_advance_tax_remittance import PayrollAdvanceTaxRemittance
+from app.models.payroll_d5_professional_evidence import PayrollD5ProfessionalEvidence
+from app.models.payroll_sick_correction import PayrollSickCorrection
 target_metadata = Base.metadata
 
 
@@ -54,6 +59,7 @@ def run_migrations_offline():
 
 
 def do_run_migrations(connection: Connection):
+    apply_migration_owner_role(connection)
     context.configure(
         connection=connection,
         target_metadata=target_metadata,

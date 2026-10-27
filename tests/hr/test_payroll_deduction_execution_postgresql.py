@@ -40,14 +40,92 @@ IBAN = 'UA903052992990004149123456789'
 
 
 async def protect(engine):
-    async with engine.begin() as conn:
-        for revision in ('029','030'):
-            source = next(Path('alembic/versions').glob(f'13d4a7b8c{revision}_*.py')).read_text()
-            for node in ast.walk(ast.parse(source)):
-                if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='execute' and node.args and isinstance(node.args[0],ast.Constant):
-                    sql = node.args[0].value
-                    if sql.lstrip().startswith(('CREATE FUNCTION','CREATE TRIGGER','CREATE CONSTRAINT TRIGGER')):
-                        await conn.execute(text(sql))
+    # DDL setup is separate from application business operations.
+    import os
+    import re
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    migration_url = os.environ.get("ERP_MIGRATION_DATABASE_URL")
+    owner_role = os.environ.get("ERP_MIGRATION_OWNER_ROLE")
+
+    if bool(migration_url) != bool(owner_role):
+        raise RuntimeError("Incomplete migration role configuration")
+
+    if owner_role and not re.fullmatch(
+        r"[a-z_][a-z0-9_]{0,62}", owner_role
+    ):
+        raise ValueError("Invalid migration owner role")
+
+    async with engine.connect() as runtime_connection:
+        schema = await runtime_connection.scalar(
+            text("SELECT current_schema()")
+        )
+        runtime_user = await runtime_connection.scalar(
+            text("SELECT current_user")
+        )
+
+    if owner_role:
+        assert runtime_user == "erp_runtime", runtime_user
+        assert schema and re.fullmatch(
+            r"test_employee_[0-9a-f]{32}", schema
+        ), schema
+
+    if not owner_role:
+        setup_engine = engine
+    else:
+        setup_engine = create_async_engine(
+            migration_url,
+            poolclass=NullPool,
+            connect_args={
+                "server_settings": {"search_path": schema}
+            },
+        )
+
+    try:
+        async with setup_engine.begin() as conn:
+            if owner_role:
+                await conn.execute(
+                    text('SET LOCAL ROLE "' + owner_role + '"')
+                )
+                assert await conn.scalar(
+                    text("SELECT current_user")
+                ) == owner_role
+                assert await conn.scalar(
+                    text("SELECT current_schema()")
+                ) == schema
+
+            for revision in ("029", "030"):
+                files = list(
+                    Path("alembic/versions").glob(
+                        f"13d4a7b8c{revision}_*.py"
+                    )
+                )
+                assert len(files) == 1, revision
+                source = files[0].read_text()
+                for ddl in ast.walk(ast.parse(source)):
+                    if (
+                        isinstance(ddl, ast.Call)
+                        and isinstance(ddl.func, ast.Attribute)
+                        and ddl.func.attr == "execute"
+                        and ddl.args
+                        and isinstance(ddl.args[0], ast.Constant)
+                    ):
+                        sql = ddl.args[0].value
+                        if (
+                            isinstance(sql, str)
+                            and sql.lstrip().startswith(
+                                (
+                                    "CREATE FUNCTION",
+                                    "CREATE TRIGGER",
+                                    "CREATE CONSTRAINT TRIGGER",
+                                )
+                            )
+                        ):
+                            await conn.execute(text(sql))
+    finally:
+        if owner_role:
+            await setup_engine.dispose()
 
 
 async def authorize(db, company, user, contract, claim_amount=D(1000), migrated=False):

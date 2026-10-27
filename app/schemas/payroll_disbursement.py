@@ -6,13 +6,18 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class PayrollDisbursementCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    bank_account_id: int = Field(gt=0)
+    bank_account_id: int | None = Field(default=None, gt=0)
+    cash_desk_id: int | None = Field(default=None, gt=0)
     payment_date: date
     amount: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=2)
     request_key: str | None = Field(default=None, min_length=1, max_length=200)
 
     @model_validator(mode="after")
     def require_partial_key(self):
+        if (self.bank_account_id is None) == (self.cash_desk_id is None):
+            raise ValueError(
+                "Exactly one of bank_account_id and cash_desk_id is required"
+            )
         if self.request_key is not None:
             self.request_key = self.request_key.strip()
             if not self.request_key:
@@ -31,8 +36,9 @@ class PayrollDisbursementRead(BaseModel):
     payroll_calculation_id: int | None
     opening_debt_id: int | None
     employee_id: int
-    bank_account_id: int
-    employee_iban_snapshot: str
+    bank_account_id: int | None
+    cash_desk_id: int | None
+    employee_iban_snapshot: str | None
     amount: Decimal
 
     withheld_amount: Decimal = Decimal("0")
@@ -62,3 +68,35 @@ class PayrollBankMatchRead(BaseModel):
     matched_amount: Decimal
     currency_code: str
     reversal_of_id: int | None
+
+
+class PayrollOpeningBankDisbursementCreate(BaseModel):
+    """Bank-only input for opening payroll debts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    bank_account_id: int = Field(gt=0)
+    payment_date: date
+    amount: Decimal | None = Field(
+        default=None,
+        gt=0,
+        max_digits=18,
+        decimal_places=2,
+    )
+    request_key: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+    )
+
+    @model_validator(mode="after")
+    def require_partial_key(self):
+        if self.request_key is not None:
+            self.request_key = self.request_key.strip()
+            if not self.request_key:
+                raise ValueError("request_key cannot be blank")
+        if self.amount is not None and self.request_key is None:
+            raise ValueError(
+                "Partial disbursement requires request_key"
+            )
+        return self

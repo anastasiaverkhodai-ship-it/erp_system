@@ -88,14 +88,11 @@ async def require_posted_payroll_accrual(db, *, company_id, disbursement, error_
         await payment_protected_minimum(db, company_id=company_id, payment=disbursement)
     except ValueError as exc:
         raise error_type(str(exc)) from exc
-    accrual = await db.scalar(select(JournalEntry).where(
-        JournalEntry.company_id == company_id,
-        JournalEntry.payroll_calculation_id == disbursement.payroll_calculation_id,
-        JournalEntry.reversal_of_id.is_(None),
-        JournalEntry.status == JournalEntryStatus.POSTED,
-    ).execution_options(populate_existing=True))
-    if accrual is None:
-        raise error_type('Post payroll accrual before its disbursement')
+    from app.services.payroll_sick_financial_sources import recognized_sick_chain
+    accruals = await recognized_sick_chain(db, company_id=company_id,
+        calculation_id=disbursement.payroll_calculation_id,
+        as_of=disbursement.payment_date, error_type=error_type)
+    accrual = max(accruals, key=lambda entry: entry.entry_date)
     from app.models.payroll_deduction_result import PayrollDeductionResult
     deduction = await db.scalar(select(PayrollDeductionResult).where(
         PayrollDeductionResult.company_id == company_id,

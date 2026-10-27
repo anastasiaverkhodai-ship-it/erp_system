@@ -241,7 +241,10 @@ async def _erp_vacation_source(db, *, company_id, contract_id, calculation, peri
                 (PayrollStatutoryResultLine.payroll_statutory_result_id == PayrollStatutoryResult.id))
             .where(PayrollStatutoryResult.company_id == company_id,
                 PayrollStatutoryResult.payroll_calculation_id == calculation.id,
-                PayrollStatutoryResultLine.component == 'unified_social_contribution'))).one_or_none()
+                PayrollStatutoryResultLine.component == 'unified_social_contribution'))).all()
+        if len(tax) > 1:
+            raise PayrollAverageHistoryError('Multiple dated USC lines require attributed sick-pay income allocation')
+        tax = tax[0] if tax else None
         if tax is None or tax[0].gross_amount != calculation.gross_amount:
             raise PayrollAverageHistoryError('Sick-pay ERP history requires reconciled assessed USC')
         if tax[1].base_amount < calculation.gross_amount:

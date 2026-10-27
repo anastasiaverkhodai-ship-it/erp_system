@@ -768,21 +768,42 @@ async def test_payroll_disbursement_real_postgresql_e2e():
                 assert all(item.matched for item in controls), controls
                 assert sum(item.expected_amount for item in controls) == Decimal('-7700.00')
                 assert first.confirmed_at is not None
-                # Independent source evidence survives a missing posting state.
-                posted.status = 'draft'
-                await db.flush()
-                broken = await payroll_control()
-                assert not all(item.matched for item in broken)
-                assert sum(item.expected_amount for item in broken) == Decimal('-7700.00')
-                posted.status = 'posted'
-                await db.flush()
-                posted.payroll_disbursement_id = None
-                await db.flush()
-                missing = await payroll_control()
-                assert not all(item.matched for item in missing)
-                assert sum(item.expected_amount for item in missing) == Decimal('-7700.00')
-                posted.payroll_disbursement_id = second.id
-                await db.flush()
+                # DB-level immutability replaces destructive reconciliation
+                # simulations: neither SQL corruption attempt may persist.
+                from sqlalchemy import text as security_text
+                from sqlalchemy.exc import DBAPIError as SecurityDBAPIError
+
+                with pytest.raises(SecurityDBAPIError):
+                    async with db.begin_nested():
+                        await db.execute(
+                            security_text(
+                                "UPDATE journal_entries "
+                                "SET status = 'draft' "
+                                "WHERE id = :journal_id"
+                            ),
+                            {"journal_id": posted.id},
+                        )
+
+                with pytest.raises(SecurityDBAPIError):
+                    async with db.begin_nested():
+                        await db.execute(
+                            security_text(
+                                "UPDATE journal_entries "
+                                "SET payroll_disbursement_id = NULL "
+                                "WHERE id = :journal_id"
+                            ),
+                            {"journal_id": posted.id},
+                        )
+
+                await db.refresh(posted)
+                assert posted.status == 'posted'
+                assert posted.payroll_disbursement_id == second.id
+
+                intact = await payroll_control()
+                assert all(item.matched for item in intact), intact
+                assert sum(
+                    item.expected_amount for item in intact
+                ) == Decimal('-7700.00')
 
                 statement = BankStatement(**_required_values(BankStatement, {
                     'company_id': company.id, 'bank_account_id': bank.id,
