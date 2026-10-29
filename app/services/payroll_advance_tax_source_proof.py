@@ -217,6 +217,14 @@ async def verify_automatic_advance_tax_source_in_db(db, advance):
         "Advance snapshot requires source employee",
     )
 
+    from app.models.employment_contract import EmploymentContract
+    contract = await db.scalar(select(EmploymentContract).where(
+        EmploymentContract.company_id == proof.company_id,
+        EmploymentContract.id == proof.employment_contract_id,
+    ))
+    _require(contract is not None and contract.employee_id == employee_id,
+             "Advance snapshot employee differs from employment contract")
+
     rows = snapshot["tax_lines"]
 
     for component, recorded in zip(proof.components, rows):

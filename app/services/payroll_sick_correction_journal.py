@@ -20,12 +20,12 @@ ROLES = {
 
 async def build_sick_difference_journal(db, *, company_id, replacement_calculation_id,
                                       original, replacement, correction_date, actor_id, source_kind="sick"):
-    if source_kind not in {'sick','leave'}:
+    if source_kind not in {'sick','leave','attendance'}:
         raise ValueError('Unknown financial correction source')
     role_map=dict(ROLES)
-    if source_kind=='leave':
+    if source_kind in {'leave','attendance'}:
         role_map['payroll_expense']=Role.PAYROLL_EXPENSE
-    label='Leave' if source_kind=='leave' else 'Sick-pay'
+    label={'leave':'Leave','attendance':'Attendance','sick':'Sick-pay'}[source_kind]
     await ensure_period_open(company_id, correction_date, db)
     # Settlement values do not participate in accrual differences. Actual
     # employee/PFU balances are loaded separately from confirmed documents.

@@ -103,12 +103,34 @@ async def payroll_tax_balances(db, *, company_id: int, as_of: date):
     if paid:
         # Never silently drop a payment whose recognized source is missing.
         raise TaxRemittanceError('Attributed tax payment has no active accrual at the requested date')
+    # Advance payments are already posted to the tax liability account. Match
+    # their immutable contract/month once; no duplicate monthly payment exists.
+    from app.services.payroll_advance_tax_settlement import advance_tax_payment_rows
+    advance_keys = set()
+    for payment in await advance_tax_payment_rows(db, company_id=company_id, as_of=as_of):
+        matches = [(key, row) for key, row in rows.items()
+                   if row['employment_contract_id'] == payment.employment_contract_id
+                   and row['period_start'] == payment.start_date
+                   and row['period_end'] == payment.end_date
+                   and row['component'] == payment.component]
+        if len(matches) > 1:
+            raise TaxRemittanceError('Ambiguous monthly accrual for advance tax payment')
+        if matches:
+            key, row = matches[0]
+        else:
+            key = ('advance', payment.employment_contract_id, payment.payroll_period_id, payment.component)
+            row = rows.setdefault(key, dict(payroll_calculation_id=None,
+                employee_id=payment.employee_id, employment_contract_id=payment.employment_contract_id,
+                period_start=payment.start_date, period_end=payment.end_date,
+                component=payment.component, accrued_amount=D(0), paid_amount=D(0), accrual_journal_id=None))
+        row['paid_amount'] += payment.amount
+        advance_keys.add(key)
     totals = {component: dict(component=component, accrued_amount=D(0), paid_amount=D(0),
         outstanding_amount=D(0), overpaid_amount=D(0)) for component in ROLES}
-    for row in rows.values():
+    for key, row in rows.items():
         row['outstanding_amount'] = row['accrued_amount'] - row['paid_amount']
         row['overpaid_amount'] = max(D(0), -row['outstanding_amount'])
-        if row['overpaid_amount'] and row['payroll_calculation_id'] not in successor.values():
+        if row['overpaid_amount'] and key not in advance_keys and row['payroll_calculation_id'] not in successor.values():
             raise TaxRemittanceError('Attributed tax payments exceed the recognized balance')
         row['outstanding_amount'] = max(D(0), row['outstanding_amount'])
         for field in ('accrued_amount','paid_amount','outstanding_amount','overpaid_amount'):

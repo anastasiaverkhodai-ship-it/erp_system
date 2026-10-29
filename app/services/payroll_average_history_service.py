@@ -257,18 +257,34 @@ async def _erp_vacation_source(db, *, company_id, contract_id, calculation, peri
                 PayrollStatutoryResult.payroll_calculation_id == calculation.id,
                 PayrollStatutoryResultLine.component == 'unified_social_contribution'))).all()
         if len(tax) > 1:
-            raise PayrollAverageHistoryError('Multiple dated USC lines require attributed sick-pay income allocation')
-        tax = tax[0] if tax else None
-        if tax is None or tax[0].gross_amount != calculation.gross_amount:
+            from app.models.payroll_statutory import PayrollDatedStatutorySeal, PayrollStatutoryLineSource
+            seal = await db.get(PayrollDatedStatutorySeal, (company_id, tax[0][0].id))
+            linked = list((await db.scalars(select(PayrollStatutoryLineSource).where(
+                PayrollStatutoryLineSource.company_id == company_id,
+                PayrollStatutoryLineSource.statutory_line_id.in_([item.id for _, item in tax])))).all())
+            amounts = {}
+            for item in linked:
+                amounts[item.payroll_calculation_line_id] = amounts.get(item.payroll_calculation_line_id, Decimal(0)) + item.source_amount
+            expected = {line.id: line.amount for line in lines}
+            if (seal is None or amounts != expected or
+                    sum((item.amount for _, item in tax), Decimal(0)) != tax[0][0].employer_contribution_amount):
+                raise PayrollAverageHistoryError('Multiple dated USC lines require attributed sick-pay income allocation')
+        if not tax or any(header.gross_amount != calculation.gross_amount for header, _ in tax):
             raise PayrollAverageHistoryError('Sick-pay ERP history requires reconciled assessed USC')
-        if tax[1].base_amount < calculation.gross_amount:
+        # The monthly assessment may contain several authenticated rate windows.
+        # A reduced rate does not exclude that window's earnings from history.
+        if sum((line.base_amount for _, line in tax), Decimal(0)) < calculation.gross_amount:
             raise PayrollAverageHistoryError('Capped USC earnings require attributed sick-pay income allocation')
         excluded_earnings += sum((Decimal(line.amount) for line in lines if line.line_type == 'sick_pay'), Decimal(0))
     earnings -= excluded_earnings
     from app.models.time_attendance import AttendanceRecord as Attendance
-    if await db.scalar(select(Attendance.id).where(Attendance.company_id == company_id,
+    attendance = list((await db.scalars(select(Attendance).where(Attendance.company_id == company_id,
         Attendance.employment_contract_id == contract_id, Attendance.work_date >= month,
-        Attendance.work_date <= month_end, Attendance.status == 'absent').limit(1)):
+        Attendance.work_date <= month_end))).all())
+    corrected = ((calculation.minimum_wage_assessment or {}).get('correction_basis', {})
+                 .get('payload', {}).get('attendance_day_minutes', {}))
+    if any((corrected[row.work_date.isoformat()] == 0 if row.work_date.isoformat() in corrected
+            else row.status == 'absent') for row in attendance):
         raise PayrollAverageHistoryError('Unclassified absence in ERP reference month')
     excluded = set()
     for leave in leaves:

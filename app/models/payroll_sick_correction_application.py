@@ -10,7 +10,7 @@ from app.core.database import Base
 class PayrollSickCorrectionApplication(Base):
     __tablename__ = 'payroll_sick_correction_applications'
     __table_args__ = (
-        CheckConstraint("(source_kind='sick' AND original_sick_id IS NOT NULL AND replacement_sick_id IS NOT NULL) OR (source_kind='leave' AND original_sick_id IS NULL AND replacement_sick_id IS NULL)", name='ck_payroll_correction_source_kind'),
+        CheckConstraint("(source_kind='sick' AND original_sick_id IS NOT NULL AND replacement_sick_id IS NOT NULL) OR (source_kind IN ('leave','attendance') AND original_sick_id IS NULL AND replacement_sick_id IS NULL)", name='ck_payroll_correction_source_kind'),
         UniqueConstraint('company_id', 'id', name='uq_sick_application_company_id'),
         UniqueConstraint('company_id', 'request_key', name='uq_sick_application_request'),
         UniqueConstraint('company_id', 'original_sick_id', name='uq_sick_application_original'),

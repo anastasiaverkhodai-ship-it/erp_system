@@ -192,7 +192,7 @@ async def employee_component_base(db, *, company_id, period, calculation, contra
         if primary:
             employment,source,base_rule,values,tax_profile=primary[0]
             if base_rule and base_rule.minimum_base_amount is not None and not values[4] and Decimal(rate)==Decimal('.22'):
-                if await qualifies_for_monthly_usc_floor(db, company_id=company_id, period=period, contract=employment):
+                if await qualifies_for_monthly_usc_floor(db, company_id=company_id, period=period, contract=employment, calculation=source):
                     floor=Decimal(base_rule.minimum_base_amount);floor_contract=employment.id
         bases={e.id:Decimal(0) if v[4] else ordinary[c.id] for e,c,r,v,p in ordered}
         total=sum(bases.values(),Decimal(0))
@@ -212,7 +212,7 @@ async def employee_component_base(db, *, company_id, period, calculation, contra
             gross=ordinary[c.id]
             applies=(e.employment_kind=='primary' and Decimal(rate)==Decimal('.22') and gross>0)
             if applies:
-                applies = await qualifies_for_monthly_usc_floor(db, company_id=company_id, period=period, contract=e)
+                applies = await qualifies_for_monthly_usc_floor(db, company_id=company_id, period=period, contract=e, calculation=c)
             if e.employment_kind is None and gross>0 and Decimal(rate)==Decimal('.22'):
                 raise Error('Classify primary employment before applying the USC minimum')
             base=max(gross,Decimal(r.minimum_base_amount)) if applies else gross

@@ -51,6 +51,61 @@ async def balances(company_id:int,as_of:date,db:AsyncSession=Depends(get_db),
         raise http_error(exc) from exc
 
 
+from app.schemas.payroll_tax_remittance import AdvanceTaxRemittanceCreate, AdvanceTaxRemittanceRead
+from app.models.payroll_advance_tax_remittance import PayrollAdvanceTaxRemittance
+from app.services.payroll_advance_tax_remittance_service import (
+    register_advance_tax_remittance, reverse_advance_tax_remittance, AdvanceTaxRemittanceError,
+)
+from app.services.payroll_advance_tax_source_proof import AdvanceTaxSourceProofError
+
+
+@router.post('/advances', response_model=AdvanceTaxRemittanceRead, status_code=201)
+async def create_advance_tax(company_id: int, data: AdvanceTaxRemittanceCreate,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_company_permission('journal_entries.create')),
+    _: User = Depends(require_company_permission('employees.manage'))):
+    try:
+        row = await register_advance_tax_remittance(db, company_id=company_id,
+            created_by=actor.id, **data.model_dump())
+        result = AdvanceTaxRemittanceRead.model_validate(row)
+        await db.commit()
+        return result
+    except (AdvanceTaxRemittanceError, AdvanceTaxSourceProofError, AccountingAccountRoleResolutionError) as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.get('/advances', response_model=list[AdvanceTaxRemittanceRead])
+async def list_advance_taxes(company_id: int, after_id: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500), db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_company_permission('journal_entries.read'))):
+    return (await db.scalars(select(PayrollAdvanceTaxRemittance).where(
+        PayrollAdvanceTaxRemittance.company_id == company_id,
+        PayrollAdvanceTaxRemittance.id > after_id).order_by(PayrollAdvanceTaxRemittance.id).limit(limit))).all()
+
+
+@router.post('/advances/{remittance_id}/reverse', response_model=AdvanceTaxRemittanceRead)
+async def reverse_advance_tax(company_id: int, remittance_id: int, data: TaxRemittanceReverse,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_company_permission('journal_entries.reverse')),
+    _: User = Depends(require_company_permission('employees.manage'))):
+    try:
+        row = await reverse_advance_tax_remittance(db, company_id=company_id,
+            remittance_id=remittance_id, reversal_date=data.reversal_date, reversed_by=actor.id)
+        result = AdvanceTaxRemittanceRead.model_validate(row)
+        await db.commit()
+        return result
+    except (AdvanceTaxRemittanceError, AccountingReversalError) as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception:
+        await db.rollback()
+        raise
+
+
 @router.get('/{remittance_id}',response_model=TaxRemittanceRead)
 async def read(company_id:int,remittance_id:int,db:AsyncSession=Depends(get_db),
     actor:User=Depends(require_company_permission('journal_entries.read'))):

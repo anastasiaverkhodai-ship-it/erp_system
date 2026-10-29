@@ -1228,8 +1228,10 @@ async def test_automatic_advance_keeps_minimum_taxes_evidence_and_retry_snapshot
             component="personal_income_tax",
             from_date=date(2026, 10, 1),
         )
+        # Public commitment now includes actual advance payments, including
+        # the deliberately overpaid state constructed by this legacy fixture.
         assert Decimal(r6b3_monthly_pit_commitment) == (
-            tax_due["personal_income_tax"]
+            tax_due["personal_income_tax"] + advance_due["personal_income_tax"]
         )
 
         r6b3_monthly_levy_commitment = await actual_tax_commitment(
@@ -1239,7 +1241,7 @@ async def test_automatic_advance_keeps_minimum_taxes_evidence_and_retry_snapshot
             component="military_levy",
             from_date=date(2026, 10, 1),
         )
-        assert Decimal(r6b3_monthly_levy_commitment) == Decimal("0.00")
+        assert Decimal(r6b3_monthly_levy_commitment) == advance_due["military_levy"]
 
         print("R6-B2-C2-B3 BOTH ADVANCE TAX CREDITS = PASS")
         print("R6-B2-C2-B3 EXACT UNPAID AMOUNTS = PASS")

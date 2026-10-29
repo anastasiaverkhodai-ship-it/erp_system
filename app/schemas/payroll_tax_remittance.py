@@ -71,12 +71,12 @@ class TaxBalanceTotals(BaseModel):
 
 
 class TaxBalanceRow(TaxBalanceTotals):
-    payroll_calculation_id: int
+    payroll_calculation_id: int | None
     employee_id: int
     employment_contract_id: int
     period_start: date
     period_end: date
-    accrual_journal_id: int
+    accrual_journal_id: int | None
 
 
 class TaxBalanceRead(BaseModel):
@@ -86,3 +86,30 @@ class TaxBalanceRead(BaseModel):
     scope: str
     rows: list[TaxBalanceRow]
     totals: list[TaxBalanceTotals]
+
+
+class AdvanceTaxRemittanceCreate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    payroll_advance_id: int = Field(gt=0)
+    journal_entry_id: int = Field(gt=0)
+    bank_account_id: int = Field(gt=0)
+    component: Literal['personal_income_tax', 'military_levy', 'unified_social_contribution']
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+    request_key: str = Field(min_length=1, max_length=200)
+    document_reference: str = Field(min_length=1, max_length=500)
+    budget_payment_reference: str = Field(min_length=1, max_length=500)
+
+
+class AdvanceTaxRemittanceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    company_id: int
+    payroll_advance_id: int
+    journal_entry_id: int
+    bank_account_id: int
+    component: str
+    amount: Decimal
+    document_reference: str
+    budget_payment_reference: str
+    created_by: int
+    created_at: datetime

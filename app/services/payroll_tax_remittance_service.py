@@ -47,7 +47,7 @@ async def remittance_response(db, row):
         allocations=[dict(payroll_calculation_id=x.payroll_calculation_id, amount=x.amount) for x in lines])
 
 
-async def remittance_commitment(db, *, company_id, calculation_id, component, from_date):
+async def remittance_commitment(db, *, company_id, calculation_id, component, from_date, include_advance=True):
     from app.services.payroll_sick_financial_sources import sick_settlement_chain
     calculation_ids = await sick_settlement_chain(db, company_id=company_id, calculation_id=calculation_id)
     reversal = aliased(JournalEntry)
@@ -58,7 +58,12 @@ async def remittance_commitment(db, *, company_id, calculation_id, component, fr
             (reversal.reversal_of_id == JournalEntry.id) & (reversal.status == 'posted'))
         .where(Line.company_id == company_id, Line.payroll_calculation_id.in_(calculation_ids),
             Remittance.component == component, JournalEntry.status.in_(('posted', 'reversed'))))).all()
-    return peak_commitment(rows, from_date)
+    from app.services.payroll_advance_tax_settlement import advance_tax_payment_rows
+    advances = (await advance_tax_payment_rows(db, company_id=company_id, calculation_id=calculation_id)
+                if include_advance else [])
+    combined = list(rows) + [(row.amount, row.payment_date, row.reversal_date)
+                             for row in advances if row.component == component]
+    return peak_commitment(combined, from_date)
 
 
 async def recognized_tax(db, *, company_id, calculation_id, component, payment_date, accounts):

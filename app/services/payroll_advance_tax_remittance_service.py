@@ -35,6 +35,7 @@ class AdvanceTaxRemittanceError(ValueError):
 COMPONENTS = frozenset({
     "personal_income_tax",
     "military_levy",
+    "unified_social_contribution",
 })
 
 
@@ -89,7 +90,7 @@ async def register_advance_tax_remittance(
 
     _require(
         component in COMPONENTS,
-        "Only PIT and military levy are supported",
+        "Unsupported advance tax component",
     )
 
     for name, value, maximum in (

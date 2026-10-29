@@ -24,16 +24,17 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.skipif(
     os.getenv('RUN_POSTGRES_E2E') != '1', reason='PostgreSQL required')]
 
 
-@pytest.mark.parametrize('hire_day,end_day,missing_day,expected,single', [
-    (3, None, None, '1760', False),  # Aug 1-2 are weekends; every working day is worked.
-    (4, None, None, '330', False),   # A scheduled Monday is outside employment.
-    (3, None, 12, '330', False),    # Not all working days worked in partial calendar month.
-    (1, 28, None, '330', False),    # Monday Aug 31 remains outside employment.
-    (3, 31, None, '1760', False),
-    (3, None, None, '1760', True),
-    (4, None, None, '220', True),
+@pytest.mark.parametrize('hire_day,end_day,missing_day,expected,single,corrected', [
+    (3, None, None, '1760', False, False),  # Aug 1-2 are weekends; every working day is worked.
+    (4, None, None, '330', False, False),   # A scheduled Monday is outside employment.
+    (3, None, 12, '330', False, False),    # Not all working days worked in partial calendar month.
+    (1, 28, None, '330', False, False),    # Monday Aug 31 remains outside employment.
+    (3, 31, None, '1760', False, False),
+    (3, None, None, '1760', True, False),
+    (4, None, None, '220', True, False),
+    (3, None, 12, '1760', True, True),  # Confirmed correction restores the full worked month.
 ])
-async def test_partial_primary_month_floor(employee_engine, hire_day, end_day, missing_day, expected, single):
+async def test_partial_primary_month_floor(employee_engine, hire_day, end_day, missing_day, expected, single, corrected):
     async with AsyncSession(employee_engine, expire_on_commit=False) as db:
         company, user, calculations = await setup_month(db, ('1000','500'), '8000', '10000')
         if single:
@@ -74,6 +75,10 @@ async def test_partial_primary_month_floor(employee_engine, hire_day, end_day, m
                     actual_end_at=None if missing else datetime(2026,8,day,17,tzinfo=ZoneInfo('Europe/Kyiv'))))
         period.status, period.finalized_by, period.finalized_at='finalized', user.id, datetime.now(UTC)
         await db.flush()
+        if corrected:
+            calculations[0].minimum_wage_assessment = {
+                'correction_basis': {'payload': {'attendance_day_minutes': {'2026-08-12': 480}}}}
+            await db.flush()
         total=Decimal(0)
         for calculation in reversed(calculations):
             result=await calculate_payroll_statutory_result(db, company_id=company.id,

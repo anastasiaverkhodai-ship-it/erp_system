@@ -312,13 +312,15 @@ async def get_attendance_records(
         )
 
     try:
-        return await list_attendance(
+        rows = await list_attendance(
             db,
             company_id=company_id,
             contract_id=contract_id,
             date_from=date_from,
             date_to=date_to,
         )
+        from app.services.payroll_attendance_correction_service import attendance_read_views
+        return await attendance_read_views(db, rows)
     except TimeAttendanceError as exc:
         raise _http_error(exc) from exc
 
@@ -373,11 +375,13 @@ async def get_one_attendance(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        return await get_attendance(
+        row = await get_attendance(
             db,
             company_id=company_id,
             attendance_id=attendance_id,
         )
+        from app.services.payroll_attendance_correction_service import attendance_read_views
+        return (await attendance_read_views(db, [row]))[0]
     except TimeAttendanceError as exc:
         raise _http_error(exc) from exc
 

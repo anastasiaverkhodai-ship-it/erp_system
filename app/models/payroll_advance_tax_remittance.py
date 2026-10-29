@@ -52,7 +52,7 @@ class PayrollAdvanceTaxRemittance(Base):
             ondelete="RESTRICT",
         ),
         CheckConstraint(
-            "component IN ('personal_income_tax', 'military_levy')",
+            "component IN ('personal_income_tax', 'military_levy', 'unified_social_contribution')",
             name="ck_advance_tax_remittance_component",
         ),
         CheckConstraint(

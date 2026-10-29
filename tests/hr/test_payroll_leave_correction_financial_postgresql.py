@@ -61,7 +61,7 @@ async def install(engine):
         await conn.run_sync(run)
 
 
-async def setup(db):
+async def setup(db, *, with_salary=False, post=True):
     company,user,employee,contract=await _seed_identity(db)
     reviewer=User(email=uuid4().hex+'@example.invalid',password_hash='unused',first_name='Independent',last_name='Reviewer',is_active=True)
     db.add(reviewer);await db.flush()
@@ -93,6 +93,26 @@ async def setup(db):
     facts=dict(rate_type='monthly',minimum_rate='8647',ordinary_worked_minutes=0,default_norm_minutes=10560,
         earnings=[dict(category='vacation_pay',amount='1000')],adjustment='0',has_adjustment=False,
         period_start='2026-09-01',period_end='2026-09-30',rule_version='UA-4695-IX-2026-v1')
+    if with_salary:
+        from app.models.employee_salary_rate import EmployeeSalaryRate
+        from app.models.payroll import PayrollInputSalarySlice
+        from app.models.time_attendance import AttendanceRecord
+        rate=EmployeeSalaryRate(company_id=company.id,employment_contract_id=contract.id,
+            rate_type='monthly',amount=22000,currency_code='UAH',effective_from=date(2026,9,1),created_by=user.id)
+        db.add(rate);await db.flush()
+        pi.monthly_norm_minutes=10560;pi.worked_minutes=5280;pi.scheduled_minutes=10560
+        db.add(PayrollInputSalarySlice(company_id=company.id,payroll_input_id=pi.id,salary_rate_id=rate.id,
+            salary_rate_type='monthly',salary_rate_amount=22000,currency_code='UAH',
+            effective_from=period.start_date,effective_to=period.end_date,scheduled_minutes=10560,worked_minutes=5280))
+        db.add(AttendanceRecord(company_id=company.id,employment_contract_id=contract.id,
+            leave_request_id=leave.id,work_date=date(2026,9,10),status='leave',worked_minutes=0,
+            source='system',created_by=user.id))
+        await db.flush()
+        lines.append(dict(line_no=2,line_type='salary',quantity=D(30),rate=D(22000),amount=D(11000),
+            currency_code='UAH',salary_rate_type='monthly',source_salary_rate_id=rate.id,
+            source_effective_from=period.start_date,source_effective_to=period.end_date))
+        facts['ordinary_worked_minutes']=5280
+        facts['earnings'].append(dict(category='ordinary_salary',amount='11000'))
     basis=make_basis(company_id=company.id,period=period,payroll_input=pi,salary_slices=[],facts=facts,lines=lines)
     gross,lines,assessment=replay_basis(basis,{})
     calc=PayrollCalculation(company_id=company.id,payroll_period_id=period.id,payroll_input_id=pi.id,
@@ -113,7 +133,7 @@ async def setup(db):
         start_date=date(2026,month,1),end_date=date(2026,month,30 if month==9 else 31),status='open',is_locked=False))
     bank=BankAccount(company_id=company.id,name='Test bank',account_number=uuid4().hex,currency_code='UAH',accounting_account_id=accounts['311'],is_active=True)
     employee.payment_iban='UA213223130000026007233566001';db.add(bank);await db.flush()
-    journal=await generate_and_post_payroll_journal_entry(db,company_id=company.id,payroll_calculation_id=calc.id,created_by=user.id)
+    journal=await generate_and_post_payroll_journal_entry(db,company_id=company.id,payroll_calculation_id=calc.id,created_by=user.id) if post else None
     return company,user,reviewer,source,calc,bank,journal
 
 

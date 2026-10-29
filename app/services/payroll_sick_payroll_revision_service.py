@@ -13,7 +13,7 @@ from app.services.payroll_sick_payroll_replay import replay_sick_payroll, SickPa
 
 
 async def build_sick_payroll_revision(db, *, company_id, original, original_sick,
-                                      replacement_sick, request_key, reason, actor_id, source_pairs=None, leave_replacements=None):
+                                      replacement_sick, request_key, reason, actor_id, source_pairs=None, leave_replacements=None, attendance_changes=None):
     await require_current_calculation(db, calculation=original, error_type=SickPayrollReplayError)
     if original.company_id != company_id:
         raise SickPayrollReplayError('Payroll calculation belongs to another company')
@@ -65,6 +65,21 @@ async def build_sick_payroll_revision(db, *, company_id, original, original_sick
         from app.services.payroll_leave_payroll_replay import replay_leave_payroll
         gross, derived, assessment = replay_leave_payroll(calculation=working,
             lines=working_lines, replacements=leave_replacements)
+        working = SimpleNamespace(**{name:getattr(original,name) for name in
+            ('company_id','payroll_period_id','payroll_input_id','employment_contract_id','currency_code')},
+            gross_amount=gross, minimum_wage_assessment=assessment)
+        working_lines = [SimpleNamespace(**line) for line in derived]
+    if attendance_changes:
+        from app.services.payroll_attendance_payroll_replay import replay_attendance_payroll
+        from app.models.payroll import PayrollInput, PayrollInputSalarySlice
+        source_input = await db.get(PayrollInput, original.payroll_input_id)
+        slices = list((await db.scalars(select(PayrollInputSalarySlice).where(
+            PayrollInputSalarySlice.company_id == company_id,
+            PayrollInputSalarySlice.payroll_input_id == original.payroll_input_id
+        ).order_by(PayrollInputSalarySlice.effective_from))).all())
+        gross, derived, assessment = replay_attendance_payroll(calculation=working,
+            lines=working_lines, slices=slices, monthly_norm_minutes=source_input.monthly_norm_minutes,
+            changes=attendance_changes)
     assessment['correction_basis'].pop('seal',None)
     assessment['correction_basis']['parent_source_fingerprint'] = parent_fingerprint
     for source_line in severance_lines:

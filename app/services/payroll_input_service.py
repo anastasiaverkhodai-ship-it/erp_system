@@ -568,6 +568,18 @@ async def _replace_salary_slices(
         )
     )
 
+    # Freeze actual worked time on each side of dated tax policy boundaries.
+    from app.services.payroll_tax_policy_boundaries import tax_policy_boundaries
+    boundaries = await tax_policy_boundaries(db, company_id=company_id,
+        contract_id=employment_contract_id, start=date_from, end=date_to)
+    dated_slices = []
+    for rate, start, end in slices:
+        starts = [start, *[day for day in boundaries if start < day <= end]]
+        for index, day in enumerate(starts):
+            stop = starts[index+1] - timedelta(days=1) if index+1 < len(starts) else end
+            dated_slices.append((rate, day, stop))
+    slices = dated_slices
+
     for rate, slice_from, slice_to in slices:
         (
             slice_scheduled_minutes,

@@ -242,6 +242,7 @@ async def reconcile_monthly_advance_taxes_from_db(
             calculation_id=calculation.id,
             component=component,
             from_date=as_of,
+            include_advance=False,
         )
         actual_remittances[component] = amount
 

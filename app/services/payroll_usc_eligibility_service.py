@@ -8,7 +8,7 @@ as in payroll_input_service._derive_monthly_norm; no Mon-Fri assumption is made.
 from datetime import timedelta
 
 
-async def qualifies_for_monthly_usc_floor(db, *, company_id, period, contract):
+async def qualifies_for_monthly_usc_floor(db, *, company_id, period, contract, calculation=None):
     if (contract.start_date <= period.start_date and
             (contract.end_date is None or contract.end_date >= period.end_date)):
         return True
@@ -28,6 +28,15 @@ async def qualifies_for_monthly_usc_floor(db, *, company_id, period, contract):
     attendance = await _load_attendance(db, company_id=company_id,
         employment_contract_id=contract.id, date_from=period.start_date,
         date_to=period.end_date)
+    # Use the selected immutable revision, never a later correction's view.
+    corrected_minutes = {}
+    if calculation is not None:
+        if (calculation.company_id != company_id or
+                calculation.employment_contract_id != contract.id or
+                calculation.payroll_period_id != period.id):
+            raise PayrollStatutoryValidationError('USC attendance revision ownership mismatch')
+        corrected_minutes = ((calculation.minimum_wage_assessment or {})
+            .get('correction_basis', {}).get('payload', {}).get('attendance_day_minutes', {}))
     current = period.start_date
     working_days = 0
     while current <= period.end_date:
@@ -46,7 +55,8 @@ async def qualifies_for_monthly_usc_floor(db, *, company_id, period, contract):
         if minutes > 0:
             working_days += 1
             record = attendance.get(current)
-            if not employed or record is None or record.worked_minutes < minutes:
+            worked = corrected_minutes.get(current.isoformat(), record.worked_minutes if record else 0)
+            if not employed or worked < minutes:
                 return False
         current += timedelta(days=1)
     return working_days > 0

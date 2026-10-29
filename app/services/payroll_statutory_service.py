@@ -746,6 +746,29 @@ async def calculate_payroll_statutory_result(
 
     effective_date = min(payroll_period.end_date, contract.end_date or payroll_period.end_date)
 
+    from app.services.payroll_tax_policy_boundaries import tax_policy_boundaries
+    # Benefits and USC limits are employee-wide, so a policy change on a peer
+    # contract must select the same dated calculation regardless of call order.
+    peer_contracts = list((await session.scalars(select(EmploymentContract).where(
+        EmploymentContract.company_id == company_id,
+        EmploymentContract.employee_id == contract.employee_id,
+        EmploymentContract.status != 'cancelled',
+        EmploymentContract.start_date <= payroll_period.end_date,
+        or_(EmploymentContract.end_date.is_(None), EmploymentContract.end_date >= payroll_period.start_date),
+    ))).all())
+    boundaries = []
+    for peer in peer_contracts:
+        boundaries.extend(await tax_policy_boundaries(session, company_id=company_id, contract_id=peer.id,
+            start=max(payroll_period.start_date, peer.start_date),
+            end=min(payroll_period.end_date, peer.end_date or payroll_period.end_date)))
+    if boundaries:
+        from app.services.payroll_dated_employee_statutory import write_dated_employee_statutory_result
+        try:
+            return await write_dated_employee_statutory_result(session, company_id=company_id,
+                payroll_calculation_id=calculation.id, actor_user_id=actor_user_id)
+        except ValueError as exc:
+            raise PayrollStatutoryValidationError(str(exc)) from exc
+
     await require_uniform_individual_rate_window(session, company_id=company_id,
         employee_id=contract.employee_id,
         date_from=max(payroll_period.start_date, contract.start_date),

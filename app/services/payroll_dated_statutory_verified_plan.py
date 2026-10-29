@@ -74,6 +74,7 @@ async def build_verified_dated_salary_statutory_plan(
             "Employment contract not found in company"
         )
 
+    from app.services.payroll_revision_service import current_calculation_filter
     # A peer payroll calculation for the same employee/month requires
     # the full employee-wide allocation engine.
     peers = (
@@ -91,6 +92,7 @@ async def build_verified_dated_salary_statutory_plan(
                 PayrollCalculation.payroll_period_id
                 == calculation.payroll_period_id,
                 PayrollCalculation.id != calculation.id,
+                current_calculation_filter(),
             )
             .limit(1)
         )

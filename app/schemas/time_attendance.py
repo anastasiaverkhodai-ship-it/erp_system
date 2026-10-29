@@ -313,6 +313,10 @@ class AttendanceUpdate(BaseModel):
 
 
 class AttendanceRead(BaseModel):
+    effective_status: AttendanceStatus | None = None
+    effective_worked_minutes: int | None = None
+    correction_application_id: int | None = None
+    correction_date: date | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int
