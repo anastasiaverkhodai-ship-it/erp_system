@@ -47,6 +47,9 @@ class LeaveCompensationRead(BaseModel):
     compensation_date: date
     recovery_exemption: dict | None = None
     gross_amount: Decimal
+    correction_id: int | None = None
+    effective_gross_amount: Decimal | None = None
+    additional_lines: list[dict] = Field(default_factory=list)
     source_reference: str
 
 
@@ -62,6 +65,10 @@ class LeaveCompensationLineRead(BaseModel):
     compensated_days: Decimal
     amount: Decimal
     basis_snapshot: dict
+    correction_id: int | None = None
+    effective_amount: Decimal | None = None
+    effective_compensated_days: Decimal | None = None
+    effective_consumed_days: Decimal | None = None
 
 
 class LeaveCompensationReverse(BaseModel):

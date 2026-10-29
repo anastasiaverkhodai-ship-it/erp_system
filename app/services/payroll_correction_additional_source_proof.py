@@ -80,6 +80,8 @@ def _decimal(value, field):
 
 def _signature(row, kind):
     source_field = SOURCE_FIELDS[kind]
+    if kind=='leave_compensation' and _read(row,'source_leave_compensation_extra_id') is not None:
+        source_field='source_leave_compensation_extra_id'
 
     actual_kind = _text(_read(row, "line_type"))
 
@@ -103,7 +105,7 @@ def _signature(row, kind):
         )
 
     return (
-        source_id,
+        source_field, source_id,
         currency,
         _decimal(_read(row, "amount"), "amount"),
         _decimal(_read(row, "quantity"), "quantity"),

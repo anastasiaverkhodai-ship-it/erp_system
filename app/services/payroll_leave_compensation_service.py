@@ -131,19 +131,28 @@ async def create_leave_compensation(db, *, company_id, data, actor_id):
 
 
 async def derive_compensation_payroll_lines(db, *, company_id, payroll_input, period):
-    rows=(await db.execute(select(Compensation,Line).join(Line,
-        (Line.company_id==Compensation.company_id)&(Line.compensation_id==Compensation.id))
-        .where(Compensation.company_id==company_id,Compensation.payroll_input_id==payroll_input.id, active_compensation_filter())
-        .order_by(Line.id))).all()
+    headers=list((await db.scalars(select(Compensation).where(
+        Compensation.company_id==company_id,Compensation.payroll_input_id==payroll_input.id,
+        active_compensation_filter()).order_by(Compensation.id))).all())
     result=[]
-    for header,line in rows:
+    from app.services.payroll_leave_correction_sources import latest_leave_correction
+    for header in headers:
         if not period.start_date<=header.compensation_date<=period.end_date:
             raise LeaveBalanceError('Compensation falls outside its payroll period')
-        if not line.compensated_days:
-            continue
-        result.append(dict(line_type='leave_compensation',quantity=line.compensated_days,
-            rate=(line.amount/line.compensated_days).quantize(Decimal('.000001'),rounding=ROUND_HALF_UP),
-            amount=line.amount,currency_code='UAH',source_leave_compensation_line_id=line.id))
+        correction=await latest_leave_correction(db,company_id=company_id,target_kind='compensation',target_id=header.id)
+        if correction:
+            for item in correction.replacement_snapshot['lines']:
+                if not Decimal(item['quantity']):continue
+                field='source_leave_compensation_extra_id' if item.get('source_kind')=='extra' else 'source_leave_compensation_line_id'
+                result.append(dict(line_type='leave_compensation',quantity=Decimal(item['quantity']),
+                    rate=Decimal(item['rate']),amount=Decimal(item['amount']),currency_code='UAH',**{field:item['source_id']}))
+        else:
+            lines=list((await db.scalars(select(Line).where(Line.company_id==company_id,Line.compensation_id==header.id).order_by(Line.id))).all())
+            for line in lines:
+                if not line.compensated_days:continue
+                result.append(dict(line_type='leave_compensation',quantity=line.compensated_days,
+                    rate=(line.amount/line.compensated_days).quantize(Decimal('.000001'),rounding=ROUND_HALF_UP),
+                    amount=line.amount,currency_code='UAH',source_leave_compensation_line_id=line.id))
     return result
 
 
@@ -165,6 +174,9 @@ async def reverse_leave_compensation(db, *, company_id, compensation_id, data, a
         Compensation.id == compensation_id, active_compensation_filter()))
     if header is None:
         raise LeaveBalanceError('Active leave compensation not found')
+    from app.services.payroll_leave_correction_sources import latest_leave_correction
+    if await latest_leave_correction(db,company_id=company_id,target_kind='compensation',target_id=header.id):
+        raise LeaveBalanceError('Reviewed compensation history requires a further reviewed correction')
     payroll_input = await db.get(PayrollInput, header.payroll_input_id)
     period = await db.get(PayrollPeriod, payroll_input.payroll_period_id)
     if period.status != 'draft':

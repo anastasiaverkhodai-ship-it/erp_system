@@ -19,7 +19,13 @@ ROLES = {
 
 
 async def build_sick_difference_journal(db, *, company_id, replacement_calculation_id,
-                                      original, replacement, correction_date, actor_id):
+                                      original, replacement, correction_date, actor_id, source_kind="sick"):
+    if source_kind not in {'sick','leave'}:
+        raise ValueError('Unknown financial correction source')
+    role_map=dict(ROLES)
+    if source_kind=='leave':
+        role_map['payroll_expense']=Role.PAYROLL_EXPENSE
+    label='Leave' if source_kind=='leave' else 'Sick-pay'
     await ensure_period_open(company_id, correction_date, db)
     # Settlement values do not participate in accrual differences. Actual
     # employee/PFU balances are loaded separately from confirmed documents.
@@ -28,13 +34,13 @@ async def build_sick_difference_journal(db, *, company_id, replacement_calculati
     sides = plan.journal_sides()
     if not sides:
         return None
-    roles = tuple(dict.fromkeys(ROLES[name] for name, _, _ in sides))
+    roles = tuple(dict.fromkeys(role_map[name] for name, _, _ in sides))
     accounts = await resolve_company_account_roles(db, company_id=company_id, roles=roles)
     journal = JournalEntry(company_id=company_id, payroll_calculation_id=replacement_calculation_id,
         entry_date=correction_date, status=JournalEntryStatus.DRAFT, created_by=actor_id,
-        description=f'Sick-pay correction difference for payroll {replacement_calculation_id}')
-    journal.lines = [JournalEntryLine(line_no=index, account_id=accounts[ROLES[name]].id,
-        debit=debit, credit=credit, description='Sick-pay correction: ' + name)
+        description=f'{label} correction difference for payroll {replacement_calculation_id}')
+    journal.lines = [JournalEntryLine(line_no=index, account_id=accounts[role_map[name]].id,
+        debit=debit, credit=credit, description=label+' correction: ' + name)
         for index, (name, debit, credit) in enumerate(sides, 1)]
     db.add(journal)
     await db.flush()

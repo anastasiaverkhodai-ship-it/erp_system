@@ -648,6 +648,15 @@ async def _derive_payroll_components(
         derived_lines.append(line)
         gross_amount += line["amount"]
 
+    from app.services.payroll_leave_correction_sources import bind_leave_sources
+    bindings=await bind_leave_sources(db,company_id=company_id,lines=derived_lines)
+    if bindings:
+        basis=minimum_assessment.get('correction_basis')
+        if basis is None:
+            raise PayrollCalculationDerivationError('Corrected leave requires a sealed calculation basis')
+        from app.services.payroll_correction_source_evidence_service import _fingerprint
+        basis['payload']['leave_correction_sources']=bindings
+        basis['sha256']=_fingerprint(basis['payload'])
     gross_amount=_money(gross_amount)
 
     return (

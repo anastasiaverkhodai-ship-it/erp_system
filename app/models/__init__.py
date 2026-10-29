@@ -265,3 +265,5 @@ from app.models.payroll_sick_correction_application import (
 from app.models.payroll_sick_return import PayrollSickReturn
 
 from app.models.payroll_sick_correction import PayrollSickCorrection
+
+from app.models.payroll_leave_correction import PayrollLeaveCorrection

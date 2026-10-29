@@ -379,6 +379,13 @@ async def derive_vacation_pay_lines(
             start=leave.start_date, end=leave.end_date,
             period_start=period.start_date, period_end=period.end_date,
             amount=row.vacation_pay_amount)
+        from app.services.payroll_leave_correction_sources import latest_leave_correction,vacation_values
+        correction=await latest_leave_correction(db,company_id=company_id,target_kind='vacation',target_id=row.id)
+        if correction:
+            corrected=vacation_values(correction.replacement_snapshot,period.start_date,period.end_date)
+            allocated_days,allocated_amount=corrected['quantity'],corrected['amount']
+            if not allocated_days:
+                continue
         lines.append(
             {
                 "line_type": "vacation_pay",

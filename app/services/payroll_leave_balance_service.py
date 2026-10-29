@@ -256,6 +256,10 @@ async def leave_balances(db, *, company_id, employment_contract_id, as_of):
         buckets=dict((await db.execute(select(Entry.acquisition_bucket,func.sum(Entry.days)).where(
             Entry.company_id==company_id,Entry.account_id==account.id,Entry.effective_date<=as_of)
             .group_by(Entry.acquisition_bucket))).all())
+        from app.services.payroll_leave_day_correction_service import corrected_right_days
+        for bucket in ('before_2024','from_2024'):
+            buckets[bucket]=buckets.get(bucket,Decimal(0))+await corrected_right_days(db,
+                company_id=company_id,account_id=account.id,bucket=bucket,as_of=as_of)
         result.append(dict(account_id=account.id,leave_kind=account.leave_kind,
             period_start=account.period_start,period_end=account.period_end,
             before_2024=buckets.get('before_2024',Decimal(0)),from_2024=buckets.get('from_2024',Decimal(0))))
@@ -324,6 +328,9 @@ async def allocate_leave_days(db, *, company_id, leave_request_id, allocations,
         available=await db.scalar(select(func.coalesce(func.sum(Entry.days),0)).where(
             Entry.company_id==company_id,Entry.account_id==account.id,
             Entry.acquisition_bucket==bucket,Entry.effective_date<=leave.start_date))
+        from app.services.payroll_leave_day_correction_service import corrected_right_days
+        available+=await corrected_right_days(db,company_id=company_id,account_id=account.id,
+            bucket=bucket,as_of=leave.start_date)
         advance_basis=None
         if item.get('advance_authorization') is not None:
             from app.services.payroll_leave_advance_service import authorize_advance
@@ -357,6 +364,13 @@ async def reverse_leave_allocation(db, *, company_id, leave_request_id, effectiv
             raise LeaveBalanceError('Request key contains different allocation reversal')
         return old
     leave=await db.scalar(select(LeaveRequest).where(LeaveRequest.company_id==company_id,LeaveRequest.id==leave_request_id))
+    from app.models.payroll_leave_correction import PayrollLeaveDayCorrection
+    corrected=await db.scalar(select(PayrollLeaveDayCorrection.id).join(Entry,
+        (Entry.company_id==PayrollLeaveDayCorrection.company_id)&
+        (Entry.id==PayrollLeaveDayCorrection.allocation_id)).where(
+        Entry.company_id==company_id,Entry.leave_request_id==leave_request_id).limit(1))
+    if corrected:
+        raise LeaveBalanceError('Use a new reviewed leave correction for previously corrected rights')
     if leave is None or leave.status not in ('cancelled','rejected'):
         raise LeaveBalanceError('Cancel or reject the leave before returning reserved days')
     sources=list((await db.scalars(select(Entry).where(Entry.company_id==company_id,

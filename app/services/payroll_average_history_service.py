@@ -213,22 +213,36 @@ async def _erp_vacation_source(db, *, company_id, contract_id, calculation, peri
     if any(leave.leave_type not in PAID_VACATION_TYPES | {LeaveType.UNPAID, LeaveType.SICK} for leave in leaves):
         raise PayrollAverageHistoryError('ERP other absences require an explicit average-pay classification')
     await _verify_paid_leave_lines(db, company_id=company_id, contract_id=contract_id,
-        leaves=leaves, lines=lines, month=month, month_end=month_end)
+        leaves=leaves, lines=lines, month=month, month_end=month_end, calculation_id=calculation.id)
     excluded_earnings = await _excluded_supplement_earnings(db, company_id=company_id,
         calculation=calculation, lines=lines, month=month, month_end=month_end, purpose=purpose)
     from app.models.payroll_leave_compensation import PayrollLeaveCompensationLine, PayrollLeaveCompensation
     for line in lines:
         if line.line_type != 'leave_compensation':
             continue
-        saved = (await db.execute(select(PayrollLeaveCompensationLine, PayrollLeaveCompensation)
-            .join(PayrollLeaveCompensation,
-                (PayrollLeaveCompensation.company_id == PayrollLeaveCompensationLine.company_id) &
-                (PayrollLeaveCompensation.id == PayrollLeaveCompensationLine.compensation_id))
-            .where(PayrollLeaveCompensationLine.company_id == company_id,
-                PayrollLeaveCompensationLine.id == line.source_leave_compensation_line_id,
-                PayrollLeaveCompensation.payroll_input_id == calculation.payroll_input_id,
-                PayrollLeaveCompensation.employment_contract_id == contract_id))).one_or_none()
-        if saved is None or saved[0].amount != line.amount or saved[0].compensated_days != line.quantity:
+        from app.models.payroll_leave_correction import PayrollLeaveCompensationExtraSource
+        extra_id=getattr(line,'source_leave_compensation_extra_id',None)
+        model=PayrollLeaveCompensationExtraSource if extra_id is not None else PayrollLeaveCompensationLine
+        source_id=extra_id if extra_id is not None else line.source_leave_compensation_line_id
+        saved=(await db.execute(select(model,PayrollLeaveCompensation).join(PayrollLeaveCompensation,
+            (PayrollLeaveCompensation.company_id==model.company_id)&(PayrollLeaveCompensation.id==model.compensation_id))
+            .where(model.company_id==company_id,model.id==source_id,
+                PayrollLeaveCompensation.payroll_input_id==calculation.payroll_input_id,
+                PayrollLeaveCompensation.employment_contract_id==contract_id))).one_or_none()
+        if saved is None:raise PayrollAverageHistoryError('Compensation earning has no immutable source')
+        from app.services.payroll_leave_correction_sources import calculation_leave_snapshot
+        corrected=await calculation_leave_snapshot(db,company_id=company_id,calculation_id=calculation.id,
+            target_kind='compensation',target_id=saved[1].id)
+        if corrected:
+            kind='extra' if extra_id is not None else 'original'
+            item=next((item for item in corrected['lines'] if item['source_id']==source_id and item.get('source_kind','original')==kind),None)
+            if item is None:raise PayrollAverageHistoryError('Compensation correction source is incomplete')
+            expected_amount,expected_days=Decimal(item['amount']),Decimal(item['quantity'])
+        elif extra_id is not None:
+            raise PayrollAverageHistoryError('Additional compensation requires reviewed correction evidence')
+        else:
+            expected_amount,expected_days=saved[0].amount,saved[0].compensated_days
+        if expected_amount!=line.amount or expected_days!=line.quantity:
             raise PayrollAverageHistoryError('Compensation earning differs from its immutable source')
         if purpose == 'vacation':
             excluded_earnings += Decimal(line.amount)
@@ -314,20 +328,18 @@ async def _excluded_supplement_earnings(db, *, company_id, calculation, lines, m
     return excluded
 
 
-async def _verify_paid_leave_lines(db, *, company_id, contract_id, leaves, lines, month, month_end):
+async def _verify_paid_leave_lines(db, *, company_id, contract_id, leaves, lines, month, month_end, calculation_id=None):
     from app.models.payroll_vacation import PayrollVacationCalculation
     from app.models.payroll_sick_leave import PayrollSickLeaveCalculation
     from app.services.payroll_leave_allocation import allocate_leave_amount
     expected = {}
     occupied = set()
     for leave in leaves:
-        current = max(month, leave.start_date)
-        while current <= min(month_end, leave.end_date):
-            if current in occupied:
-                raise PayrollAverageHistoryError('Overlapping approved absences in reference month')
-            occupied.add(current)
-            current += timedelta(days=1)
+        lower,upper=max(month,leave.start_date),min(month_end,leave.end_date)
+        covered={lower+timedelta(days=i) for i in range((upper-lower).days+1)}
         if leave.leave_type == LeaveType.UNPAID:
+            if covered&occupied:raise PayrollAverageHistoryError('Overlapping approved absences in reference month')
+            occupied.update(covered)
             continue
         vacation = leave.leave_type in PAID_VACATION_TYPES
         model = PayrollVacationCalculation if vacation else PayrollSickLeaveCalculation
@@ -348,6 +360,18 @@ async def _verify_paid_leave_lines(db, *, company_id, contract_id, leaves, lines
                 quantity, allocated = sick_period_amount(source, leave, month, month_end)
             except ValueError as exc:
                 raise PayrollAverageHistoryError(str(exc)) from exc
+        if vacation and calculation_id is not None:
+            from app.services.payroll_leave_correction_sources import calculation_leave_snapshot,vacation_values
+            corrected=await calculation_leave_snapshot(db,company_id=company_id,calculation_id=calculation_id,
+                target_kind='vacation',target_id=source.id)
+            if corrected:
+                values=vacation_values(corrected,month,month_end)
+                quantity,allocated=values['quantity'],values['amount']
+                covered={date.fromisoformat(value) for value in corrected['used_dates'] if month.isoformat()<=value<=month_end.isoformat()}
+                if not quantity:
+                    continue
+        if covered&occupied:raise PayrollAverageHistoryError('Overlapping approved absences in reference month')
+        occupied.update(covered)
         expected[('vacation_pay' if vacation else 'sick_pay', source.id)] = (Decimal(quantity), allocated)
     actual = {}
     for line in lines:

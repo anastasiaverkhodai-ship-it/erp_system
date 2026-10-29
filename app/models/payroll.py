@@ -650,7 +650,10 @@ class PayrollCalculationLine(Base):
         ForeignKeyConstraint(['company_id','source_leave_compensation_line_id'],
             ['payroll_leave_compensation_lines.company_id','payroll_leave_compensation_lines.id'],
             name='fk_pcl_leave_compensation',ondelete='RESTRICT'),
-        CheckConstraint("(line_type = 'leave_compensation') = (source_leave_compensation_line_id IS NOT NULL)",
+        ForeignKeyConstraint(['company_id','source_leave_compensation_extra_id'],
+            ['payroll_leave_compensation_extra_sources.company_id','payroll_leave_compensation_extra_sources.id'],
+            name='fk_pcl_leave_compensation_extra',ondelete='RESTRICT'),
+        CheckConstraint("(CASE WHEN source_leave_compensation_line_id IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN source_leave_compensation_extra_id IS NOT NULL THEN 1 ELSE 0 END) = CASE WHEN line_type='leave_compensation' THEN 1 ELSE 0 END",
             name='ck_pcl_leave_compensation_source'),
         CheckConstraint(
             "currency_code = upper(currency_code) AND char_length(currency_code) = 3",
@@ -678,6 +681,7 @@ class PayrollCalculationLine(Base):
 
     source_termination_severance_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_leave_compensation_line_id: Mapped[int | None] = mapped_column(Integer,nullable=True)
+    source_leave_compensation_extra_id: Mapped[int | None] = mapped_column(Integer,nullable=True)
 
     source_supplement_id: Mapped[int | None] = mapped_column(Integer,nullable=True)
 

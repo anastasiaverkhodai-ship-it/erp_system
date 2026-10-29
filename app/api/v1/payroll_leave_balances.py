@@ -84,7 +84,15 @@ async def compensation(company_id:int,compensation_id:int,db:AsyncSession=Depend
         PayrollLeaveCompensation.id==compensation_id))
     if row is None:
         raise HTTPException(status_code=404,detail='Leave compensation not found')
-    return row
+    from decimal import Decimal
+    from app.services.payroll_leave_correction_sources import latest_leave_correction
+    result=LeaveCompensationRead.model_validate(row)
+    correction=await latest_leave_correction(db,company_id=company_id,target_kind='compensation',target_id=row.id)
+    if correction:
+        result.correction_id=correction.id
+        result.additional_lines=[item for item in correction.replacement_snapshot['lines'] if item.get('source_kind')=='extra']
+        result.effective_gross_amount=sum((Decimal(item['amount']) for item in correction.replacement_snapshot['lines']),Decimal(0))
+    return result
 
 
 @router.get('/leave-compensations/{compensation_id}/lines',response_model=list[LeaveCompensationLineRead])
@@ -93,9 +101,24 @@ async def compensation_lines(company_id:int,compensation_id:int,db:AsyncSession=
     if await db.scalar(select(PayrollLeaveCompensation.id).where(PayrollLeaveCompensation.company_id==company_id,
         PayrollLeaveCompensation.id==compensation_id)) is None:
         raise HTTPException(status_code=404,detail='Leave compensation not found')
-    return list((await db.scalars(select(PayrollLeaveCompensationLine).where(
+    rows=list((await db.scalars(select(PayrollLeaveCompensationLine).where(
         PayrollLeaveCompensationLine.company_id==company_id,PayrollLeaveCompensationLine.compensation_id==compensation_id)
         .order_by(PayrollLeaveCompensationLine.id))).all())
+    from decimal import Decimal
+    from app.services.payroll_leave_correction_sources import latest_leave_correction
+    correction=await latest_leave_correction(db,company_id=company_id,target_kind='compensation',target_id=compensation_id)
+    effective={item['source_id']:item for item in correction.replacement_snapshot['lines'] if item.get('source_kind','original')=='original'} if correction else {}
+    result=[]
+    for row in rows:
+        item=LeaveCompensationLineRead.model_validate(row)
+        if correction:
+            current=effective[row.id]
+            item.correction_id=correction.id
+            item.effective_amount=Decimal(current['amount'])
+            item.effective_compensated_days=Decimal(current['quantity'])
+            item.effective_consumed_days=Decimal(current.get('consumed_days',str(row.consumed_days)))
+        result.append(item)
+    return result
 
 
 from app.schemas.payroll_leave_compensation import LeaveCompensationReverse, LeaveCompensationReversalRead

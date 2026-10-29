@@ -13,7 +13,7 @@ from app.services.payroll_sick_payroll_replay import replay_sick_payroll, SickPa
 
 
 async def build_sick_payroll_revision(db, *, company_id, original, original_sick,
-                                      replacement_sick, request_key, reason, actor_id, source_pairs=None):
+                                      replacement_sick, request_key, reason, actor_id, source_pairs=None, leave_replacements=None):
     await require_current_calculation(db, calculation=original, error_type=SickPayrollReplayError)
     if original.company_id != company_id:
         raise SickPayrollReplayError('Payroll calculation belongs to another company')
@@ -61,6 +61,10 @@ async def build_sick_payroll_revision(db, *, company_id, original, original_sick
             ('company_id','payroll_period_id','payroll_input_id','employment_contract_id','currency_code')},
             gross_amount=gross, minimum_wage_assessment=assessment)
         working_lines = [SimpleNamespace(**line) for line in derived]
+    if leave_replacements:
+        from app.services.payroll_leave_payroll_replay import replay_leave_payroll
+        gross, derived, assessment = replay_leave_payroll(calculation=working,
+            lines=working_lines, replacements=leave_replacements)
     assessment['correction_basis'].pop('seal',None)
     assessment['correction_basis']['parent_source_fingerprint'] = parent_fingerprint
     for source_line in severance_lines:

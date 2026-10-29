@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.permissions import require_company_permission
 from app.core.database import get_db
 from app.models.hr_change import HRChange
+from app.services.payroll_leave_correction_sources import leave_read_view
 from app.models.leave_request import LeaveRequestStatus
 from app.schemas.leave_request import (
     LeaveRequestCancel,
@@ -86,7 +87,7 @@ async def api_list_leave_requests(
     ),
 ):
     try:
-        return await list_leave_requests(
+        rows = await list_leave_requests(
             db,
             company_id=company_id,
             contract_id=contract_id,
@@ -94,6 +95,7 @@ async def api_list_leave_requests(
             date_from=date_from,
             date_to=date_to,
         )
+        return [await leave_read_view(db,row) for row in rows]
     except LeaveRequestError as exc:
         raise _http_error(exc) from exc
 
@@ -147,11 +149,12 @@ async def api_get_leave_request(
     ),
 ):
     try:
-        return await get_leave_request(
+        row = await get_leave_request(
             db,
             company_id=company_id,
             leave_request_id=leave_request_id,
         )
+        return await leave_read_view(db,row)
     except LeaveRequestError as exc:
         raise _http_error(exc) from exc
 

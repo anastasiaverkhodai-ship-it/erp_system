@@ -38,6 +38,8 @@ class LeaveRequestRead(BaseModel):
     end_date: date
     status: LeaveRequestStatus
     reason: str | None
+    correction_id: int | None = None
+    effective_leave_dates: list[date] | None = None
 
     requested_by: int
 
