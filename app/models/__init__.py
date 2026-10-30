@@ -269,3 +269,7 @@ from app.models.payroll_sick_correction import PayrollSickCorrection
 from app.models.payroll_leave_correction import PayrollLeaveCorrection
 
 from app.models.payroll_attendance_correction import PayrollAttendanceCorrectionRequest, PayrollAttendanceCorrection
+
+from app.models.payroll_income_dates import PayrollIncomeDateRequest, PayrollIncomeDateApproval
+
+from app.models.payroll_taxpayer_identity_review import PayrollTaxpayerIdentityReview
