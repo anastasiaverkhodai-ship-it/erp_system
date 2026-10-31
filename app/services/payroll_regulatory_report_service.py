@@ -197,6 +197,27 @@ async def generate_payroll_regulatory_report(
         report_kind=report.report_kind,
     )
 
+    # C071-E: independently re-read live payroll source records.
+    # Never accept readiness alone as proof of persisted integrity.
+    if report.report_kind == "4df":
+        from app.services.payroll_regulatory_persisted_source_verifier import (
+            PersistedSourceIntegrityError,
+            verify_persisted_payroll_sources,
+        )
+
+        try:
+            await verify_persisted_payroll_sources(
+                db,
+                company_id=company_id,
+                payroll_period_id=report.payroll_period_id,
+                readiness=readiness,
+            )
+        except PersistedSourceIntegrityError as exc:
+            raise PayrollRegulatoryReportError(
+                "Independent payroll source verification failed: "
+                + str(exc)
+            ) from exc
+
     try:
         reconcile_regulatory_sources(readiness)
     except (

@@ -76,7 +76,7 @@ async def assert_not_generated(db, company_id, report_id):
     assert report.generated_by is None
 
 
-async def test_complete_dated_evidence_reaches_normative_gate(
+async def test_substituted_revision_rejected_before_normative_gate(
     employee_engine,
     monkeypatch,
 ):
@@ -102,7 +102,7 @@ async def test_complete_dated_evidence_reaches_normative_gate(
 
         with pytest.raises(
             PayrollRegulatoryReportError,
-            match="4DF financial evidence reconciled;",
+            match="Independent payroll source verification failed: Persisted source identity mismatch: revision",
         ):
             await generate_payroll_regulatory_report(
                 db,
@@ -132,7 +132,7 @@ async def test_complete_dated_evidence_reaches_normative_gate(
         await db.rollback()
 
 
-async def test_incomplete_dated_evidence_rejected_before_mapping(
+async def test_substituted_revision_rejected_before_slice_validation(
     employee_engine,
     monkeypatch,
 ):
@@ -176,7 +176,7 @@ async def test_incomplete_dated_evidence_rejected_before_mapping(
 
         with pytest.raises(
             PayrollRegulatoryReportError,
-            match="Incomplete 4DF dated slices",
+            match="Independent payroll source verification failed: Persisted source identity mismatch: revision",
         ):
             await generate_payroll_regulatory_report(
                 db,
