@@ -118,6 +118,7 @@ def project_4df_financial_groups(
                     "source_id": row.payroll_calculation_id,
                     "source_sha256": payload["source_sha256"],
                     "slice_number": payload["slice_number"],
+                    "slice_count": payload["slice_count"],
                     "payment_date": payload["payment_date"],
                     "payment_evidence_reference":
                         payload["payment_evidence_reference"],

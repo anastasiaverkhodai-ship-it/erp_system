@@ -264,6 +264,67 @@ async def generate_payroll_regulatory_report(
                 ],
             )
 
+            # C071-C: enforce source-bound integrity before refusing
+            # unapproved statutory form generation.
+            from app.services.payroll_regulatory_4df_projection import (
+                project_4df_financial_groups,
+            )
+            from app.services.payroll_regulatory_4df_source_binding import (
+                bind_4df_financial_sources,
+            )
+
+            financial_groups = project_4df_financial_groups(
+                company_id=company_id,
+                payroll_period_id=report.payroll_period_id,
+                rows=dated_rows,
+                expected_calculation_ids=[
+                    source["payroll_calculation_id"]
+                    for source in readiness["calculation_sources"]
+                ],
+            )
+
+            # Readiness belongs to the locked company/period. Reject
+            # contradictory source scopes instead of silently changing
+            # them. Add missing scope fields for source binding.
+            bound_sources = []
+            for calculation_source in readiness["calculation_sources"]:
+                for scope_field, scope_value in (
+                    ("company_id", company_id),
+                    ("payroll_period_id", report.payroll_period_id),
+                ):
+                    existing_scope = calculation_source.get(scope_field)
+                    if (
+                        existing_scope is not None
+                        and existing_scope != scope_value
+                    ):
+                        raise PayrollRegulatoryReportError(
+                            "4DF payroll source scope mismatch"
+                        )
+
+                bound_sources.append({
+                    **calculation_source,
+                    "company_id": company_id,
+                    "payroll_period_id": report.payroll_period_id,
+                })
+
+            binding_manifest = bind_4df_financial_sources(
+                company_id=company_id,
+                payroll_period_id=report.payroll_period_id,
+                financial_groups=financial_groups,
+                calculation_sources=bound_sources,
+            )
+
+            if (
+                binding_manifest["statutory_approved"] is not False
+                or binding_manifest["source_count"]
+                    != len(bound_sources)
+                or binding_manifest["status"]
+                    != "REVIEW_ONLY_NOT_FOR_FILING"
+            ):
+                raise PayrollRegulatoryReportError(
+                    "4DF source binding integrity failed"
+                )
+
             # The dated financial evidence has been checked,
             # but it is NOT an official statutory form.
             # Keep finalization explicitly blocked.
