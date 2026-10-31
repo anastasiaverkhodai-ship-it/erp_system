@@ -168,7 +168,11 @@ async def generate_payroll_regulatory_report(
             raise PayrollRegulatoryReportError(
                 "Generated report metadata is corrupt"
             )
-        return report
+        # Legacy generated metadata does not prove statutory integrity.
+        raise PayrollRegulatoryReportError(
+            "Regulatory report is incomplete: generated status "
+            "does not establish verified statutory source integrity"
+        )
 
     if report.status != PayrollRegulatoryReportStatus.DRAFT.value:
         raise PayrollRegulatoryReportError(
