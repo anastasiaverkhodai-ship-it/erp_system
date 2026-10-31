@@ -198,3 +198,222 @@ class PayrollRegulatoryReportRow(Base):
         nullable=False,
         default=datetime.utcnow,
     )
+
+
+# -------------------------------------------------------------------
+# Phase 13.14 — Immutable D5/D6 review snapshot persistence.
+#
+# This table is registered on the same SQLAlchemy metadata as the
+# existing payroll regulatory report model. It is deliberately not
+# mapped to an official statutory report-row category.
+#
+# The matching Alembic revision creates the PostgreSQL append-only
+# protection trigger. The ORM table declaration is required so that
+# Alembic autogenerate does not mistake the table for an extra object.
+# -------------------------------------------------------------------
+
+from sqlalchemy import (
+    Table as _HRReviewTable,
+    Column as _HRReviewColumn,
+    Integer as _HRReviewInteger,
+    String as _HRReviewString,
+    Text as _HRReviewText,
+    DateTime as _HRReviewDateTime,
+    ForeignKeyConstraint as _HRReviewForeignKeyConstraint,
+    CheckConstraint as _HRReviewCheckConstraint,
+    UniqueConstraint as _HRReviewUniqueConstraint,
+    Index as _HRReviewIndex,
+    func as _hr_review_func,
+)
+
+
+payroll_hr_review_snapshots = _HRReviewTable(
+    "payroll_hr_review_snapshots",
+    PayrollRegulatoryReport.__table__.metadata,
+
+    _HRReviewColumn(
+        "id",
+        _HRReviewInteger(),
+        primary_key=True,
+    ),
+
+    _HRReviewColumn(
+        "company_id",
+        _HRReviewInteger(),
+        nullable=False,
+    ),
+
+    _HRReviewColumn(
+        "payroll_period_id",
+        _HRReviewInteger(),
+        nullable=False,
+    ),
+
+    _HRReviewColumn(
+        "payroll_regulatory_report_id",
+        _HRReviewInteger(),
+        nullable=False,
+    ),
+
+    _HRReviewColumn(
+        "report_kind",
+        _HRReviewString(16),
+        nullable=False,
+    ),
+
+    _HRReviewColumn(
+        "report_revision",
+        _HRReviewInteger(),
+        nullable=False,
+    ),
+
+    _HRReviewColumn(
+        "previous_snapshot_id",
+        _HRReviewInteger(),
+        nullable=True,
+    ),
+
+    _HRReviewColumn(
+        "payload_json",
+        _HRReviewText(),
+        nullable=False,
+    ),
+
+    _HRReviewColumn(
+        "snapshot_sha256",
+        _HRReviewString(64),
+        nullable=False,
+    ),
+
+    _HRReviewColumn(
+        "created_at",
+        _HRReviewDateTime(timezone=True),
+        nullable=False,
+        server_default=_hr_review_func.now(),
+    ),
+
+    _HRReviewForeignKeyConstraint(
+        [
+            "company_id",
+            "payroll_regulatory_report_id",
+        ],
+        [
+            "payroll_regulatory_reports.company_id",
+            "payroll_regulatory_reports.id",
+        ],
+        ondelete="RESTRICT",
+    ),
+
+    _HRReviewForeignKeyConstraint(
+        [
+            "company_id",
+            "payroll_period_id",
+        ],
+        [
+            "payroll_periods.company_id",
+            "payroll_periods.id",
+        ],
+        ondelete="RESTRICT",
+    ),
+
+    _HRReviewForeignKeyConstraint(
+        [
+            "company_id",
+            "previous_snapshot_id",
+        ],
+        [
+            "payroll_hr_review_snapshots.company_id",
+            "payroll_hr_review_snapshots.id",
+        ],
+        name="fk_payroll_hr_review_snapshot_previous",
+        ondelete="RESTRICT",
+    ),
+
+    _HRReviewCheckConstraint(
+        "report_kind IN ('d5', 'd6')",
+        name="ck_payroll_hr_review_snapshot_kind",
+    ),
+
+    _HRReviewCheckConstraint(
+        "report_revision > 0",
+        name="ck_payroll_hr_review_snapshot_revision",
+    ),
+
+    _HRReviewCheckConstraint(
+        "snapshot_sha256 ~ '^[0-9a-f]{64}$'",
+        name="ck_payroll_hr_review_snapshot_hash",
+    ),
+
+    _HRReviewUniqueConstraint(
+        "company_id",
+        "id",
+        name="uq_payroll_hr_review_snapshot_company_id",
+    ),
+
+    _HRReviewUniqueConstraint(
+        "company_id",
+        "payroll_regulatory_report_id",
+        name="uq_payroll_hr_review_snapshot_report",
+    ),
+)
+
+
+_HRReviewIndex(
+    "ix_payroll_hr_review_snapshot_period_kind",
+    payroll_hr_review_snapshots.c.company_id,
+    payroll_hr_review_snapshots.c.payroll_period_id,
+    payroll_hr_review_snapshots.c.report_kind,
+    payroll_hr_review_snapshots.c.report_revision,
+)
+
+
+# _HR_REVIEW_IMMUTABILITY_DDL_V1
+#
+# Alembic creates the trigger in a migrated database.
+# SQLAlchemy create_all() is also used by isolated test fixtures.
+# Without these hooks, a fixture-created table can be missing
+# the protection trigger even though Alembic migration tests pass.
+#
+# The trigger is deliberately installed at database level.
+# No application-side flag can bypass it.
+
+from sqlalchemy import DDL as _HRReviewDDL
+from sqlalchemy import event as _HRReviewEvent
+
+
+_HR_REVIEW_PROTECT_FUNCTION_DDL = _HRReviewDDL(
+    """
+    CREATE OR REPLACE FUNCTION protect_payroll_hr_review_snapshot()
+    RETURNS trigger AS $hr_review_immutable$
+    BEGIN
+        RAISE EXCEPTION
+            'Payroll HR review snapshots are append-only'
+            USING ERRCODE = 'P0001';
+    END;
+    $hr_review_immutable$ LANGUAGE plpgsql
+    """
+).execute_if(dialect="postgresql")
+
+
+_HR_REVIEW_PROTECT_TRIGGER_DDL = _HRReviewDDL(
+    """
+    CREATE TRIGGER trg_payroll_hr_review_snapshot_immutable
+    BEFORE UPDATE OR DELETE
+    ON payroll_hr_review_snapshots
+    FOR EACH ROW
+    EXECUTE FUNCTION protect_payroll_hr_review_snapshot()
+    """
+).execute_if(dialect="postgresql")
+
+
+_HRReviewEvent.listen(
+    payroll_hr_review_snapshots,
+    "after_create",
+    _HR_REVIEW_PROTECT_FUNCTION_DDL,
+)
+
+_HRReviewEvent.listen(
+    payroll_hr_review_snapshots,
+    "after_create",
+    _HR_REVIEW_PROTECT_TRIGGER_DDL,
+)
