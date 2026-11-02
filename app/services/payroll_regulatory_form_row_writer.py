@@ -476,12 +476,36 @@ async def persist_reviewed_form_rows(
             reviewed_allocations=reviewed_allocations,
         )
 
-    prepared = prepare_form_rows(
-        report=report,
-        readiness=readiness,
-        evidence=reviewed_allocations,
-        approvals=approvals,
+    # Split allocation is an internal 4DF review feature only.
+    # Existing single-source row behavior remains unchanged.
+    allocation_ids = [
+        item.get("payroll_calculation_id")
+        for item in reviewed_allocations
+        if isinstance(item, dict)
+    ]
+    split_requested = (
+        report.report_kind == "4df"
+        and len(set(allocation_ids)) < len(allocation_ids)
     )
+
+    if split_requested:
+        from app.services.payroll_regulatory_4df_split_allocation import (
+            build_split_4df_draft_rows,
+        )
+
+        prepared = build_split_4df_draft_rows(
+            report=report,
+            readiness=readiness,
+            evidence=reviewed_allocations,
+            approvals=approvals,
+        )
+    else:
+        prepared = prepare_form_rows(
+            report=report,
+            readiness=readiness,
+            evidence=reviewed_allocations,
+            approvals=approvals,
+        )
 
     existing = list((
         await db.scalars(
