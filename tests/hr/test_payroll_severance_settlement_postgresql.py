@@ -87,6 +87,26 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
         posting=await generate_and_post_payroll_disbursement_journal(db,company_id=company.id,
             payroll_disbursement_id=payment.id,created_by=user.id)
         assert sum(x.debit for x in posting.lines)==D('10040.80')-advance_amount
+
+    from app.services.payroll_severance_postpayment_assessment import (
+        assess_severance_postpayment,
+    )
+
+    posted_assessment = await assess_severance_postpayment(
+        db,
+        company_id=company.id,
+        payroll_input_id=calc.payroll_input_id,
+    )
+
+    assert posted_assessment.posted_disbursement_count >= 1
+    assert posted_assessment.posted_disbursement_total > D("0.00")
+    assert posted_assessment.gross_difference == D("0.00")
+    assert posted_assessment.payment_authorized is False
+    assert posted_assessment.tax_correction_authorized is False
+    assert posted_assessment.journal_posting_authorized is False
+
+    print("ACTUAL POSTED SEVERANCE PAYMENT ASSESSMENT = PASS")
+
     slip=await generate_payroll_payslip(db,company_id=company.id,payroll_calculation_id=calc.id,actor_user_id=user.id)
     assert slip.gross_amount==D('13040') and slip.net_amount==D('10040.80')
     balance=await employee_payroll_balance(db,company_id=company.id,employee_id=employee.id,as_of=date(2026,month,last_day))
@@ -120,6 +140,19 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
             payroll_disbursement_id=payment.id,reversal_date=date(2026,month,last_day),reversed_by=user.id)
     balance=await employee_payroll_balance(db,company_id=company.id,employee_id=employee.id,as_of=date(2026,month,last_day))
     assert balance['complete'] and balance['balances'][0]['balance']==D('10040.80')-advance_amount
+
+    reversed_assessment = await assess_severance_postpayment(
+        db,
+        company_id=company.id,
+        payroll_input_id=calc.payroll_input_id,
+    )
+
+    assert reversed_assessment.posted_disbursement_count == 0
+    assert reversed_assessment.posted_disbursement_total == D("0.00")
+    assert reversed_assessment.payment_authorized is False
+
+    print("REVERSED SEVERANCE PAYMENT ASSESSMENT = PASS")
+
 
 
 @pytest.mark.asyncio
