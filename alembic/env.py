@@ -27,6 +27,8 @@ if config.config_file_name is not None:
 from app.models.payroll_advance_tax_remittance import PayrollAdvanceTaxRemittance
 from app.models.payroll_d5_professional_evidence import PayrollD5ProfessionalEvidence
 from app.models.payroll_sick_correction import PayrollSickCorrection
+from app.models.payroll_regulatory_correction_snapshot import PayrollRegulatoryCorrectionSnapshot
+
 target_metadata = Base.metadata
 
 
