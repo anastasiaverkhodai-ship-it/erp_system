@@ -107,6 +107,24 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
 
     print("ACTUAL POSTED SEVERANCE PAYMENT ASSESSMENT = PASS")
 
+    from app.services.payroll_severance_verified_tax_bridge import (
+        load_severance_only_financial_snapshot,
+        SeveranceTaxSourceError,
+    )
+    with pytest.raises(
+        SeveranceTaxSourceError,
+        match="requires independent",
+    ):
+        await load_severance_only_financial_snapshot(
+            db,
+            company_id=company.id,
+            calculation_id=calc.id,
+            income_date=contract.end_date,
+            policies=(),
+        )
+    print("MIXED SEVERANCE TAX MISATTRIBUTION = BLOCKED")
+
+
     slip=await generate_payroll_payslip(db,company_id=company.id,payroll_calculation_id=calc.id,actor_user_id=user.id)
     assert slip.gross_amount==D('13040') and slip.net_amount==D('10040.80')
     balance=await employee_payroll_balance(db,company_id=company.id,employee_id=employee.id,as_of=date(2026,month,last_day))
