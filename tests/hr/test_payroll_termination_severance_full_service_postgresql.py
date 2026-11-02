@@ -81,7 +81,13 @@ async def test_full_payroll_service_with_severance():
             head = await conn.scalar(
                 text("SELECT version_num FROM alembic_version")
             )
-            assert head == "13d4a7b8c063"
+            from alembic.config import Config
+            from alembic.script import ScriptDirectory
+            expected_head = ScriptDirectory.from_config(
+                Config("alembic.ini")
+            ).get_current_head()
+            assert expected_head is not None
+            assert head == expected_head
 
             # A revision stamp alone does not prove the snapshot schema
             # and its database-level immutability guards are installed.

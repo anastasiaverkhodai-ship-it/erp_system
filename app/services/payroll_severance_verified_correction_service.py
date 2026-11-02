@@ -126,6 +126,74 @@ def validate_new_revision(
 
 
 
+async def require_no_active_severance_settlement(
+    db,
+    *,
+    company_id: int,
+    payroll_input_id: int,
+):
+    """Do not revise severance behind an existing payroll settlement.
+
+    A posted or reserved payout must first be resolved through the
+    existing payment/accounting workflows. This is a safety gate,
+    not automatic post-payment correction authorization.
+    """
+    from sqlalchemy import and_, or_, select
+    from app.models.payroll import PayrollCalculation
+    from app.services.payroll_severance_payment_service import (
+        Payment,
+        JournalEntry,
+    )
+
+    if (
+        type(company_id) is not int
+        or company_id <= 0
+        or type(payroll_input_id) is not int
+        or payroll_input_id <= 0
+    ):
+        raise VerifiedSeveranceSourceError(
+            "Valid company and payroll input required"
+        )
+
+    active_payment = await db.scalar(
+        select(Payment.id)
+        .join(
+            PayrollCalculation,
+            and_(
+                PayrollCalculation.company_id == Payment.company_id,
+                PayrollCalculation.id == Payment.payroll_calculation_id,
+            ),
+        )
+        .outerjoin(
+            JournalEntry,
+            and_(
+                JournalEntry.company_id == Payment.company_id,
+                JournalEntry.payroll_disbursement_id == Payment.id,
+                JournalEntry.reversal_of_id.is_(None),
+            ),
+        )
+        .where(
+            Payment.company_id == company_id,
+            PayrollCalculation.payroll_input_id == payroll_input_id,
+            or_(
+                JournalEntry.status == "posted",
+                and_(
+                    JournalEntry.id.is_(None),
+                    Payment.cancelled_at.is_(None),
+                ),
+            ),
+        )
+        .limit(1)
+    )
+
+    if active_payment is not None:
+        raise VerifiedSeveranceSourceError(
+            "Active or posted severance payroll payment exists; "
+            "a documented financial settlement correction is required "
+            "before creating another severance revision"
+        )
+
+
 async def create_verified_severance_correction(
     db,
     *,
@@ -299,6 +367,12 @@ async def create_verified_severance_correction(
         raise VerifiedSeveranceSourceError(
             "Company-scoped payroll input not found"
         )
+
+    await require_no_active_severance_settlement(
+        db,
+        company_id=company_id,
+        payroll_input_id=payroll_input_id,
+    )
 
     basis = await prepare_verified_severance_basis(
         db,
