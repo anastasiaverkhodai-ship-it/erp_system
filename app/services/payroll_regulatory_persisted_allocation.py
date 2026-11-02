@@ -237,13 +237,21 @@ def verify_allocations(
     }
 
 
+
 async def reconcile_persisted_allocations(
     db,
     *,
     company_id,
     payroll_period_id,
 ):
-    """Independently load and reconcile real PostgreSQL records."""
+    """Reconcile persisted evidence through verified composite FK paths.
+
+    Statutory header -> payroll calculation -> payroll period.
+    Statutory source -> statutory line and payroll calculation line.
+
+    Never assume a statutory header has payroll_period_id.
+    Never treat absence of persisted evidence as successful.
+    """
 
     positive_id(company_id, "company")
     positive_id(payroll_period_id, "payroll period")
@@ -251,30 +259,28 @@ async def reconcile_persisted_allocations(
     def discover(session):
         connection = session.connection()
         inspector = inspect(connection)
-        existing = set(inspector.get_table_names())
+        available = set(inspector.get_table_names())
 
-        if any(name not in existing for name in TABLES):
-            return {
-                "missing_tables": sorted(set(TABLES) - existing),
-            }
+        missing = sorted(set(TABLES) - available)
+
+        if missing:
+            return {"missing_tables": missing}
 
         metadata = MetaData()
+
         tables = {
             name: Table(name, metadata, autoload_with=connection)
             for name in TABLES
         }
 
-        schema = {
-            name: {
-                "columns": set(tables[name].c.keys()),
-                "foreign_keys": inspector.get_foreign_keys(name),
-            }
+        foreign_keys = {
+            name: inspector.get_foreign_keys(name)
             for name in TABLES
         }
 
         return {
             "tables": tables,
-            "schema": schema,
+            "foreign_keys": foreign_keys,
         }
 
     discovery = await db.run_sync(discover)
@@ -288,156 +294,164 @@ async def reconcile_persisted_allocations(
         )
 
     t = discovery["tables"]
-    schema = discovery["schema"]
+    fks = discovery["foreign_keys"]
 
-    def has(table, *names):
-        return set(names).issubset(schema[table]["columns"])
-
-    # Do not invent report-to-period or payroll ownership links.
-    required_fks = (
+    # The required FK edges are precisely those confirmed by
+    # ORM, migrations and the real PostgreSQL schema probe.
+    edges = (
         (
             "payroll_statutory_result_lines",
             "payroll_statutory_results",
+            ("company_id", "payroll_statutory_result_id"),
+            ("company_id", "id"),
+        ),
+        (
+            "payroll_statutory_results",
+            "payroll_calculations",
+            ("company_id", "payroll_calculation_id"),
+            ("company_id", "id"),
         ),
         (
             "payroll_statutory_line_sources",
             "payroll_statutory_result_lines",
+            ("company_id", "statutory_line_id"),
+            ("company_id", "id"),
         ),
         (
             "payroll_statutory_line_sources",
             "payroll_calculation_lines",
+            ("company_id", "payroll_calculation_line_id"),
+            ("company_id", "id"),
         ),
-        ("payroll_calculation_lines", "payroll_calculations"),
+        (
+            "payroll_calculation_lines",
+            "payroll_calculations",
+            ("company_id", "payroll_calculation_id"),
+            ("company_id", "id"),
+        ),
+        (
+            "payroll_calculations",
+            "payroll_periods",
+            ("company_id", "payroll_period_id"),
+            ("company_id", "id"),
+        ),
     )
 
-    joins = {}
+    for child, parent, local, remote in edges:
+        matches = [
+            fk
+            for fk in fks[child]
+            if fk.get("referred_table") == parent
+            and tuple(fk.get("constrained_columns") or ()) == local
+            and tuple(fk.get("referred_columns") or ()) == remote
+        ]
 
-    for child, parent in required_fks:
-        fk = one_foreign_key(schema, child, parent)
-
-        if fk is None:
+        if len(matches) != 1:
             return blocked(
                 company_id,
                 payroll_period_id,
-                "UNVERIFIED_FOREIGN_KEY",
+                "UNVERIFIED_COMPOSITE_FOREIGN_KEY",
                 relationship=child + " -> " + parent,
             )
 
-        joins[(child, parent)] = fk
+    required_columns = {
+        "payroll_periods": (
+            "id", "company_id",
+        ),
+        "payroll_calculations": (
+            "id", "company_id", "payroll_period_id",
+        ),
+        "payroll_calculation_lines": (
+            "id", "company_id", "payroll_calculation_id",
+            "amount", "currency_code",
+        ),
+        "payroll_statutory_results": (
+            "id", "company_id", "payroll_calculation_id",
+            "currency_code",
+        ),
+        "payroll_statutory_result_lines": (
+            "id", "company_id", "payroll_statutory_result_id",
+            "amount", "base_amount", "component", "currency_code",
+        ),
+        "payroll_statutory_line_sources": (
+            "id", "company_id", "statutory_line_id",
+            "payroll_calculation_line_id", "source_amount",
+            "income_effective_from", "income_effective_to",
+        ),
+    }
 
-    if not has(
-        "payroll_statutory_results",
-        "id", "company_id", "payroll_period_id",
-    ):
-        return blocked(
-            company_id,
-            payroll_period_id,
-            "UNVERIFIED_REPORT_SCOPE",
-        )
+    for name, columns in required_columns.items():
+        if not set(columns).issubset(t[name].c.keys()):
+            return blocked(
+                company_id,
+                payroll_period_id,
+                "MISSING_REQUIRED_COLUMNS",
+                table=name,
+                missing_columns=sorted(
+                    set(columns) - set(t[name].c.keys())
+                ),
+            )
 
-    if not has(
-        "payroll_calculations",
-        "id", "company_id", "payroll_period_id",
-    ):
-        return blocked(
-            company_id,
-            payroll_period_id,
-            "UNVERIFIED_PAYROLL_SCOPE",
-        )
+    period = t["payroll_periods"]
+    calculation = t["payroll_calculations"]
+    calculation_line = t["payroll_calculation_lines"]
+    header = t["payroll_statutory_results"]
+    line = t["payroll_statutory_result_lines"]
+    source = t["payroll_statutory_line_sources"]
 
-    if not has(
-        "payroll_statutory_line_sources",
-        "id", "company_id", "source_amount",
-    ):
-        return blocked(
-            company_id,
-            payroll_period_id,
-            "UNVERIFIED_SOURCE_AMOUNT_SCHEMA",
-        )
-
-    available_amounts = [
-        name
-        for name in AMOUNT_CANDIDATES
-        if name in schema["payroll_statutory_result_lines"]["columns"]
-    ]
-
-    if len(available_amounts) != 1:
-        return blocked(
-            company_id,
-            payroll_period_id,
-            "AMBIGUOUS_REPORTED_AMOUNT",
-            available_amount_fields=available_amounts,
-        )
-
-    amount_field = available_amounts[0]
-
-    period_table = t["payroll_periods"]
-
-    period = (
+    period_exists = (
         await db.execute(
-            select(period_table.c.id).where(
-                period_table.c.id == payroll_period_id,
-                period_table.c.company_id == company_id,
+            select(period.c.id).where(
+                period.c.company_id == company_id,
+                period.c.id == payroll_period_id,
             )
         )
     ).scalar_one_or_none()
 
-    if period is None:
+    if period_exists is None:
         raise FinancialReconciliationError(
             "Payroll period does not belong to company"
         )
 
-    report = t["payroll_statutory_results"]
-    line = t["payroll_statutory_result_lines"]
-    source = t["payroll_statutory_line_sources"]
-    calculation_line = t["payroll_calculation_lines"]
-    calculation = t["payroll_calculations"]
-
-    report_join = joins[
-        (
-            "payroll_statutory_result_lines",
-            "payroll_statutory_results",
+    # Real header ownership:
+    # statutory result -> payroll calculation -> period.
+    report_join = (
+        header.join(
+            calculation,
+            (header.c.company_id == calculation.c.company_id)
+            & (
+                header.c.payroll_calculation_id
+                == calculation.c.id
+            ),
         )
-    ]
-
-    source_line_join = joins[
-        (
-            "payroll_statutory_line_sources",
-            "payroll_statutory_result_lines",
+        .join(
+            line,
+            (line.c.company_id == header.c.company_id)
+            & (
+                line.c.payroll_statutory_result_id
+                == header.c.id
+            ),
         )
-    ]
-
-    source_calc_join = joins[
-        (
-            "payroll_statutory_line_sources",
-            "payroll_calculation_lines",
-        )
-    ]
-
-    calc_parent_join = joins[
-        (
-            "payroll_calculation_lines",
-            "payroll_calculations",
-        )
-    ]
+    )
 
     report_rows = (
         await db.execute(
             select(
-                line.c.id.label("id"),
-                line.c[amount_field].label("reported_amount"),
+                line.c.id.label("line_id"),
+                line.c.base_amount.label("reported_amount"),
+                line.c.amount.label("tax_amount"),
+                line.c.component.label("component"),
+                line.c.currency_code.label("currency"),
+                calculation.c.id.label("calculation_id"),
+                header.c.currency_code.label("header_currency"),
             )
-            .select_from(
-                line.join(
-                    report,
-                    line.c[report_join[0]]
-                    == report.c[report_join[1]],
-                )
-            )
+            .select_from(report_join)
             .where(
-                report.c.company_id == company_id,
-                report.c.payroll_period_id == payroll_period_id,
+                calculation.c.company_id == company_id,
+                calculation.c.payroll_period_id
+                == payroll_period_id,
             )
+            .order_by(line.c.id)
             .limit(MAX_ROWS + 1)
         )
     ).mappings().all()
@@ -456,102 +470,194 @@ async def reconcile_persisted_allocations(
             "NO_PERSISTED_REPORT_LINES",
         )
 
-    statutory_ids = [item["id"] for item in report_rows]
+    line_ids = [row["line_id"] for row in report_rows]
 
-    linked_rows = (
+    # Source records are read separately to detect orphaned /
+    # mismatched bindings instead of hiding them with INNER JOIN.
+    source_rows = (
         await db.execute(
             select(
                 source.c.id.label("source_id"),
-                line.c.id.label("statutory_line_id"),
-                source.c[source_calc_join[0]].label(
+                source.c.statutory_line_id.label("statutory_line_id"),
+                source.c.payroll_calculation_line_id.label(
                     "calculation_line_id"
                 ),
-                source.c.company_id.label("source_company_id"),
+                source.c.company_id.label("source_company"),
                 source.c.source_amount.label("source_amount"),
-                calculation.c.company_id.label("calculation_company_id"),
-                calculation.c.payroll_period_id.label(
-                    "calculation_period_id"
-                ),
+                source.c.income_effective_from.label("income_from"),
+                source.c.income_effective_to.label("income_to"),
             )
-            .select_from(
-                source.join(
-                    line,
-                    source.c[source_line_join[0]]
-                    == line.c[source_line_join[1]],
-                )
-                .join(
-                    calculation_line,
-                    source.c[source_calc_join[0]]
-                    == calculation_line.c[source_calc_join[1]],
-                )
-                .join(
-                    calculation,
-                    calculation_line.c[calc_parent_join[0]]
-                    == calculation.c[calc_parent_join[1]],
-                )
+            .where(
+                source.c.company_id == company_id,
+                source.c.statutory_line_id.in_(line_ids),
             )
-            .where(line.c.id.in_(statutory_ids))
+            .order_by(source.c.id)
             .limit(MAX_ROWS + 1)
         )
     ).mappings().all()
 
-    if len(linked_rows) > MAX_ROWS:
+    if len(source_rows) > MAX_ROWS:
         return blocked(
             company_id,
             payroll_period_id,
             "SOURCE_ROW_LIMIT_EXCEEDED",
         )
 
-    verified_sources = []
-    verified_calculations = {}
+    calculation_line_ids = {
+        row["calculation_line_id"] for row in source_rows
+    }
 
-    for row in linked_rows:
-        if (
-            row["source_company_id"] != company_id
-            or row["calculation_company_id"] != company_id
-            or row["calculation_period_id"] != payroll_period_id
-        ):
+    actual_calculation_lines = []
+
+    if calculation_line_ids:
+        actual_calculation_lines = (
+            await db.execute(
+                select(
+                    calculation_line.c.id.label("id"),
+                    calculation_line.c.company_id.label("company_id"),
+                    calculation_line.c.payroll_calculation_id.label(
+                        "calculation_id"
+                    ),
+                    calculation_line.c.amount.label("payroll_amount"),
+                    calculation_line.c.currency_code.label("currency"),
+                    calculation.c.payroll_period_id.label("period_id"),
+                )
+                .select_from(
+                    calculation_line.join(
+                        calculation,
+                        (
+                            calculation_line.c.company_id
+                            == calculation.c.company_id
+                        )
+                        & (
+                            calculation_line.c.payroll_calculation_id
+                            == calculation.c.id
+                        ),
+                    )
+                )
+                .where(
+                    calculation_line.c.id.in_(
+                        calculation_line_ids
+                    ),
+                    calculation_line.c.company_id == company_id,
+                )
+            )
+        ).mappings().all()
+
+    by_calculation_line = {
+        row["id"]: row for row in actual_calculation_lines
+    }
+
+    by_statutory_line = {
+        row["line_id"]: row for row in report_rows
+    }
+
+    groups = {}
+
+    for row in source_rows:
+        statutory = by_statutory_line.get(
+            row["statutory_line_id"]
+        )
+        payroll = by_calculation_line.get(
+            row["calculation_line_id"]
+        )
+
+        if statutory is None or payroll is None:
             raise FinancialReconciliationError(
-                "Persisted cross-company or cross-period source"
+                "Unresolved persisted source binding"
             )
 
-        verified_sources.append({
-            "id": row["source_id"],
-            "statutory_line_id": row["statutory_line_id"],
-            "payroll_calculation_line_id": row[
-                "calculation_line_id"
-            ],
-            "source_amount": row["source_amount"],
-            "company_id": company_id,
+        if (
+            row["source_company"] != company_id
+            or payroll["company_id"] != company_id
+            or payroll["period_id"] != payroll_period_id
+        ):
+            raise FinancialReconciliationError(
+                "Cross-company or cross-period source"
+            )
+
+        if payroll["calculation_id"] != statutory["calculation_id"]:
+            raise FinancialReconciliationError(
+                "Source linked to a different payroll calculation"
+            )
+
+        if (
+            payroll["currency"] != statutory["currency"]
+            or statutory["currency"]
+            != statutory["header_currency"]
+        ):
+            raise FinancialReconciliationError(
+                "Persisted financial currency mismatch"
+            )
+
+        if (
+            row["income_from"] is None
+            or row["income_to"] is None
+            or row["income_from"] > row["income_to"]
+        ):
+            raise FinancialReconciliationError(
+                "Invalid dated financial allocation"
+            )
+
+        groups.setdefault(
+            row["statutory_line_id"], []
+        ).append(row)
+
+    from decimal import Decimal
+
+    totals_reported = Decimal("0.00")
+    totals_allocated = Decimal("0.00")
+    output = []
+    verified = 0
+
+    for row in report_rows:
+        reported = money(row["reported_amount"])
+        statutory_tax = money(row["tax_amount"])
+        allocations = groups.get(row["line_id"], [])
+
+        allocated = sum(
+            (money(item["source_amount"]) for item in allocations),
+            Decimal("0.00"),
+        )
+
+        totals_reported += reported
+        totals_allocated += allocated
+
+        if not allocations:
+            status = "MISSING_SOURCES"
+        elif allocated != reported:
+            status = "AMOUNT_MISMATCH"
+        else:
+            status = "RECONCILED"
+            verified += 1
+
+        output.append({
+            "line_id": row["line_id"],
+            "status": status,
+            "source_count": len(allocations),
+            "reported_amount": str(reported),
+            "statutory_tax_amount": str(statutory_tax),
+            "allocated_amount": str(allocated),
+            "difference": str(reported - allocated),
         })
 
-        verified_calculations[row["calculation_line_id"]] = {
-            "id": row["calculation_line_id"],
-            "company_id": company_id,
-            "payroll_period_id": payroll_period_id,
-        }
-
-    lines = [
-        {
-            "id": row["id"],
-            "company_id": company_id,
-            "payroll_period_id": payroll_period_id,
-            "reported_amount": row["reported_amount"],
-        }
-        for row in report_rows
-    ]
-
-    result = verify_allocations(
-        lines,
-        verified_sources,
-        list(verified_calculations.values()),
-        company_id=company_id,
-        payroll_period_id=payroll_period_id,
-    )
-
-    result["data_origin"] = "PERSISTED_POSTGRESQL"
-    result["reported_amount_field"] = amount_field
-    result["statutory_mapping_verified"] = False
-    result["official_generation"] = "BLOCKED"
-
-    return result
+    # This is an internal statutory-component reconciliation.
+    # It is NOT approval of D1/4DF form-field mappings.
+    return {
+        "company_id": company_id,
+        "payroll_period_id": payroll_period_id,
+        "status": (
+            "FINANCIAL_LINES_RECONCILED"
+            if verified == len(report_rows)
+            else "NOT_VERIFIED"
+        ),
+        "verified_lines": verified,
+        "line_count": len(report_rows),
+        "reported_total": str(totals_reported),
+        "allocated_total": str(totals_allocated),
+        "lines": output,
+        "data_origin": "PERSISTED_POSTGRESQL",
+        "reported_amount_field": "base_amount",
+        "statutory_mapping_verified": False,
+        "official_generation": "BLOCKED",
+    }
