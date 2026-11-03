@@ -373,6 +373,48 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
 
     print("REAL POSTGRESQL POSTED FUNDING EVIDENCE = PASS")
 
+    from app.services.payroll_severance_postpayment_position import (
+        reconcile_severance_postpayment_position,
+        SeverancePositionError,
+    )
+    from dataclasses import replace as replace_position_evidence
+
+    position = reconcile_severance_postpayment_position(
+        preview=mixed_preview,
+        review=review,
+        funding=funding_before,
+        assessment=posted_assessment,
+    )
+
+    assert position.reconciled
+    assert position.payroll_gross == D(calc.gross_amount)
+    assert position.payroll_net == D(tax.net_amount)
+    assert position.employee_posted == (
+        posted_assessment.posted_disbursement_total
+    )
+    assert not position.severance_amount_executable
+    assert not position.journal_posting_authorized
+
+    with pytest.raises(
+        SeverancePositionError,
+        match="disagree",
+    ):
+        reconcile_severance_postpayment_position(
+            preview=mixed_preview,
+            review=review,
+            funding=funding_before,
+            assessment=replace_position_evidence(
+                posted_assessment,
+                posted_disbursement_total=(
+                    posted_assessment.posted_disbursement_total
+                    + D("0.01")
+                ),
+            ),
+        )
+
+    print("REAL POSTGRESQL SEVERANCE FUNDING POSITION = PASS")
+
+
 
     from app.services.payroll_severance_verified_tax_bridge import (
         load_severance_only_financial_snapshot,
