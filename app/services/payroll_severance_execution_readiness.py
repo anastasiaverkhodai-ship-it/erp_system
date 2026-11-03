@@ -4,7 +4,7 @@ This module is an explicit fail-closed gate.
 It never posts journals, authorizes payments or creates statutory approvals.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from sqlalchemy import select
 
@@ -37,6 +37,8 @@ class SeveranceExecutionReadiness:
     corrected_statutory_source_verified: bool
     posting_authorized: bool
     blockers: tuple[str, ...]
+    corrected_source_chain_verified: bool = False
+    proposed_gross_reconciled: bool = False
 
 
 def evaluate_severance_execution_readiness(
@@ -230,7 +232,7 @@ async def assess_severance_execution_readiness(
         except ValueError:
             verified_original = False
 
-    return evaluate_severance_execution_readiness(
+    result = evaluate_severance_execution_readiness(
         company_id=company_id,
         financial_proposal_id=financial_proposal_id,
         proposal=proposal,
@@ -239,4 +241,59 @@ async def assess_severance_execution_readiness(
         adjustment_link=adjustment_link,
         journal=journal,
         original_source_verified=verified_original,
+    )
+
+    # An immutable financial proposal is not proof of a corrected
+    # statutory source. Re-read all revisions from PostgreSQL.
+    from app.services.payroll_severance_corrected_source_reconciliation import (
+        CorrectedSeveranceSourceError,
+        load_corrected_severance_source_reconciliation,
+    )
+
+    if proposal is None or correction_case is None:
+        return replace(
+            result,
+            blockers=result.blockers + (
+                "corrected_source_lineage_not_verified",
+            ),
+        )
+
+    try:
+        reconciliation = (
+            await load_corrected_severance_source_reconciliation(
+                db,
+                company_id=company_id,
+                financial_proposal_id=financial_proposal_id,
+            )
+        )
+    except CorrectedSeveranceSourceError:
+        return replace(
+            result,
+            blockers=result.blockers + (
+                "corrected_source_lineage_not_verified",
+            ),
+        )
+
+    if not (
+        reconciliation.company_id == company_id
+        and reconciliation.financial_proposal_id
+            == financial_proposal_id
+        and reconciliation.original_source_id
+            == correction_case.original_severance_source_id
+        and reconciliation.source_chain_verified is True
+        and reconciliation.proposed_gross_reconciled is True
+        and reconciliation.posting_authorized is False
+        and reconciliation.corrected_statutory_verified is False
+    ):
+        return replace(
+            result,
+            blockers=result.blockers + (
+                "corrected_source_lineage_not_verified",
+            ),
+        )
+
+    return replace(
+        result,
+        corrected_source_chain_verified=True,
+        proposed_gross_reconciled=True,
     )

@@ -166,3 +166,199 @@ async def test_invalid_identifiers_do_not_query_database():
             financial_proposal_id=20,
         )
     db.scalar.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_database_preflight_requires_corrected_source(monkeypatch):
+    from app.services import (
+        payroll_severance_corrected_source_reconciliation
+        as source_module,
+        payroll_severance_execution_readiness as readiness_module,
+    )
+    from app.services.payroll_severance_trusted_classification import (
+        require_trusted_severance_snapshot,
+    )
+
+    proposal, case, review, link, journal = evidence()
+
+    db = Obj(
+        scalar=AsyncMock(
+            side_effect=[
+                proposal,
+                case,
+                review,
+                link,
+                journal,
+            ]
+        )
+    )
+
+    trusted = AsyncMock(return_value=Obj())
+    source_check = AsyncMock(
+        return_value=Obj(
+            company_id=1,
+            financial_proposal_id=20,
+            original_source_id=case.original_severance_source_id
+                if hasattr(case, "original_severance_source_id")
+                else 100,
+            source_chain_verified=True,
+            proposed_gross_reconciled=True,
+            posting_authorized=False,
+            corrected_statutory_verified=False,
+        )
+    )
+
+    case.original_severance_source_id = 100
+
+    monkeypatch.setattr(
+        readiness_module,
+        "evaluate_severance_execution_readiness",
+        readiness_module.evaluate_severance_execution_readiness,
+    )
+    monkeypatch.setattr(
+        source_module,
+        "load_corrected_severance_source_reconciliation",
+        source_check,
+    )
+
+    import app.services.payroll_severance_trusted_classification as trusted_module
+    monkeypatch.setattr(
+        trusted_module,
+        "require_trusted_severance_snapshot",
+        trusted,
+    )
+
+    result = await readiness_module.assess_severance_execution_readiness(
+        db,
+        company_id=1,
+        financial_proposal_id=20,
+    )
+
+    assert result.corrected_source_chain_verified
+    assert result.proposed_gross_reconciled
+    assert result.original_source_verified
+    assert not result.corrected_statutory_source_verified
+    assert not result.posting_authorized
+    assert "corrected_trusted_statutory_source_required" in (
+        result.blockers
+    )
+    source_check.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_database_preflight_rejects_invalid_revision_lineage(
+    monkeypatch,
+):
+    from app.services import (
+        payroll_severance_corrected_source_reconciliation
+        as source_module,
+        payroll_severance_execution_readiness as readiness_module,
+    )
+    from app.services.payroll_severance_corrected_source_reconciliation import (
+        CorrectedSeveranceSourceError,
+    )
+
+    proposal, case, review, link, journal = evidence()
+
+    db = Obj(
+        scalar=AsyncMock(
+            side_effect=[
+                proposal,
+                case,
+                review,
+                link,
+                journal,
+            ]
+        )
+    )
+
+    import app.services.payroll_severance_trusted_classification as trusted_module
+    monkeypatch.setattr(
+        trusted_module,
+        "require_trusted_severance_snapshot",
+        AsyncMock(return_value=Obj()),
+    )
+
+    source_check = AsyncMock(
+        side_effect=CorrectedSeveranceSourceError(
+            "Broken source revision chain"
+        )
+    )
+
+    monkeypatch.setattr(
+        source_module,
+        "load_corrected_severance_source_reconciliation",
+        source_check,
+    )
+
+    result = await readiness_module.assess_severance_execution_readiness(
+        db,
+        company_id=1,
+        financial_proposal_id=20,
+    )
+
+    assert not result.corrected_source_chain_verified
+    assert not result.proposed_gross_reconciled
+    assert not result.posting_authorized
+    assert "corrected_source_lineage_not_verified" in (
+        result.blockers
+    )
+
+
+@pytest.mark.asyncio
+async def test_database_preflight_rejects_misbound_source_result(
+    monkeypatch,
+):
+    from app.services import (
+        payroll_severance_corrected_source_reconciliation
+        as source_module,
+        payroll_severance_execution_readiness as readiness_module,
+    )
+
+    proposal, case, review, link, journal = evidence()
+    case.original_severance_source_id = 100
+
+    db = Obj(
+        scalar=AsyncMock(
+            side_effect=[
+                proposal,
+                case,
+                review,
+                link,
+                journal,
+            ]
+        )
+    )
+
+    import app.services.payroll_severance_trusted_classification as trusted_module
+    monkeypatch.setattr(
+        trusted_module,
+        "require_trusted_severance_snapshot",
+        AsyncMock(return_value=Obj()),
+    )
+
+    monkeypatch.setattr(
+        source_module,
+        "load_corrected_severance_source_reconciliation",
+        AsyncMock(
+            return_value=Obj(
+                company_id=2,
+                financial_proposal_id=20,
+                original_source_id=100,
+                source_chain_verified=True,
+                proposed_gross_reconciled=True,
+                posting_authorized=False,
+                corrected_statutory_verified=False,
+            )
+        ),
+    )
+
+    result = await readiness_module.assess_severance_execution_readiness(
+        db,
+        company_id=1,
+        financial_proposal_id=20,
+    )
+
+    assert not result.corrected_source_chain_verified
+    assert "corrected_source_lineage_not_verified" in result.blockers
+    assert not result.posting_authorized
