@@ -874,6 +874,181 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
     print("REAL POSTGRESQL SEVERANCE ADJUSTMENT DRAFT = PASS")
     print("REAL POSTGRESQL PREMATURE POSTING BLOCKED = PASS")
 
+    from app.models.user import User
+    from app.models.payroll_severance_independent_review import (
+        PayrollSeveranceIndependentReview,
+    )
+    from app.services.payroll_severance_independent_review_service import (
+        record_independent_severance_review,
+        SeveranceIndependentReviewError,
+    )
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text as review_sql_text
+    from sqlalchemy.exc import DBAPIError
+    from uuid import uuid4
+
+    # Create a distinct real reviewer in the isolated database.
+    # Preserve required user-model fields from the fixture user,
+    # but replace unique textual values.
+    token = uuid4().hex[:12]
+    mapper = sa_inspect(User)
+    unique_columns = {
+        column.name
+        for column in mapper.columns
+        if column.unique
+    }
+    for index in User.__table__.indexes:
+        if index.unique:
+            unique_columns.update(
+                column.name
+                for column in index.columns
+            )
+
+    reviewer_values = {}
+    for column in mapper.columns:
+        if column.primary_key or column.computed is not None:
+            continue
+
+        value = getattr(user, column.name)
+
+        if value is None:
+            continue
+
+        if column.name in unique_columns:
+            if not isinstance(value, str):
+                raise AssertionError(
+                    "Unsupported unique reviewer identity column: "
+                    + column.name
+                )
+            maximum = getattr(column.type, "length", None)
+            if "email" in column.name.lower():
+                value = f"reviewer-{token}@example.test"
+            else:
+                value = f"reviewer-{token}"
+            if maximum is not None:
+                value = value[:maximum]
+
+        reviewer_values[column.name] = value
+
+    reviewer = User(**reviewer_values)
+    db.add(reviewer)
+    await db.flush()
+
+    assert reviewer.id != user.id
+    assert reviewer.id > 0
+
+    review_kwargs = dict(
+        company_id=company.id,
+        financial_proposal_id=proposal.id,
+        reviewer_id=reviewer.id,
+        review_reference="PG-E2E-INDEPENDENT-REVIEW-001",
+        review_date=settlement_as_of,
+        decision="reviewed_pending_statutory",
+        request_key="pg-severance-independent-review-001",
+    )
+
+    review = await record_independent_severance_review(
+        db, **review_kwargs
+    )
+
+    assert review.id > 0
+    assert review.reviewer_id == reviewer.id
+    assert review.financial_proposal_id == proposal.id
+    assert review.decision == "reviewed_pending_statutory"
+
+    repeated = await record_independent_severance_review(
+        db, **review_kwargs
+    )
+    assert repeated.id == review.id
+
+    with pytest.raises(SeveranceIndependentReviewError):
+        await record_independent_severance_review(
+            db,
+            **{
+                **review_kwargs,
+                "reviewer_id": user.id,
+                "request_key": "pg-severance-self-review-001",
+            },
+        )
+
+    with pytest.raises(SeveranceIndependentReviewError):
+        await record_independent_severance_review(
+            db,
+            **{
+                **review_kwargs,
+                "request_key": "pg-severance-competing-review-001",
+            },
+        )
+
+    with pytest.raises(DBAPIError):
+        async with db.begin_nested():
+            await db.execute(
+                review_sql_text(
+                    "UPDATE payroll_severance_independent_reviews "
+                    "SET decision = 'rejected' "
+                    "WHERE company_id = :company AND id = :review"
+                ),
+                {
+                    "company": company.id,
+                    "review": review.id,
+                },
+            )
+
+    with pytest.raises(DBAPIError):
+        async with db.begin_nested():
+            await db.execute(
+                review_sql_text(
+                    "DELETE FROM payroll_severance_independent_reviews "
+                    "WHERE company_id = :company AND id = :review"
+                ),
+                {
+                    "company": company.id,
+                    "review": review.id,
+                },
+            )
+
+    # Independent review must NOT bypass statutory authorization.
+    with pytest.raises(DBAPIError):
+        async with db.begin_nested():
+            await db.execute(
+                review_sql_text(
+                    "UPDATE journal_entries "
+                    "SET status = 'posted' "
+                    "WHERE company_id = :company AND id = :journal"
+                ),
+                {
+                    "company": company.id,
+                    "journal": adjustment_journal.id,
+                },
+            )
+
+    stored_review = await db.scalar(
+        select(PayrollSeveranceIndependentReview).where(
+            PayrollSeveranceIndependentReview.company_id
+            == company.id,
+            PayrollSeveranceIndependentReview.id
+            == review.id,
+        )
+    )
+
+    assert stored_review is not None
+    assert stored_review.decision == "reviewed_pending_statutory"
+
+    print(
+        "REAL POSTGRESQL PERSISTED "
+        "INDEPENDENT REVIEW = PASS"
+    )
+    print(
+        "REAL POSTGRESQL REVIEW IDEMPOTENCY = PASS"
+    )
+    print(
+        "REAL POSTGRESQL REVIEW IMMUTABILITY = PASS"
+    )
+    print(
+        "REAL POSTGRESQL REVIEW DOES NOT AUTHORIZE POSTING = PASS"
+    )
+
+
 
 
 
