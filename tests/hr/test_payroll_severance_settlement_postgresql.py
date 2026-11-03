@@ -767,6 +767,45 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
 
     print("REAL POSTGRESQL FINANCIAL REVIEW PREFLIGHT = PASS")
 
+    from app.services.payroll_severance_financial_delta_ledger import (
+        calculate_severance_deltas,
+        load_severance_financial_deltas,
+        SeveranceDeltaError,
+    )
+
+    persisted_deltas = await load_severance_financial_deltas(
+        db,
+        company_id=company.id,
+        correction_case_id=correction_case.id,
+    )
+
+    assert persisted_deltas.case_id == correction_case.id
+    assert persisted_deltas.proposal_id == proposal.id
+    assert persisted_deltas.reconciled
+    assert persisted_deltas.gross_delta == D("100.00")
+    assert persisted_deltas.net_delta == D("100.00")
+    assert not persisted_deltas.statutory_source_verified
+    assert not persisted_deltas.journal_posting_authorized
+
+    with pytest.raises(
+        SeveranceDeltaError,
+        match="identity mismatch",
+    ):
+        calculate_severance_deltas(
+            case=correction_case,
+            proposal=ReviewRecord(
+                id=proposal.id,
+                company_id=company.id + 1,
+                correction_case_id=correction_case.id,
+                status=proposal.status,
+                original_financial=proposal.original_financial,
+                proposed_financial=proposal.proposed_financial,
+            ),
+        )
+
+    print("REAL POSTGRESQL SOURCE-BOUND SEVERANCE DELTAS = PASS")
+
+
 
 
 
