@@ -55,6 +55,10 @@ class PayrollSeveranceCorrectionCase(Base):
     )
 
     __table_args__ = (
+        UniqueConstraint(
+            "company_id", "id",
+            name="uq_sev_case_company_id",
+        ),
         ForeignKeyConstraint(
             ["company_id", "original_payroll_calculation_id"],
             [

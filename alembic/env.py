@@ -31,6 +31,8 @@ from app.models.payroll_regulatory_correction_snapshot import PayrollRegulatoryC
 
 from app.models.payroll_severance_correction_case import PayrollSeveranceCorrectionCase
 
+from app.models.payroll_severance_financial_proposal import PayrollSeveranceFinancialProposal
+
 target_metadata = Base.metadata
 
 

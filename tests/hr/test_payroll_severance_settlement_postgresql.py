@@ -530,6 +530,95 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
 
     print("REAL POSTGRESQL CORRECTION SOURCE PINNING = PASS")
 
+    from app.services.payroll_severance_financial_proposal_service import (
+        create_severance_financial_proposal,
+        SeveranceFinancialProposalError,
+    )
+    from app.services.payroll_severance_net_tax_settlement import (
+        SeveranceFinancialSnapshot,
+    )
+
+    initial_financial = mixed_preview.financial
+
+    proposed_financial = SeveranceFinancialSnapshot(
+        gross=initial_financial.gross + D("100.00"),
+        personal_income_tax=initial_financial.personal_income_tax,
+        military_levy=initial_financial.military_levy,
+        net=initial_financial.net + D("100.00"),
+        employer_contribution=initial_financial.employer_contribution,
+    )
+
+    proposal = await create_severance_financial_proposal(
+        db,
+        company_id=company.id,
+        correction_case_id=correction_case.id,
+        original_preview=mixed_preview,
+        proposed_financial=proposed_financial,
+        document_reference="PG-E2E-ILLUSTRATIVE-PROPOSAL-001",
+        document_date=settlement_as_of,
+        request_key=f"pg-sev-proposal-{correction_case.id}",
+        submitted_by=user.id,
+    )
+
+    assert proposal.id > 0
+    assert proposal.status == "review_required"
+    assert proposal.original_financial["gross"] == str(
+        initial_financial.gross
+    )
+    assert proposal.proposed_financial["gross"] == str(
+        proposed_financial.gross
+    )
+
+    replay = await create_severance_financial_proposal(
+        db,
+        company_id=company.id,
+        correction_case_id=correction_case.id,
+        original_preview=mixed_preview,
+        proposed_financial=proposed_financial,
+        document_reference="PG-E2E-ILLUSTRATIVE-PROPOSAL-001",
+        document_date=settlement_as_of,
+        request_key=f"pg-sev-proposal-{correction_case.id}",
+        submitted_by=user.id,
+    )
+
+    assert replay.id == proposal.id
+
+    with pytest.raises(
+        SeveranceFinancialProposalError,
+        match="different proposal",
+    ):
+        await create_severance_financial_proposal(
+            db,
+            company_id=company.id,
+            correction_case_id=correction_case.id,
+            original_preview=mixed_preview,
+            proposed_financial=proposed_financial,
+            document_reference="PG-E2E-DIFFERENT-DOCUMENT-002",
+            document_date=settlement_as_of,
+            request_key=f"pg-sev-proposal-{correction_case.id}",
+            submitted_by=user.id,
+        )
+
+    with pytest.raises(
+        SeveranceFinancialProposalError,
+        match="already has a financial proposal",
+    ):
+        await create_severance_financial_proposal(
+            db,
+            company_id=company.id,
+            correction_case_id=correction_case.id,
+            original_preview=mixed_preview,
+            proposed_financial=proposed_financial,
+            document_reference="PG-E2E-SECOND-PROPOSAL-003",
+            document_date=settlement_as_of,
+            request_key=f"pg-sev-proposal-other-{correction_case.id}",
+            submitted_by=user.id,
+        )
+
+    print("REAL POSTGRESQL IMMUTABLE FINANCIAL PROPOSAL = PASS")
+    print("REAL POSTGRESQL PROPOSAL IDEMPOTENCY = PASS")
+
+
     print("CASE IDEMPOTENCY + COMPETING REQUEST GUARDS = PASS")
 
 
