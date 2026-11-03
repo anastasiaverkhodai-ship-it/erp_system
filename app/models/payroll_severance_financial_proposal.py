@@ -50,6 +50,10 @@ class PayrollSeveranceFinancialProposal(Base):
     )
 
     __table_args__ = (
+        UniqueConstraint(
+            "company_id", "id",
+            name="uq_sev_proposal_company_id",
+        ),
         ForeignKeyConstraint(
             ["company_id", "correction_case_id"],
             [

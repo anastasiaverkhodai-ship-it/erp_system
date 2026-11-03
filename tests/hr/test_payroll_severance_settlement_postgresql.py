@@ -805,6 +805,76 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
 
     print("REAL POSTGRESQL SOURCE-BOUND SEVERANCE DELTAS = PASS")
 
+    from app.services.payroll_severance_adjustment_journal_service import (
+        create_severance_adjustment_draft,
+    )
+    from app.models.payroll_severance_adjustment_journal import (
+        PayrollSeveranceAdjustmentJournal,
+    )
+    from app.models.journal_entry import JournalEntryStatus
+    from sqlalchemy import text as adjustment_sql_text
+    from sqlalchemy.exc import DBAPIError as AdjustmentDBAPIError
+
+    adjustment_journal = await create_severance_adjustment_draft(
+        db,
+        company_id=company.id,
+        correction_case_id=correction_case.id,
+        correction_date=settlement_as_of,
+        actor_id=user.id,
+    )
+
+    assert adjustment_journal.id > 0
+    assert adjustment_journal.status == JournalEntryStatus.DRAFT
+    assert adjustment_journal.payroll_calculation_id is None
+    assert len(adjustment_journal.lines) == 2
+
+    assert sum(
+        (D(row.debit) for row in adjustment_journal.lines),
+        D("0.00"),
+    ) == D("100.00")
+
+    assert sum(
+        (D(row.credit) for row in adjustment_journal.lines),
+        D("0.00"),
+    ) == D("100.00")
+
+    replay_draft = await create_severance_adjustment_draft(
+        db,
+        company_id=company.id,
+        correction_case_id=correction_case.id,
+        correction_date=settlement_as_of,
+        actor_id=user.id,
+    )
+    assert replay_draft.id == adjustment_journal.id
+
+    # Real PostgreSQL must refuse any direct status transition,
+    # even when a caller bypasses the Python service.
+    with pytest.raises(AdjustmentDBAPIError):
+        async with db.begin_nested():
+            await db.execute(
+                adjustment_sql_text(
+                    "UPDATE journal_entries SET status = 'posted' "
+                    "WHERE company_id = :company AND id = :journal"
+                ),
+                {
+                    "company": company.id,
+                    "journal": adjustment_journal.id,
+                },
+            )
+
+    assert await db.scalar(
+        select(PayrollSeveranceAdjustmentJournal.id).where(
+            PayrollSeveranceAdjustmentJournal.company_id
+            == company.id,
+            PayrollSeveranceAdjustmentJournal.financial_proposal_id
+            == proposal.id,
+        )
+    ) is not None
+
+    print("REAL POSTGRESQL SEVERANCE ADJUSTMENT DRAFT = PASS")
+    print("REAL POSTGRESQL PREMATURE POSTING BLOCKED = PASS")
+
+
 
 
 

@@ -33,6 +33,8 @@ from app.models.payroll_severance_correction_case import PayrollSeveranceCorrect
 
 from app.models.payroll_severance_financial_proposal import PayrollSeveranceFinancialProposal
 
+from app.models.payroll_severance_adjustment_journal import PayrollSeveranceAdjustmentJournal
+
 target_metadata = Base.metadata
 
 
