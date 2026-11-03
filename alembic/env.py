@@ -35,6 +35,8 @@ from app.models.payroll_severance_financial_proposal import PayrollSeveranceFina
 
 from app.models.payroll_severance_adjustment_journal import PayrollSeveranceAdjustmentJournal
 
+from app.models.payroll_severance_independent_review import PayrollSeveranceIndependentReview
+
 target_metadata = Base.metadata
 
 
