@@ -703,6 +703,71 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
 
     print("REAL POSTGRESQL IMMUTABLE TRIGGER ENFORCEMENT = PASS")
 
+    from app.services.payroll_severance_financial_approval_gate import (
+        FinancialReviewEvidence,
+        SeveranceApprovalGateError,
+        financial_approval_preflight,
+    )
+    from types import SimpleNamespace as ReviewRecord
+
+    original_review = SeveranceFinancialSnapshot(
+        **{
+            field: D(proposal.original_financial[field])
+            for field in (
+                "gross", "personal_income_tax",
+                "military_levy", "net",
+                "employer_contribution",
+            )
+        }
+    )
+
+    corrected_review = SeveranceFinancialSnapshot(
+        **{
+            field: D(proposal.proposed_financial[field])
+            for field in (
+                "gross", "personal_income_tax",
+                "military_levy", "net",
+                "employer_contribution",
+            )
+        }
+    )
+
+    independent_review = FinancialReviewEvidence(
+        reviewer_id=user.id + 100000,
+        submitter_id=user.id,
+        document_reference="PG-E2E-INDEPENDENT-REVIEW-001",
+        normative_source_reference="PG-E2E-SOURCE-REVIEW-001",
+        reviewed_original=original_review,
+        reviewed_corrected=corrected_review,
+    )
+
+    preflight = financial_approval_preflight(
+        proposal=proposal,
+        case=correction_case,
+        evidence=independent_review,
+    )
+
+    assert preflight.financial_integrity_reconciled
+    assert preflight.reviewer_separated
+    assert not preflight.statutory_source_verified
+    assert not preflight.journal_posting_authorized
+
+    with pytest.raises(
+        SeveranceApprovalGateError,
+        match="Independent reviewer",
+    ):
+        financial_approval_preflight(
+            proposal=proposal,
+            case=correction_case,
+            evidence=replace_position_evidence(
+                independent_review,
+                reviewer_id=user.id,
+            ),
+        )
+
+    print("REAL POSTGRESQL FINANCIAL REVIEW PREFLIGHT = PASS")
+
+
 
 
     print("CASE IDEMPOTENCY + COMPETING REQUEST GUARDS = PASS")
