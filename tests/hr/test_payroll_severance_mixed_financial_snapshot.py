@@ -142,3 +142,54 @@ async def test_bad_identity_stops_before_database(
 
     db.scalar.assert_not_awaited()
     db.scalars.assert_not_awaited()
+
+
+def test_statutory_header_full_reconciliation():
+    from types import SimpleNamespace
+    from app.services.payroll_severance_mixed_financial_snapshot import (
+        verify_statutory_financial_integrity,
+    )
+
+    header = SimpleNamespace(
+        gross_amount=D("13040.00"),
+        employee_withholding_amount=D("2999.20"),
+        employer_contribution_amount=D("228.80"),
+        net_amount=D("10040.80"),
+    )
+
+    assert verify_statutory_financial_integrity(
+        gross_amount=D("13040.00"),
+        statutory_header=header,
+        component_totals=TOTALS,
+    )
+
+
+@pytest.mark.parametrize(
+    "field,incorrect",
+    [
+        ("gross_amount", D("13040.01")),
+        ("employee_withholding_amount", D("2999.21")),
+        ("employer_contribution_amount", D("228.81")),
+        ("net_amount", D("10040.81")),
+    ],
+)
+def test_statutory_header_tampering_rejected(field, incorrect):
+    from types import SimpleNamespace
+    from app.services.payroll_severance_mixed_financial_snapshot import (
+        verify_statutory_financial_integrity,
+    )
+
+    values = dict(
+        gross_amount=D("13040.00"),
+        employee_withholding_amount=D("2999.20"),
+        employer_contribution_amount=D("228.80"),
+        net_amount=D("10040.80"),
+    )
+    values[field] = incorrect
+
+    with pytest.raises(SeveranceFinancialSourceError):
+        verify_statutory_financial_integrity(
+            gross_amount=D("13040.00"),
+            statutory_header=SimpleNamespace(**values),
+            component_totals=TOTALS,
+        )

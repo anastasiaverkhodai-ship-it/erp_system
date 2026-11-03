@@ -178,6 +178,84 @@ def bind_review_to_statutory_totals(
     )
 
 
+
+def verify_statutory_financial_integrity(
+    *,
+    gross_amount,
+    statutory_header,
+    component_totals,
+):
+    """Reconcile persisted statutory header and component totals.
+
+    This is an arithmetic integrity control, not tax allocation
+    approval or permission to execute settlement transactions.
+    """
+    from app.services.payroll_severance_dated_tax_allocation import (
+        COMPONENTS,
+        exact_money,
+    )
+
+    if (
+        not isinstance(component_totals, dict)
+        or set(component_totals) != COMPONENTS
+    ):
+        raise SeveranceFinancialSourceError(
+            "Exactly three statutory component totals required"
+        )
+
+    try:
+        gross = exact_money(gross_amount)
+
+        header_gross = exact_money(
+            statutory_header.gross_amount
+        )
+        header_withheld = exact_money(
+            statutory_header.employee_withholding_amount
+        )
+        header_contribution = exact_money(
+            statutory_header.employer_contribution_amount
+        )
+        header_net = exact_money(
+            statutory_header.net_amount
+        )
+
+        pit = exact_money(
+            component_totals["personal_income_tax"]
+        )
+        levy = exact_money(
+            component_totals["military_levy"]
+        )
+        contribution = exact_money(
+            component_totals["unified_social_contribution"]
+        )
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise SeveranceFinancialSourceError(
+            "Invalid persisted statutory financial amounts"
+        ) from exc
+
+    if header_gross != gross:
+        raise SeveranceFinancialSourceError(
+            "Payroll and statutory gross mismatch"
+        )
+
+    if header_withheld != pit + levy:
+        raise SeveranceFinancialSourceError(
+            "Statutory withholding does not reconcile"
+        )
+
+    if header_contribution != contribution:
+        raise SeveranceFinancialSourceError(
+            "Statutory employer contribution does not reconcile"
+        )
+
+    if header_net != gross - header_withheld:
+        raise SeveranceFinancialSourceError(
+            "Statutory net does not reconcile"
+        )
+
+    return True
+
+
 async def load_mixed_severance_financial_preview(
     db,
     *,
@@ -276,6 +354,12 @@ async def load_mixed_severance_financial_preview(
         raise SeveranceFinancialSourceError(
             "Incomplete persisted statutory components"
         )
+
+    verify_statutory_financial_integrity(
+        gross_amount=split.total_gross,
+        statutory_header=statutory,
+        component_totals=totals,
+    )
 
     if (
         review is None

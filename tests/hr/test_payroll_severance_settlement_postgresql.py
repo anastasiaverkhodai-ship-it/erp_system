@@ -254,6 +254,42 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
         )
 
     print("REAL POSTGRESQL MIXED SEVERANCE SNAPSHOT = PASS")
+
+    from types import SimpleNamespace
+    from app.services.payroll_severance_mixed_financial_snapshot import (
+        verify_statutory_financial_integrity,
+    )
+
+    assert verify_statutory_financial_integrity(
+        gross_amount=D(calc.gross_amount),
+        statutory_header=statutory_header,
+        component_totals=totals,
+    )
+
+    damaged_header = SimpleNamespace(
+        gross_amount=statutory_header.gross_amount,
+        employee_withholding_amount=(
+            D(statutory_header.employee_withholding_amount)
+            + D("0.01")
+        ),
+        employer_contribution_amount=(
+            statutory_header.employer_contribution_amount
+        ),
+        net_amount=statutory_header.net_amount,
+    )
+
+    with pytest.raises(
+        SeveranceFinancialSourceError,
+        match="withholding does not reconcile",
+    ):
+        verify_statutory_financial_integrity(
+            gross_amount=D(calc.gross_amount),
+            statutory_header=damaged_header,
+            component_totals=totals,
+        )
+
+    print("REAL POSTGRESQL STATUTORY HEADER INTEGRITY = PASS")
+
     print("UNAPPROVED FINANCIAL EXECUTION = BLOCKED")
 
     print("UNVERIFIED TAX ALLOCATION FINANCIAL EXECUTION = BLOCKED")
