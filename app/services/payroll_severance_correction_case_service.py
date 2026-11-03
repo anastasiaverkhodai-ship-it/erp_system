@@ -83,6 +83,81 @@ def validate_case_request(
     }
 
 
+
+def require_exact_severance_case_source(
+    *,
+    calculation,
+    assessment,
+    severance_lines,
+):
+    """Pin a correction case to exactly one verified severance line.
+
+    No inferred source, aggregate-only gross comparison or automatic
+    severance correction approval is permitted.
+    """
+    from app.services.payroll_severance_dated_tax_allocation import (
+        exact_money,
+    )
+
+    if calculation is None or assessment is None:
+        raise SeveranceCorrectionCaseError(
+            "Original payroll and severance assessment required"
+        )
+
+    if (
+        calculation.company_id != assessment.company_id
+        or calculation.payroll_input_id != assessment.payroll_input_id
+    ):
+        raise SeveranceCorrectionCaseError(
+            "Payroll and severance assessment scope mismatch"
+        )
+
+    if (
+        not isinstance(severance_lines, (list, tuple))
+        or len(severance_lines) != 1
+    ):
+        raise SeveranceCorrectionCaseError(
+            "Exactly one original severance line required"
+        )
+
+    line = severance_lines[0]
+
+    if (
+        line.company_id != calculation.company_id
+        or line.payroll_calculation_id != calculation.id
+        or line.line_type != "severance"
+    ):
+        raise SeveranceCorrectionCaseError(
+            "Severance line belongs to another payroll source"
+        )
+
+    source_id = line.source_termination_severance_id
+
+    if (
+        type(source_id) is not int
+        or source_id <= 0
+        or source_id != assessment.last_calculated_source_id
+    ):
+        raise SeveranceCorrectionCaseError(
+            "Severance source identity mismatch"
+        )
+
+    if (
+        exact_money(line.amount)
+        != exact_money(assessment.original_gross)
+    ):
+        raise SeveranceCorrectionCaseError(
+            "Severance line and verified source gross mismatch"
+        )
+
+    if exact_money(line.amount) <= 0:
+        raise SeveranceCorrectionCaseError(
+            "Positive severance line amount required"
+        )
+
+    return source_id
+
+
 async def open_postpayment_severance_case(
     db,
     *,
@@ -182,6 +257,25 @@ async def open_postpayment_severance_case(
             "Verified severance and a posted payment required"
         )
 
+    from app.models.payroll import PayrollCalculationLine
+
+    severance_lines = list((
+        await db.scalars(
+            select(PayrollCalculationLine).where(
+                PayrollCalculationLine.company_id == company_id,
+                PayrollCalculationLine.payroll_calculation_id
+                == payroll_calculation_id,
+                PayrollCalculationLine.line_type == "severance",
+            )
+        )
+    ).all())
+
+    pinned_source_id = require_exact_severance_case_source(
+        calculation=calculation,
+        assessment=assessment,
+        severance_lines=severance_lines,
+    )
+
     funding = await load_posted_payroll_funding(
         db,
         company_id=company_id,
@@ -204,9 +298,7 @@ async def open_postpayment_severance_case(
         company_id=company_id,
         payroll_input_id=calculation.payroll_input_id,
         original_payroll_calculation_id=payroll_calculation_id,
-        original_severance_source_id=(
-            assessment.last_calculated_source_id
-        ),
+        original_severance_source_id=pinned_source_id,
         request_key=key,
         request_fingerprint=fingerprint,
         evidence_reference=evidence_reference.strip(),

@@ -483,6 +483,53 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
         )
 
     print("REAL POSTGRESQL PERSISTED SEVERANCE CASE = PASS")
+
+    from app.services.payroll_severance_correction_case_service import (
+        require_exact_severance_case_source,
+    )
+    from types import SimpleNamespace
+
+    original_severance_lines = list((
+        await db.scalars(
+            select(PayrollCalculationLine).where(
+                PayrollCalculationLine.company_id == company.id,
+                PayrollCalculationLine.payroll_calculation_id == calc.id,
+                PayrollCalculationLine.line_type == "severance",
+            )
+        )
+    ).all())
+
+    assert require_exact_severance_case_source(
+        calculation=calc,
+        assessment=posted_assessment,
+        severance_lines=original_severance_lines,
+    ) == correction_case.original_severance_source_id
+
+    actual_line = original_severance_lines[0]
+
+    with pytest.raises(
+        SeveranceCorrectionCaseError,
+        match="source identity mismatch",
+    ):
+        require_exact_severance_case_source(
+            calculation=calc,
+            assessment=posted_assessment,
+            severance_lines=[
+                SimpleNamespace(
+                    company_id=actual_line.company_id,
+                    payroll_calculation_id=actual_line.payroll_calculation_id,
+                    line_type="severance",
+                    source_termination_severance_id=(
+                        actual_line.source_termination_severance_id
+                        + 100000
+                    ),
+                    amount=actual_line.amount,
+                )
+            ],
+        )
+
+    print("REAL POSTGRESQL CORRECTION SOURCE PINNING = PASS")
+
     print("CASE IDEMPOTENCY + COMPETING REQUEST GUARDS = PASS")
 
 
