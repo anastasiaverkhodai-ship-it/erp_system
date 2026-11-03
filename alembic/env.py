@@ -29,6 +29,8 @@ from app.models.payroll_d5_professional_evidence import PayrollD5ProfessionalEvi
 from app.models.payroll_sick_correction import PayrollSickCorrection
 from app.models.payroll_regulatory_correction_snapshot import PayrollRegulatoryCorrectionSnapshot
 
+from app.models.payroll_severance_correction_case import PayrollSeveranceCorrectionCase
+
 target_metadata = Base.metadata
 
 

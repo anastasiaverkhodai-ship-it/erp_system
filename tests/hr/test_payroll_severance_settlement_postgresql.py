@@ -414,6 +414,78 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
 
     print("REAL POSTGRESQL SEVERANCE FUNDING POSITION = PASS")
 
+    from app.services.payroll_severance_correction_case_service import (
+        open_postpayment_severance_case,
+        SeveranceCorrectionCaseError,
+    )
+
+    correction_case = await open_postpayment_severance_case(
+        db,
+        company_id=company.id,
+        payroll_calculation_id=calc.id,
+        as_of=settlement_as_of,
+        evidence_date=contract.end_date,
+        evidence_reference="PG-E2E-SEVERANCE-REVIEW-001",
+        request_key=f"pg-severance-case-{calc.id}",
+        actor_id=user.id,
+    )
+
+    assert correction_case.id > 0
+    assert correction_case.status == "review_required"
+    assert correction_case.original_severance_gross == (
+        posted_assessment.original_gross
+    )
+    assert correction_case.posted_payroll_amount_at_opening == (
+        funding_before.posted_payment_total
+    )
+
+    replay = await open_postpayment_severance_case(
+        db,
+        company_id=company.id,
+        payroll_calculation_id=calc.id,
+        as_of=settlement_as_of,
+        evidence_date=contract.end_date,
+        evidence_reference="PG-E2E-SEVERANCE-REVIEW-001",
+        request_key=f"pg-severance-case-{calc.id}",
+        actor_id=user.id,
+    )
+
+    assert replay.id == correction_case.id
+
+    with pytest.raises(
+        SeveranceCorrectionCaseError,
+        match="different evidence",
+    ):
+        await open_postpayment_severance_case(
+            db,
+            company_id=company.id,
+            payroll_calculation_id=calc.id,
+            as_of=settlement_as_of,
+            evidence_date=contract.end_date,
+            evidence_reference="PG-E2E-CHANGED-REVIEW-002",
+            request_key=f"pg-severance-case-{calc.id}",
+            actor_id=user.id,
+        )
+
+    with pytest.raises(
+        SeveranceCorrectionCaseError,
+        match="active correction case",
+    ):
+        await open_postpayment_severance_case(
+            db,
+            company_id=company.id,
+            payroll_calculation_id=calc.id,
+            as_of=settlement_as_of,
+            evidence_date=contract.end_date,
+            evidence_reference="PG-E2E-ANOTHER-REVIEW-003",
+            request_key=f"pg-severance-case-second-{calc.id}",
+            actor_id=user.id,
+        )
+
+    print("REAL POSTGRESQL PERSISTED SEVERANCE CASE = PASS")
+    print("CASE IDEMPOTENCY + COMPETING REQUEST GUARDS = PASS")
+
+
 
 
     from app.services.payroll_severance_verified_tax_bridge import (
