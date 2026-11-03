@@ -339,6 +339,41 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
 
     print("ACTUAL POSTED SEVERANCE PAYMENT ASSESSMENT = PASS")
 
+    from app.services.payroll_severance_postpayment_funding import (
+        load_posted_payroll_funding,
+    )
+
+    # Compare like-for-like:
+    # assessment includes all active posted disbursements,
+    # so the dated funding query must include the final
+    # end-of-month payment in split-payment scenarios.
+    settlement_as_of = date(2026, month, last_day)
+
+    funding_before = await load_posted_payroll_funding(
+        db,
+        company_id=company.id,
+        payroll_calculation_id=calc.id,
+        as_of=settlement_as_of,
+    )
+
+    assert funding_before.posted_payment_count >= 1
+    if deductions:
+        assert funding_before.posted_payment_count >= 2
+    else:
+        assert funding_before.posted_payment_count == 1
+    assert funding_before.posted_payment_total == (
+        posted_assessment.posted_disbursement_total
+    )
+    assert funding_before.remitted_personal_income_tax == D("2347.20")
+    assert funding_before.remitted_military_levy == D("652.00")
+    assert funding_before.remitted_employer_contribution == D("228.80")
+
+    assert not funding_before.financial_execution_authorized
+    assert not funding_before.severance_tax_attribution_verified
+
+    print("REAL POSTGRESQL POSTED FUNDING EVIDENCE = PASS")
+
+
     from app.services.payroll_severance_verified_tax_bridge import (
         load_severance_only_financial_snapshot,
         SeveranceTaxSourceError,
@@ -402,6 +437,22 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
     assert reversed_assessment.payment_authorized is False
 
     print("REVERSED SEVERANCE PAYMENT ASSESSMENT = PASS")
+
+    funding_after = await load_posted_payroll_funding(
+        db,
+        company_id=company.id,
+        payroll_calculation_id=calc.id,
+        as_of=date(2026, month, last_day),
+    )
+
+    assert funding_after.posted_payment_count == 0
+    assert funding_after.posted_payment_total == D("0.00")
+    assert funding_after.remitted_personal_income_tax == D("2347.20")
+    assert funding_after.remitted_military_levy == D("652.00")
+    assert funding_after.remitted_employer_contribution == D("228.80")
+
+    print("REAL POSTGRESQL REVERSED FUNDING EVIDENCE = PASS")
+
 
 
 
