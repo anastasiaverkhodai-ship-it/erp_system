@@ -70,3 +70,142 @@ def test_inactive_proposal_rejected():
 
     with pytest.raises(SeveranceIndependentReviewError):
         validate_independent_review(**args)
+
+
+@pytest.mark.asyncio
+async def test_active_company_reviewer_authorized(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.services import (
+        payroll_deduction_rule_approval_write_service as permissions,
+    )
+    from app.services.payroll_severance_independent_review_service import (
+        require_severance_reviewer_permission,
+    )
+
+    db = SimpleNamespace(
+        scalar=AsyncMock(return_value=11)
+    )
+    check = AsyncMock()
+
+    monkeypatch.setattr(
+        permissions, "_require_permission", check
+    )
+
+    await require_severance_reviewer_permission(
+        db,
+        company_id=1,
+        reviewer_id=11,
+    )
+
+    check.assert_awaited_once_with(
+        db=db,
+        company_id=1,
+        actor_id=11,
+        permission="journal_entries.approve",
+    )
+
+
+@pytest.mark.asyncio
+async def test_inactive_company_reviewer_rejected(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.services import (
+        payroll_deduction_rule_approval_write_service as permissions,
+    )
+    from app.services.payroll_severance_independent_review_service import (
+        require_severance_reviewer_permission,
+    )
+
+    db = SimpleNamespace(
+        scalar=AsyncMock(return_value=None)
+    )
+    check = AsyncMock()
+
+    monkeypatch.setattr(
+        permissions, "_require_permission", check
+    )
+
+    with pytest.raises(
+        SeveranceIndependentReviewError,
+        match="Active reviewer",
+    ):
+        await require_severance_reviewer_permission(
+            db,
+            company_id=1,
+            reviewer_id=11,
+        )
+
+    check.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reviewer_without_company_permission_rejected(
+    monkeypatch,
+):
+    from unittest.mock import AsyncMock
+    from app.services import (
+        payroll_deduction_rule_approval_write_service as permissions,
+    )
+    from app.services.payroll_deduction_rule_approval_write_service import (
+        PayrollDeductionRuleApprovalWriteError,
+    )
+    from app.services.payroll_severance_independent_review_service import (
+        require_severance_reviewer_permission,
+    )
+
+    db = SimpleNamespace(
+        scalar=AsyncMock(return_value=11)
+    )
+
+    monkeypatch.setattr(
+        permissions,
+        "_require_permission",
+        AsyncMock(
+            side_effect=PayrollDeductionRuleApprovalWriteError(
+                "Permission denied for this company"
+            )
+        ),
+    )
+
+    with pytest.raises(
+        SeveranceIndependentReviewError,
+        match="journal_entries.approve",
+    ):
+        await require_severance_reviewer_permission(
+            db,
+            company_id=1,
+            reviewer_id=11,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "company_id,reviewer_id",
+    [
+        (0, 11),
+        (1, 0),
+        (True, 11),
+        (1, True),
+        (-1, 11),
+    ],
+)
+async def test_invalid_company_reviewer_identity(
+    company_id,
+    reviewer_id,
+):
+    from unittest.mock import AsyncMock
+    from app.services.payroll_severance_independent_review_service import (
+        require_severance_reviewer_permission,
+    )
+
+    db = SimpleNamespace(
+        scalar=AsyncMock()
+    )
+
+    with pytest.raises(SeveranceIndependentReviewError):
+        await require_severance_reviewer_permission(
+            db,
+            company_id=company_id,
+            reviewer_id=reviewer_id,
+        )
+
+    db.scalar.assert_not_awaited()

@@ -79,6 +79,59 @@ def validate_independent_review(
     }
 
 
+
+async def require_severance_reviewer_permission(
+    db,
+    *,
+    company_id: int,
+    reviewer_id: int,
+) -> None:
+    """Require an active user and active company-scoped GL approval.
+
+    This authorizes an independent review document only.
+    It does not authorize statutory posting or cash settlement.
+    """
+    from app.services.payroll_deduction_rule_approval_write_service import (
+        _require_permission,
+        PayrollDeductionRuleApprovalWriteError,
+    )
+
+    if (
+        type(company_id) is not int
+        or company_id <= 0
+        or type(reviewer_id) is not int
+        or reviewer_id <= 0
+    ):
+        raise SeveranceIndependentReviewError(
+            "Valid company and reviewer required"
+        )
+
+    reviewer = await db.scalar(
+        select(User.id).where(
+            User.id == reviewer_id,
+            User.is_active.is_(True),
+        )
+    )
+
+    if reviewer is None:
+        raise SeveranceIndependentReviewError(
+            "Active reviewer user required"
+        )
+
+    try:
+        await _require_permission(
+            db=db,
+            company_id=company_id,
+            actor_id=reviewer_id,
+            permission="journal_entries.approve",
+        )
+    except PayrollDeductionRuleApprovalWriteError as exc:
+        raise SeveranceIndependentReviewError(
+            "Reviewer lacks journal_entries.approve "
+            "for this company"
+        ) from exc
+
+
 async def record_independent_severance_review(
     db,
     *,
@@ -131,14 +184,11 @@ async def record_independent_severance_review(
 
     # The user must actually exist. A numerical reviewer ID
     # alone is not evidence of a real independent person.
-    reviewer = await db.scalar(
-        select(User.id).where(User.id == reviewer_id)
+    await require_severance_reviewer_permission(
+        db,
+        company_id=company_id,
+        reviewer_id=reviewer_id,
     )
-
-    if reviewer is None:
-        raise SeveranceIndependentReviewError(
-            "Reviewer user does not exist"
-        )
 
     key = request_key.strip()
     fingerprint = generate_request_fingerprint(payload)

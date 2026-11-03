@@ -947,8 +947,78 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
         request_key="pg-severance-independent-review-001",
     )
 
+
+    from sqlalchemy import text as permission_sql
+
+    # A real existing user with no approval role is rejected.
+    with pytest.raises(
+        SeveranceIndependentReviewError,
+        match="journal_entries.approve",
+    ):
+        await record_independent_severance_review(
+            db, **review_kwargs
+        )
+
+    accountant_role_id = await db.scalar(
+        permission_sql(
+            "SELECT r.id FROM roles r "
+            "JOIN role_permissions rp ON rp.role_id = r.id "
+            "JOIN permissions p ON p.id = rp.permission_id "
+            "WHERE r.name = 'accountant' "
+            "AND p.name = 'journal_entries.approve'"
+        )
+    )
+
+    assert accountant_role_id is not None
+
+    # assigned_at is mandatory in the real PostgreSQL schema.
+    # This grant exists ONLY inside the isolated database copy.
+    await db.execute(
+        permission_sql(
+            "INSERT INTO user_company_roles "
+            "(user_id, company_id, role_id, is_active, assigned_at) "
+            "VALUES (:user_id, :company_id, :role_id, "
+            "FALSE, CURRENT_TIMESTAMP)"
+        ),
+        {
+            "user_id": reviewer.id,
+            "company_id": company.id,
+            "role_id": accountant_role_id,
+        },
+    )
+
+    # Inactive company assignment must not grant approval.
+    with pytest.raises(
+        SeveranceIndependentReviewError,
+        match="journal_entries.approve",
+    ):
+        await record_independent_severance_review(
+            db, **review_kwargs
+        )
+
+    await db.execute(
+        permission_sql(
+            "UPDATE user_company_roles "
+            "SET is_active = TRUE "
+            "WHERE user_id = :user_id "
+            "AND company_id = :company_id "
+            "AND role_id = :role_id"
+        ),
+        {
+            "user_id": reviewer.id,
+            "company_id": company.id,
+            "role_id": accountant_role_id,
+        },
+    )
+
+    # An active company-scoped permission now allows the
+    # independent review; it still cannot authorize posting.
     review = await record_independent_severance_review(
         db, **review_kwargs
+    )
+
+    print(
+        "REAL POSTGRESQL REVIEWER PERMISSION ENFORCEMENT = PASS"
     )
 
     assert review.id > 0

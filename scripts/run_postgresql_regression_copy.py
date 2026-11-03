@@ -196,8 +196,27 @@ async def run_copy():
         poolclass=NullPool,
     )
 
+    # ERP COPY ADMIN ROLE ISOLATION
+    # Administrative connection is used only for the disposable
+    # database lifecycle and advisory lock.
+    # The application source/target URLs retain erp_user.
+    from sqlalchemy.engine import URL
+
+    admin_role = os.environ.get("USER", "")
+
+    require(
+        admin_role == "anastasia",
+        "Expected local PostgreSQL administrative role",
+    )
+
+    admin_url = URL.create(
+        "postgresql+asyncpg",
+        username=admin_role,
+        database="postgres",
+    )
+
     admin = create_async_engine(
-        source_url.set(database="postgres"),
+        admin_url,
         isolation_level="AUTOCOMMIT",
         poolclass=NullPool,
     )
@@ -303,7 +322,7 @@ async def run_copy():
                         await conn.execute(
                             text(
                                 f'CREATE DATABASE "{database_name}" '
-                                "TEMPLATE template0"
+                                "OWNER erp_user TEMPLATE template0"
                             )
                         )
 
