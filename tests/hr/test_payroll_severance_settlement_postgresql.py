@@ -151,6 +151,111 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
         )
 
     print("REAL POSTGRESQL DATED ALLOCATION RECONCILIATION = PASS")
+
+    from dataclasses import replace
+    from app.services.payroll_severance_mixed_financial_snapshot import (
+        load_mixed_severance_financial_preview,
+        SeveranceFinancialSourceError,
+    )
+
+    mixed_preview = await load_mixed_severance_financial_preview(
+        db,
+        company_id=company.id,
+        payroll_calculation_id=calc.id,
+        review=review,
+    )
+
+    # Independent payroll-line evidence for each parametrized case.
+    from app.models.payroll import PayrollCalculationLine
+
+    actual_income_lines = list((
+        await db.scalars(
+            select(PayrollCalculationLine).where(
+                PayrollCalculationLine.company_id == company.id,
+                PayrollCalculationLine.payroll_calculation_id == calc.id,
+            )
+        )
+    ).all())
+
+    expected_severance = sum(
+        (
+            D(item.amount)
+            for item in actual_income_lines
+            if item.line_type == "severance"
+        ),
+        D("0.00"),
+    )
+
+    expected_ordinary = sum(
+        (
+            D(item.amount)
+            for item in actual_income_lines
+            if item.line_type != "severance"
+        ),
+        D("0.00"),
+    )
+
+    assert expected_severance > D("0.00")
+    assert (
+        expected_severance + expected_ordinary
+        == D(calc.gross_amount)
+    )
+
+    assert mixed_preview.financial.gross == expected_severance
+    assert mixed_preview.ordinary_gross == expected_ordinary
+
+    # Illustrative tax amounts must match the review, not a guessed
+    # percentage of severance gross.
+    assert (
+        mixed_preview.financial.personal_income_tax
+        == review.component("personal_income_tax").severance_amount
+    )
+    assert (
+        mixed_preview.financial.military_levy
+        == review.component("military_levy").severance_amount
+    )
+    assert (
+        mixed_preview.financial.employer_contribution
+        == review.component(
+            "unified_social_contribution"
+        ).severance_amount
+    )
+
+    assert mixed_preview.financial.net == (
+        expected_severance
+        - mixed_preview.financial.personal_income_tax
+        - mixed_preview.financial.military_levy
+    )
+
+    assert mixed_preview.severance_source_ids == tuple(
+        item.source_termination_severance_id
+        for item in actual_income_lines
+        if item.line_type == "severance"
+    )
+    assert mixed_preview.statutory_totals_reconciled
+
+    assert not mixed_preview.allocation_evidence_approved
+    assert not mixed_preview.payment_authorized
+    assert not mixed_preview.tax_correction_authorized
+    assert not mixed_preview.journal_posting_authorized
+
+    with pytest.raises(
+        SeveranceFinancialSourceError,
+        match="does not belong",
+    ):
+        await load_mixed_severance_financial_preview(
+            db,
+            company_id=company.id,
+            payroll_calculation_id=calc.id,
+            review=replace(
+                review,
+                payroll_calculation_id=calc.id + 100000,
+            ),
+        )
+
+    print("REAL POSTGRESQL MIXED SEVERANCE SNAPSHOT = PASS")
+    print("UNAPPROVED FINANCIAL EXECUTION = BLOCKED")
+
     print("UNVERIFIED TAX ALLOCATION FINANCIAL EXECUTION = BLOCKED")
 
     if advance_amount > D('800.80'):
