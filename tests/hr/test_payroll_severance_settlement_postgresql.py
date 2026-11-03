@@ -618,6 +618,92 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
     print("REAL POSTGRESQL IMMUTABLE FINANCIAL PROPOSAL = PASS")
     print("REAL POSTGRESQL PROPOSAL IDEMPOTENCY = PASS")
 
+    # Verify the database rejects real UPDATE/DELETE statements,
+    # not merely that immutable triggers have been registered.
+    # Each rejected statement runs in an independent savepoint,
+    # preserving the outer integration-test transaction.
+    from sqlalchemy import text as sql_text
+    from sqlalchemy.exc import DBAPIError
+
+    mutation_attempts = (
+        (
+            "payroll_severance_correction_cases",
+            correction_case.id,
+            "UPDATE",
+        ),
+        (
+            "payroll_severance_correction_cases",
+            correction_case.id,
+            "DELETE",
+        ),
+        (
+            "payroll_severance_financial_proposals",
+            proposal.id,
+            "UPDATE",
+        ),
+        (
+            "payroll_severance_financial_proposals",
+            proposal.id,
+            "DELETE",
+        ),
+    )
+
+    for table_name, row_id, operation in mutation_attempts:
+        if operation == "UPDATE":
+            statement = sql_text(
+                f"UPDATE {table_name} "
+                "SET status = 'review_required' "
+                "WHERE company_id = :company_id AND id = :row_id"
+            )
+        else:
+            statement = sql_text(
+                f"DELETE FROM {table_name} "
+                "WHERE company_id = :company_id AND id = :row_id"
+            )
+
+        with pytest.raises(DBAPIError):
+            async with db.begin_nested():
+                await db.execute(
+                    statement,
+                    {
+                        "company_id": company.id,
+                        "row_id": row_id,
+                    },
+                )
+
+    from app.models.payroll_severance_correction_case import (
+        PayrollSeveranceCorrectionCase,
+    )
+    from app.models.payroll_severance_financial_proposal import (
+        PayrollSeveranceFinancialProposal,
+    )
+
+    # Failed mutations must not remove the source documents.
+    preserved_case = await db.scalar(
+        select(PayrollSeveranceCorrectionCase).where(
+            PayrollSeveranceCorrectionCase.id
+            == correction_case.id,
+            PayrollSeveranceCorrectionCase.company_id
+            == company.id,
+        )
+    )
+    preserved_proposal = await db.scalar(
+        select(PayrollSeveranceFinancialProposal).where(
+            PayrollSeveranceFinancialProposal.id
+            == proposal.id,
+            PayrollSeveranceFinancialProposal.company_id
+            == company.id,
+        )
+    )
+
+    assert preserved_case is not None
+    assert preserved_proposal is not None
+    assert preserved_case.status == "review_required"
+    assert preserved_proposal.status == "review_required"
+
+    print("REAL POSTGRESQL IMMUTABLE TRIGGER ENFORCEMENT = PASS")
+
+
 
     print("CASE IDEMPOTENCY + COMPETING REQUEST GUARDS = PASS")
 
