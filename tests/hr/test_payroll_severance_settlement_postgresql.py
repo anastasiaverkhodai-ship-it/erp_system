@@ -62,6 +62,97 @@ async def finance(db, company, user, employee, contract, calc, tax, *, deduction
         assert (await register_tax_remittance(db,company_id=company.id,data=data,created_by=user.id)).id==remitted.id
     taxes=await payroll_tax_balances(db,company_id=company.id,as_of=contract.end_date)
     assert all(x['outstanding_amount']==0 for x in taxes['totals'])
+
+    # Review-only allocation using actual PostgreSQL statutory totals.
+    # Illustrative amounts do not grant statutory or payment approval.
+    from sqlalchemy import select
+    from app.models.payroll_statutory import (
+        PayrollStatutoryResult,
+        PayrollStatutoryResultLine,
+    )
+    from app.services.payroll_severance_dated_tax_allocation import (
+        ComponentAllocation,
+        SeveranceAllocationError,
+        build_dated_severance_allocation_review,
+    )
+
+    statutory_header = await db.scalar(
+        select(PayrollStatutoryResult).where(
+            PayrollStatutoryResult.company_id == company.id,
+            PayrollStatutoryResult.payroll_calculation_id == calc.id,
+        )
+    )
+    assert statutory_header is not None
+
+    component_rows = list((
+        await db.scalars(
+            select(PayrollStatutoryResultLine).where(
+                PayrollStatutoryResultLine.company_id == company.id,
+                PayrollStatutoryResultLine.payroll_statutory_result_id
+                == statutory_header.id,
+            )
+        )
+    ).all())
+
+    totals = {line.component: D(line.amount) for line in component_rows}
+    assert len(totals) == 3
+    assert len(component_rows) == 3
+
+    # Test values illustrate arithmetic reconciliation, not legal attribution.
+    illustrative = {
+        "personal_income_tax": D("1800.00"),
+        "military_levy": D("500.00"),
+        "unified_social_contribution": D("0.00"),
+    }
+
+    allocation_rows = [
+        ComponentAllocation(
+            component=component,
+            statutory_total=total,
+            ordinary_amount=total - illustrative[component],
+            severance_amount=illustrative[component],
+            evidence_reference="PG-E2E-ILLUSTRATIVE-NOT-APPROVED",
+        )
+        for component, total in totals.items()
+    ]
+
+    review = build_dated_severance_allocation_review(
+        company_id=company.id,
+        payroll_calculation_id=calc.id,
+        income_date=contract.end_date,
+        currency_code="UAH",
+        rows=allocation_rows,
+    )
+
+    assert review.reconciled
+    assert not review.independent_evidence_approved
+    assert not review.financial_execution_authorized
+    assert not review.statutory_correction_authorized
+
+    corrupted = list(allocation_rows)
+    first = corrupted[0]
+    corrupted[0] = ComponentAllocation(
+        component=first.component,
+        statutory_total=first.statutory_total,
+        ordinary_amount=first.ordinary_amount,
+        severance_amount=first.severance_amount + D("0.01"),
+        evidence_reference=first.evidence_reference,
+    )
+    with pytest.raises(
+        SeveranceAllocationError,
+        match="do not reconcile",
+    ):
+        build_dated_severance_allocation_review(
+            company_id=company.id,
+            payroll_calculation_id=calc.id,
+            income_date=contract.end_date,
+            currency_code="UAH",
+            rows=corrupted,
+        )
+
+    print("REAL POSTGRESQL DATED ALLOCATION RECONCILIATION = PASS")
+    print("UNVERIFIED TAX ALLOCATION FINANCIAL EXECUTION = BLOCKED")
+
     if advance_amount > D('800.80'):
         with pytest.raises(PayrollDisbursementSourceStateError,match='Advance offset cannot consume protected severance'):
             await create_payroll_disbursement(db,bank_account_id=bank.id,payment_date=contract.end_date,**args)
