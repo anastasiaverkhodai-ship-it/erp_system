@@ -104,6 +104,37 @@ def verify_corrected_tax_amounts(
     return calculated
 
 
+def validate_corrected_calculation_lineage(*, original, corrected):
+    """Require a later calculation in the same payroll scope."""
+    if original is None or corrected is None:
+        raise CorrectedSeveranceTaxEvidenceError(
+            "Original and corrected calculations required"
+        )
+
+    original_revision = getattr(original, "revision", None)
+    corrected_revision = getattr(corrected, "revision", None)
+
+    if (
+        type(original_revision) is not int
+        or type(corrected_revision) is not int
+        or original_revision < 1
+        or corrected_revision <= original_revision
+        or corrected.id == original.id
+        or corrected.company_id != original.company_id
+        or corrected.payroll_input_id != original.payroll_input_id
+        or corrected.payroll_period_id != original.payroll_period_id
+        or corrected.employment_contract_id
+            != original.employment_contract_id
+        or corrected.currency_code != original.currency_code
+    ):
+        raise CorrectedSeveranceTaxEvidenceError(
+            "Corrected calculation is not a newer revision "
+            "of the pinned original payroll"
+        )
+
+    return True
+
+
 async def verify_corrected_severance_tax_evidence(
     db,
     *,
@@ -197,6 +228,39 @@ async def verify_corrected_severance_tax_evidence(
         raise CorrectedSeveranceTaxEvidenceError(
             "Company-scoped corrected payroll calculation required"
         )
+
+    # A separate calculation ID is not sufficient: it must be a
+    # newer revision of the same payroll input, contract and period.
+    original_calculation = await db.scalar(
+        select(PayrollCalculation).where(
+            PayrollCalculation.company_id == company_id,
+            PayrollCalculation.id
+                == case.original_payroll_calculation_id,
+            PayrollCalculation.payroll_input_id
+                == case.payroll_input_id,
+        )
+    )
+    if original_calculation is None:
+        raise CorrectedSeveranceTaxEvidenceError(
+            "Pinned original payroll calculation not found"
+        )
+
+    validate_corrected_calculation_lineage(
+        original=original_calculation,
+        corrected=calculation,
+    )
+
+    from app.services.payroll_revision_service import (
+        require_current_calculation,
+    )
+    try:
+        await require_current_calculation(
+            db,
+            calculation=calculation,
+            error_type=CorrectedSeveranceTaxEvidenceError,
+        )
+    except CorrectedSeveranceTaxEvidenceError:
+        raise
 
     severance_lines = list((
         await db.scalars(

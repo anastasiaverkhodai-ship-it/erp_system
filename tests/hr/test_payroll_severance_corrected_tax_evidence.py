@@ -158,3 +158,52 @@ async def test_missing_proposal_rejected():
             financial_proposal_id=20,
             corrected_calculation_id=31,
         )
+
+
+def test_corrected_calculation_must_be_newer_same_scope():
+    from app.services.payroll_severance_corrected_tax_evidence import (
+        validate_corrected_calculation_lineage,
+    )
+
+    original = Obj(
+        id=30, company_id=1, payroll_input_id=10,
+        payroll_period_id=4, employment_contract_id=6,
+        revision=1, currency_code="UAH",
+    )
+    corrected = Obj(
+        id=31, company_id=1, payroll_input_id=10,
+        payroll_period_id=4, employment_contract_id=6,
+        revision=2, currency_code="UAH",
+    )
+
+    assert validate_corrected_calculation_lineage(
+        original=original, corrected=corrected,
+    )
+
+    for field, invalid in (
+        ("revision", 1),
+        ("revision", 0),
+        ("revision", True),
+        ("company_id", 2),
+        ("payroll_input_id", 11),
+        ("payroll_period_id", 5),
+        ("employment_contract_id", 7),
+        ("currency_code", "EUR"),
+        ("id", 30),
+    ):
+        bad = Obj(**vars(corrected))
+        setattr(bad, field, invalid)
+        with pytest.raises(CorrectedSeveranceTaxEvidenceError):
+            validate_corrected_calculation_lineage(
+                original=original, corrected=bad,
+            )
+
+
+def test_corrected_calculation_requires_original():
+    from app.services.payroll_severance_corrected_tax_evidence import (
+        validate_corrected_calculation_lineage,
+    )
+    with pytest.raises(CorrectedSeveranceTaxEvidenceError):
+        validate_corrected_calculation_lineage(
+            original=None, corrected=Obj(),
+        )
