@@ -44,6 +44,7 @@ async def prepare_verified_severance_basis(
     company_id: int,
     employment_contract_id: int,
     payroll_input_id: int,
+    allow_finalized_source: bool = False,
 ):
     """Prepare a proven basis; never trust a caller-supplied amount."""
     for label, value in (
@@ -60,6 +61,7 @@ async def prepare_verified_severance_basis(
         db,
         company_id=company_id,
         payroll_input_id=payroll_input_id,
+        allow_finalized_source=allow_finalized_source,
     )
 
     if preflight.company_id != company_id:

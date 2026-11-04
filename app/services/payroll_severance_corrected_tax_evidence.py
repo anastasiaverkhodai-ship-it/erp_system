@@ -323,12 +323,12 @@ async def verify_corrected_severance_tax_evidence(
             "Statutory snapshot does not match corrected revision"
         )
 
-    from app.services.payroll_severance_verified_tax_bridge import (
-        load_severance_only_financial_snapshot,
+    from app.services.payroll_severance_calculated_financial import (
+        load_calculated_severance_financial,
     )
 
     try:
-        financial = await load_severance_only_financial_snapshot(
+        financial = await load_calculated_severance_financial(
             db,
             company_id=company_id,
             calculation_id=corrected_calculation_id,

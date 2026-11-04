@@ -202,7 +202,9 @@ async def _verified_internal_secondary_basis(
 
 @serialized_payroll_mutation(PayrollSickLeaveConflictError)
 async def calculate_sick_from_history(db, *, company_id, leave_request_id, insurance_evidence_id, calculated_by,
-                                      _preview_replacement_of=None, _correction_excluded_ids=()):
+                                      _preview_replacement_of=None, _correction_excluded_ids=(), _calendar_change=None, _calendar_request_id=None):
+    if (_calendar_change is not None or _calendar_request_id is not None) and _preview_replacement_of is None:
+        raise PayrollSickLeaveConflictError('Sick-calendar change requires an atomic payroll correction')
     if _correction_excluded_ids and _preview_replacement_of is None:
         raise PayrollSickLeaveConflictError('Excluding old sources requires an atomic correction preview')
     saved = await get_sick_leave_calculation_for_leave(db,company_id=company_id,leave_request_id=leave_request_id)
@@ -219,12 +221,28 @@ async def calculate_sick_from_history(db, *, company_id, leave_request_id, insur
         previous_evidence = await get_insurance_evidence(
             db, company_id=company_id, evidence_id=saved.insurance_evidence_id, lock=True)
         if (previous_evidence.employee_id != evidence.employee_id
-                or previous_evidence.case_start != evidence.case_start):
+                or (previous_evidence.case_start != evidence.case_start and _calendar_request_id is None)):
             raise PayrollSickLeaveConflictError('Correction evidence must identify the same employee and insurance case')
 
     leave = await db.scalar(select(LeaveRequest).where(LeaveRequest.company_id==company_id,LeaveRequest.id==leave_request_id))
     if leave is None or leave.status != 'approved' or leave.leave_type != 'sick':
         raise PayrollSickLeaveDerivationError('Approved sick leave is required')
+    from app.services.payroll_sick_allocation import effective_sick_leave
+    if saved is not None:leave=effective_sick_leave(saved,leave)
+    if _calendar_request_id is not None:
+        from app.models.payroll_attendance_correction import PayrollAttendanceCorrectionRequest
+        request=await db.scalar(select(PayrollAttendanceCorrectionRequest).where(
+            PayrollAttendanceCorrectionRequest.company_id==company_id,PayrollAttendanceCorrectionRequest.id==_calendar_request_id))
+        calendar=request.payload.get('sick_calendar') if request else None
+        if (not calendar or request.created_by==calculated_by or calendar['insurance_evidence_id']!=insurance_evidence_id):
+            raise PayrollSickLeaveConflictError('Sick-calendar change requires matching independent review')
+        if _calendar_change is not None:
+            if calendar['original_sick_id']!=saved.id or _calendar_change!=calendar:
+                raise PayrollSickLeaveConflictError('Sick-calendar source differs from reviewed request')
+            from types import SimpleNamespace
+            values={column.name:getattr(leave,column.name) for column in leave.__table__.columns} if hasattr(leave,'__table__') else vars(leave).copy()
+            values.update(start_date=date.fromisoformat(calendar['start_date']),end_date=date.fromisoformat(calendar['end_date']))
+            leave=SimpleNamespace(**values)
     contract = await db.scalar(select(EmploymentContract).where(EmploymentContract.company_id==company_id,
         EmploymentContract.id==leave.employment_contract_id))
     if contract is None or contract.employee_id != evidence.employee_id:
@@ -249,6 +267,8 @@ async def calculate_sick_from_history(db, *, company_id, leave_request_id, insur
                PayrollSickLeaveCalculation.id != _preview_replacement_of if _preview_replacement_of is not None else True,
                PayrollInsuranceEvidence.case_start==evidence.case_start)
         .order_by(LeaveRequest.start_date))).all()
+    prior=[(source,effective_sick_leave(source,certificate)) for source,certificate in prior]
+    prior.sort(key=lambda item:item[1].start_date)
     cursor = evidence.case_start
     for old, certificate in prior:
         if (certificate.start_date != cursor or certificate.end_date >= leave.start_date
@@ -276,7 +296,7 @@ async def calculate_sick_from_history(db, *, company_id, leave_request_id, insur
         basis = await first_day_salary_basis(db, company_id=company_id, contract=contract,
             case_start=evidence.case_start, limited=limited)
     else:
-        basis = await derive_leave_average_history(db,company_id=company_id,leave_request_id=leave.id)
+        basis = await derive_leave_average_history(db,company_id=company_id,leave_request_id=leave.id,_leave_override=leave)
     secondary_joint_months = None
     if contract.employment_kind == 'internal_secondary':
         if prior:
@@ -370,12 +390,20 @@ async def calculate_sick_from_history(db, *, company_id, leave_request_id, insur
                PayrollSickLeaveCalculation.id.not_in(_correction_excluded_ids),
                    PayrollSickLeaveCalculation.id != _preview_replacement_of if _preview_replacement_of is not None else True,
                    LeaveRequest.status == 'approved',
-                   LeaveRequest.end_date >= leave.start_date.replace(day=1),
-                   LeaveRequest.start_date <= (leave.end_date.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)))).all()
+                   True))).all()
         spent = {}
         for previous, certificate in other_rows:
-            if certificate.end_date >= leave.start_date:
+            certificate=effective_sick_leave(previous,certificate)
+            upper=(leave.end_date.replace(day=28)+timedelta(days=4)).replace(day=1)-timedelta(days=1)
+            if certificate.end_date<leave.start_date.replace(day=1) or certificate.start_date>upper:continue
+            if certificate.end_date >= leave.start_date and (
+                    previous.employment_contract_id == contract.id
+                    or certificate.start_date > leave.start_date):
                 raise PayrollSickLeaveConflictError('Later or overlapping sick calculation requires a correction before allocating monthly limits')
+            # Concurrent contracts can cover the same medical days. Their
+            # already allocated benefit still consumes the employee's shared
+            # monthly ceiling; overlapping days within one contract cannot.
+
             if previous.benefit_case_code != 'ORDINARY_TEMPORARY_INCAPACITY':
                 raise PayrollSickLeaveConflictError('Other benefit cases require a combined monthly allocation')
             month = leave.start_date.replace(day=1)
@@ -394,7 +422,8 @@ async def calculate_sick_from_history(db, *, company_id, leave_request_id, insur
         reference_period_end=basis['reference_period_end'],eligible_earnings=basis['eligible_earnings'],
         eligible_days=basis['eligible_days'],insurance_service_months=evidence.total_service_months,
         benefit_percent=percent,limited_service_rule_applied=limited,employer_days=D(employer_days),
-        insurer_days=D(insurer_days),rule_code=RULE_CODE,rule_version=version,calculated_by=calculated_by,sources=sources, _preview=_preview_replacement_of is not None)
+        insurer_days=D(insurer_days),rule_code=RULE_CODE,rule_version=version,calculated_by=calculated_by,sources=sources, _preview=_preview_replacement_of is not None,
+        _leave_override=leave if _preview_replacement_of is not None else None)
     if _preview_replacement_of is not None:
         row, preview_sources = row
     if allocation is not None:
@@ -414,6 +443,7 @@ async def calculate_sick_from_history(db, *, company_id, leave_request_id, insur
         limit_reference_end=(basis.get('limit_reference_end') or basis['reference_period_end']).isoformat(),
         sources=['https://zakon.rada.gov.ua/laws/show/1105-14',
                  'https://zakon.rada.gov.ua/laws/show/1266-2001-%D0%BF'])
+    row.insurance_assessment.update(certificate_dates=dict(start=leave.start_date.isoformat(),end=leave.end_date.isoformat()),calendar_request_id=_calendar_request_id)
     if secondary_joint_months is not None:
         row.insurance_assessment.update(
             combined_insurance_months=secondary_joint_months,

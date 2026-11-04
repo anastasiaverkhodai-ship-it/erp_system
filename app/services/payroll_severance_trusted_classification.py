@@ -39,7 +39,7 @@ TRUSTED_POLICIES = (
 )
 
 
-async def trusted_severance_snapshot(db, *, company_id, payroll_calculation_id):
+async def trusted_severance_snapshot(db, *, company_id, payroll_calculation_id, superseded_by=None):
     """Re-derive legal source and server policy; never trust stored labels alone."""
     calculation = await db.scalar(select(PayrollCalculation).where(
         PayrollCalculation.company_id == company_id,
@@ -68,19 +68,28 @@ async def trusted_severance_snapshot(db, *, company_id, payroll_calculation_id):
         PayrollTerminationSeverance.company_id == company_id,
         PayrollTerminationSeverance.id == derived[0]["source_termination_severance_id"],
     ))
+    expected_amount=derived[0]["amount"]
+    if superseded_by is not None:
+        if source.id!=superseded_by or source.supersedes_id is None:
+            raise ValueError("Expected direct severance source successor")
+        source=await db.scalar(select(PayrollTerminationSeverance).where(
+            PayrollTerminationSeverance.company_id==company_id,PayrollTerminationSeverance.id==source.supersedes_id))
+        if source is None or source.payroll_input_id!=payroll_input.id:
+            raise ValueError("Historical severance source context differs")
+        expected_amount=source.gross_amount
     snapshot = await preview_severance_statutory_snapshot(
         db, company_id=company_id, payroll_calculation_id=calculation.id,
         income_date=source.termination_date, policies=TRUSTED_POLICIES,
     )
     if (snapshot.severance_source_ids != (source.id,)
-            or snapshot.severance_gross != derived[0]["amount"]):
+            or snapshot.severance_gross != expected_amount):
         raise ValueError("Severance calculation differs from current legal source")
     return snapshot
 
 
-async def require_trusted_severance_snapshot(db, *, company_id, payroll_calculation_id):
+async def require_trusted_severance_snapshot(db, *, company_id, payroll_calculation_id, superseded_by=None):
     expected = await trusted_severance_snapshot(
-        db, company_id=company_id, payroll_calculation_id=payroll_calculation_id,
+        db, company_id=company_id, payroll_calculation_id=payroll_calculation_id, superseded_by=superseded_by,
     )
     record = await db.scalar(select(PayrollSeveranceStatutoryRecord).where(
         PayrollSeveranceStatutoryRecord.company_id == company_id,

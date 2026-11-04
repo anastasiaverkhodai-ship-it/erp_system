@@ -25,6 +25,15 @@ async def install_calendar(engine):
         def run(sync):
             with Operations.context(MigrationContext.configure(sync)):module.upgrade()
         await conn.run_sync(run)
+        # Apply the current multi-contract review guard without unrelated schema changes.
+        import ast
+        from pathlib import Path
+        tree=ast.parse(Path('alembic/versions/p13exec261103_severance_financial_execution.py').read_text())
+        upgrade=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='upgrade')
+        sql=next(node.args[0].value for node in ast.walk(upgrade) if isinstance(node,ast.Call)
+            and node.args and isinstance(node.args[0],ast.Constant) and isinstance(node.args[0].value,str)
+            and 'CREATE OR REPLACE FUNCTION erp_sick_calendar_review()' in node.args[0].value)
+        await conn.execute(text(sql))
 
 async def test_shortened_certificate_preserves_order_and_recalculates_paid_payroll(employee_engine):
     await install_calendar(employee_engine)
@@ -112,4 +121,80 @@ async def test_shortened_sick_and_actual_work_settle_together(employee_engine):
         assert state['employee_due']==Decimal('708.40') and state['employee_overpayment']==0
         work=await effective_attendance_changes(db,company_id=company.id,contract_id=calc.employment_contract_id)
         assert work[date(2026,9,30)]['worked_minutes']==480
+        await db.execute(text('SET CONSTRAINTS ALL IMMEDIATE'))
+
+async def test_corrected_zero_work_inside_sick_calendar_remains_classified_history(employee_engine):
+    from app.models.payroll import PayrollPeriod
+    from app.services.payroll_average_history_service import _erp_vacation_source
+    await install_calendar(employee_engine)
+    async with AsyncSession(employee_engine,expire_on_commit=False) as db:
+        company,args,sick,calc,tax,bank,journal=await setup(db,with_salary=True)
+        evidence=await db.get(PayrollInsuranceEvidence,sick.insurance_evidence_id)
+        request=await request_attendance_correction(db,company_id=company.id,actor_id=args['calculated_by'],
+            data=AttendanceCorrectionCreate(calculation_id=calc.id,correction_date=date(2026,10,31),
+                request_key='classified-zero-work',reason='Confirm zero work during corrected medical absence',
+                document_reference='Verified medical absence and timesheet',
+                days=[dict(work_date=date(2026,9,30),status='absent',worked_minutes=0)],
+                sick_calendar=dict(original_sick_id=sick.id,insurance_evidence_id=evidence.id,
+                    start_date=date(2026,9,28),end_date=date(2026,9,30),
+                    medical_document_reference='Verified corrected electronic medical certificate')))
+        app=await apply_attendance_correction(db,company_id=company.id,request_id=request.id,actor_id=evidence.reviewed_by)
+        new=await db.get(PayrollCalculation,app.payroll_calculation_ids[0])
+        period=await db.get(PayrollPeriod,new.payroll_period_id)
+        from datetime import datetime,timezone
+        period.status='finalized'
+        period.finalized_by=args['calculated_by']
+        period.finalized_at=datetime.now(timezone.utc)
+        await db.flush()
+        source=await _erp_vacation_source(db,company_id=company.id,contract_id=new.employment_contract_id,
+            calculation=new,period=period,month=date(2026,9,1),month_end=date(2026,9,30),purpose='sick')
+        assert source['eligible_days']==27
+        assert source['earnings_amount']==11000
+        await db.execute(text('SET CONSTRAINTS ALL IMMEDIATE'))
+
+
+async def test_medical_review_covers_same_employee_secondary_contract(employee_engine):
+    from uuid import uuid4
+    from app.models.employment_contract import EmploymentContract
+    from app.models.payroll_opening import PayrollEarningsHistory
+    from app.services.payroll_sick_history_service import calculate_sick_from_history
+    await install_calendar(employee_engine)
+    async with AsyncSession(employee_engine,expire_on_commit=False) as db:
+        company,args,sick,calc,tax,bank,journal=await setup(db)
+        original_contract=await db.get(EmploymentContract,calc.employment_contract_id)
+        values={c.name:getattr(original_contract,c.name) for c in EmploymentContract.__table__.columns
+            if c.name not in {'id','created_at','updated_at'}}
+        values.update(contract_number=uuid4().hex,employment_kind='internal_secondary',work_arrangement='part_time')
+        peer=EmploymentContract(**values);db.add(peer);await db.flush()
+        histories=(await db.scalars(select(PayrollEarningsHistory).where(
+            PayrollEarningsHistory.company_id==company.id,PayrollEarningsHistory.employment_contract_id==original_contract.id))).all()
+        for row in histories:
+            values={c.name:getattr(row,c.name) for c in PayrollEarningsHistory.__table__.columns
+                if c.name not in {'id','created_at','updated_at'}}
+            values['employment_contract_id']=peer.id
+            db.add(PayrollEarningsHistory(**values))
+        leave=await db.get(LeaveRequest,sick.leave_request_id)
+        values={c.name:getattr(leave,c.name) for c in LeaveRequest.__table__.columns
+            if c.name not in {'id','created_at','updated_at'}}
+        values['employment_contract_id']=peer.id
+        peer_leave=LeaveRequest(**values);db.add(peer_leave);await db.flush()
+        peer_sick=await calculate_sick_from_history(db,**{**args,'leave_request_id':peer_leave.id})
+        from app.models.payroll import PayrollPeriod
+        from test_payroll_sick_payroll_revision_postgresql import payroll_for_sick
+        await payroll_for_sick(db,company,peer_sick,args['calculated_by'],
+            existing_period=await db.get(PayrollPeriod,calc.payroll_period_id))
+
+        evidence=await db.get(PayrollInsuranceEvidence,sick.insurance_evidence_id)
+        request=await request_attendance_correction(db,company_id=company.id,actor_id=args['calculated_by'],
+            data=AttendanceCorrectionCreate(calculation_id=calc.id,correction_date=date(2026,10,31),
+                request_key='medical-peer-contract',reason='Correct medical calendar and recalculate shared insurance case',
+                document_reference='Verified corrected certificate across employment contracts',
+                sick_calendar=dict(original_sick_id=sick.id,insurance_evidence_id=evidence.id,
+                    start_date=date(2026,9,28),end_date=date(2026,9,30),
+                    medical_document_reference='Verified corrected electronic medical certificate')))
+        await apply_attendance_correction(db,company_id=company.id,request_id=request.id,actor_id=evidence.reviewed_by)
+        revised=await db.scalar(select(PayrollSickLeaveCalculation).where(
+            PayrollSickLeaveCalculation.company_id==company.id,PayrollSickLeaveCalculation.supersedes_id==peer_sick.id))
+        assert revised is not None and revised.employment_contract_id==peer.id
+        assert revised.sick_days==peer_sick.sick_days
         await db.execute(text('SET CONSTRAINTS ALL IMMEDIATE'))

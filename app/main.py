@@ -258,3 +258,6 @@ app.include_router(payroll_attendance_corrections_router, prefix='/api/v1')
 
 from app.api.v1.payroll_income_dates import router as payroll_income_dates_router
 app.include_router(payroll_income_dates_router, prefix='/api/v1')
+
+from app.api.v1.payroll_severance_corrections import router as payroll_severance_corrections_router
+app.include_router(payroll_severance_corrections_router, prefix='/api/v1')

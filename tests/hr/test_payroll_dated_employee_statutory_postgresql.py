@@ -15,7 +15,7 @@ from app.services.payroll_calculation_service import calculate_payroll_input
 pytestmark=[pytest.mark.asyncio,pytest.mark.skipif(os.getenv('RUN_POSTGRES_E2E')!='1',reason='PostgreSQL required')]
 
 
-async def setup(db):
+async def setup(db, *, adjustment=0):
     company,user,employee,contract=await _seed_identity(db)
     contract.employment_kind='primary'
     period=PayrollPeriod(company_id=company.id,year=2026,month=9,start_date=date(2026,9,1),end_date=date(2026,9,30),
@@ -24,7 +24,8 @@ async def setup(db):
         amount=22000,currency_code='UAH',effective_from=date(2026,1,1),created_by=user.id)
     db.add_all([period,rate]);await db.flush()
     pi=PayrollInput(company_id=company.id,payroll_period_id=period.id,employment_contract_id=contract.id,
-        monthly_norm_minutes=10560,scheduled_minutes=10560,worked_minutes=10560,created_by=user.id)
+        monthly_norm_minutes=10560,scheduled_minutes=10560,worked_minutes=10560,created_by=user.id,
+        manual_adjustment_amount=adjustment,manual_adjustment_reason="Documented earning adjustment" if adjustment else None)
     db.add(pi);await db.flush()
     for start,end,minutes in [(date(2026,9,1),date(2026,9,14),4800),(date(2026,9,15),date(2026,9,30),5760)]:
         db.add(PayrollInputSalarySlice(company_id=company.id,payroll_input_id=pi.id,salary_rate_id=rate.id,
@@ -40,7 +41,8 @@ async def setup(db):
         rate=D('.0841'),effective_from=date(2026,9,15),effective_to=date(2026,12,31),employee_id=employee.id,
         tax_evidence_id=evidence.id,source_reference='Received verified disability document',actor_user_id=user.id)
     await db.flush()
-    calc=await calculate_payroll_input(db,company_id=company.id,payroll_input_id=pi.id,calculated_by=user.id)
+    calc=await calculate_payroll_input(db,company_id=company.id,payroll_input_id=pi.id,calculated_by=user.id,
+        minimum_wage_context=dict(manual_adjustment_category="ordinary_salary",manual_adjustment_reference="Confirmed earnings correction order") if adjustment else None)
     return company,user,employee,contract,calc
 
 

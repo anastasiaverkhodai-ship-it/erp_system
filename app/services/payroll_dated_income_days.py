@@ -21,6 +21,9 @@ async def income_days(db, *, company_id, calculation, line, period):
     from app.services.payroll_statutory_service import PayrollStatutoryValidationError as Error
     from app.models.leave_request import LeaveRequest
     kind=line.line_type
+    if kind=='manual_adjustment':
+        from app.services.payroll_income_dates_service import approved_income_days
+        return await approved_income_days(db,company_id=company_id,line=line)
     if kind in {'vacation_pay','sick_pay'}:
         if kind=='vacation_pay':
             from app.models.payroll_vacation import PayrollVacationCalculation
@@ -41,7 +44,8 @@ async def income_days(db, *, company_id, calculation, line, period):
             days={date.fromisoformat(value):vacation_values(snapshot,date.fromisoformat(value),date.fromisoformat(value))['amount']
                   for value in snapshot['used_dates'] if period.start_date.isoformat()<=value<=period.end_date.isoformat()}
         else:
-            from app.services.payroll_sick_allocation import sick_period_amount
+            from app.services.payroll_sick_allocation import sick_period_amount, effective_sick_leave
+            leave=effective_sick_leave(source,leave)
             start=max(leave.start_date,period.start_date);end=min(leave.end_date,period.end_date)
             days={start+timedelta(days=i):sick_period_amount(source,leave,start+timedelta(days=i),start+timedelta(days=i))[1]
                   for i in range((end-start).days+1)}
@@ -99,6 +103,15 @@ async def income_days(db, *, company_id, calculation, line, period):
         expected=payload.get('attendance_slice_minutes',{}).get(str(part.id),part.worked_minutes)
         if sum(weights.values())!=expected:raise Error('Dated attendance does not reconcile to frozen salary minutes')
     else:
+        from app.models.payroll_supplement import PayrollSupplement
+        from app.models.payroll import PayrollCalculationLine
+        overtime=(await db.execute(select(PayrollSupplement.work_date,PayrollSupplement.minutes)
+            .join(PayrollCalculationLine,PayrollCalculationLine.source_supplement_id==PayrollSupplement.id)
+            .where(PayrollSupplement.company_id==company_id,PayrollSupplement.kind=='overtime',
+                PayrollCalculationLine.payroll_calculation_id==calculation.id))).all()
+        for day,minutes in overtime:
+            if day in weights:weights[day]-=minutes
+        if any(minutes<0 for minutes in weights.values()):raise Error('Overtime exceeds documented worked time')
         expected=payload.get('facts',{}).get('ordinary_worked_minutes')
         if expected is None or sum(weights.values())!=expected:
             raise Error('Minimum-wage dated allocation needs verified ordinary worked time')

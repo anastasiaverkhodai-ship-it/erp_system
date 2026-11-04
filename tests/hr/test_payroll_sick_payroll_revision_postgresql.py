@@ -21,14 +21,16 @@ from app.services.payroll_sick_allocation import sick_period_amount
 pytestmark = pytest.mark.asyncio
 
 
-async def payroll_for_sick(db, company, source, actor, *, extra_sources=(), period_start=None, severance_factory=None):
+async def payroll_for_sick(db, company, source, actor, *, extra_sources=(), period_start=None, severance_factory=None, with_salary=False, existing_period=None):
     leave = await db.get(LeaveRequest, source.leave_request_id)
     start = period_start or leave.start_date.replace(day=1)
     end = date(start.year, start.month, monthrange(start.year, start.month)[1])
-    period = PayrollPeriod(company_id=company.id, year=start.year, month=start.month,
-        start_date=start, end_date=end, created_by=actor)
-    db.add(period)
-    await db.flush()
+    period = existing_period
+    if period is None:
+        period = PayrollPeriod(company_id=company.id, year=start.year, month=start.month,
+            start_date=start, end_date=end, created_by=actor)
+        db.add(period)
+        await db.flush()
     payroll_input = PayrollInput(company_id=company.id, payroll_period_id=period.id,
         employment_contract_id=source.employment_contract_id, created_by=actor)
     db.add(payroll_input)
@@ -48,6 +50,26 @@ async def payroll_for_sick(db, company, source, actor, *, extra_sources=(), peri
         default_norm_minutes=10560, earnings=[dict(category='sick_pay', amount=str(amount))],
         adjustment='0', has_adjustment=False, period_start=start.isoformat(),
         period_end=end.isoformat(), rule_version='UA-4695-IX-2026-v1')
+    if with_salary:
+        from app.models.employee_salary_rate import EmployeeSalaryRate
+        from app.models.payroll import PayrollInputSalarySlice
+        from app.models.time_attendance import AttendanceRecord
+        rate=EmployeeSalaryRate(company_id=company.id,employment_contract_id=source.employment_contract_id,
+            rate_type='monthly',amount=22000,currency_code='UAH',effective_from=start,created_by=actor)
+        db.add(rate);await db.flush()
+        payroll_input.monthly_norm_minutes=10560;payroll_input.worked_minutes=5280;payroll_input.scheduled_minutes=10560
+        db.add(PayrollInputSalarySlice(company_id=company.id,payroll_input_id=payroll_input.id,salary_rate_id=rate.id,
+            salary_rate_type='monthly',salary_rate_amount=22000,currency_code='UAH',
+            effective_from=start,effective_to=end,scheduled_minutes=10560,worked_minutes=5280))
+        db.add(AttendanceRecord(company_id=company.id,employment_contract_id=source.employment_contract_id,
+            leave_request_id=leave.id,work_date=date(2026,9,30),status='sick',worked_minutes=0,
+            source='system',created_by=actor))
+        await db.flush()
+        lines.append(dict(line_no=len(lines)+1,line_type='salary',quantity=D(30),rate=D(22000),amount=D(11000),
+            currency_code='UAH',salary_rate_type='monthly',source_salary_rate_id=rate.id,
+            source_effective_from=start,source_effective_to=end))
+        facts['ordinary_worked_minutes']=5280
+        facts['earnings'].append(dict(category='ordinary_salary',amount='11000'))
     basis = make_basis(company_id=company.id, period=period, payroll_input=payroll_input,
         salary_slices=[], facts=facts, lines=lines)
     gross, lines, assessment = replay_basis(basis, {})

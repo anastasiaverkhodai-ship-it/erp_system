@@ -17,6 +17,7 @@ pytestmark=[pytest.mark.asyncio,pytest.mark.skipif(os.getenv('RUN_POSTGRES_E2E')
 
 @pytest.mark.parametrize('amount,usc,net',[(1000,'3347.66',17710),(-1000,'3070.74',16170)])
 async def test_reviewed_signed_adjustment_reaches_monthly_tax(employee_engine,amount,usc,net):
+    await install_income_guards(employee_engine)
     async with AsyncSession(employee_engine,expire_on_commit=False) as db:
         company,user,employee,contract,calc=await setup(db,adjustment=amount)
         line=await db.scalar(select(PayrollCalculationLine).where(PayrollCalculationLine.payroll_calculation_id==calc.id,
@@ -44,3 +45,33 @@ async def test_reviewed_signed_adjustment_reaches_monthly_tax(employee_engine,am
         with pytest.raises(ValueError,match='already assessed'):
             await request_income_dates(db,company_id=company.id,actor_id=user.id,
                 data=data.model_copy(update={'request_key':'late-change'}))
+
+
+async def install_income_guards(engine):
+    import ast
+    from pathlib import Path
+    from sqlalchemy import text
+    tree=ast.parse(Path('alembic/versions/13d4a7b8c067_reviewed_income_dates.py').read_text())
+    async with engine.begin() as conn:
+        for node in ast.walk(tree):
+            if isinstance(node,ast.Call) and node.args and isinstance(node.args[0],ast.Constant):
+                sql=node.args[0].value
+                if isinstance(sql,str) and sql.startswith(('CREATE FUNCTION','CREATE TRIGGER')):
+                    await conn.execute(text(sql))
+
+
+async def test_sql_rejects_self_review_and_changed_sum(employee_engine):
+    from app.models.payroll_income_dates import PayrollIncomeDateApproval
+    from sqlalchemy.exc import DBAPIError
+    await install_income_guards(employee_engine)
+    async with AsyncSession(employee_engine,expire_on_commit=False) as db:
+        company,user,_,_,calc=await setup(db,adjustment=-1000)
+        line=await db.scalar(select(PayrollCalculationLine).where(PayrollCalculationLine.payroll_calculation_id==calc.id,
+            PayrollCalculationLine.line_type=='manual_adjustment'))
+        request=await request_income_dates(db,company_id=company.id,actor_id=user.id,
+            data=IncomeDateRequestCreate(line_id=line.id,request_key='sql-review',document_reference='Verified earning correction',
+                dates=[dict(income_date=date(2026,9,10),amount=-1000)]))
+        with pytest.raises(DBAPIError,match='independent review'):
+            async with db.begin_nested():
+                db.add(PayrollIncomeDateApproval(company_id=company.id,line_id=line.id,request_id=request.id,reviewed_by=user.id))
+                await db.flush()

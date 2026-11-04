@@ -19,13 +19,13 @@ ROLES = {
 
 
 async def build_sick_difference_journal(db, *, company_id, replacement_calculation_id,
-                                      original, replacement, correction_date, actor_id, source_kind="sick"):
-    if source_kind not in {'sick','leave','attendance'}:
+                                      original, replacement, correction_date, actor_id, source_kind="sick", persist=True):
+    if source_kind not in {'sick','leave','attendance','severance'}:
         raise ValueError('Unknown financial correction source')
     role_map=dict(ROLES)
-    if source_kind in {'leave','attendance'}:
+    if source_kind in {'leave','attendance','severance'}:
         role_map['payroll_expense']=Role.PAYROLL_EXPENSE
-    label={'leave':'Leave','attendance':'Attendance','sick':'Sick-pay'}[source_kind]
+    label={'leave':'Leave','attendance':'Attendance','sick':'Sick-pay','severance':'Severance'}[source_kind]
     await ensure_period_open(company_id, correction_date, db)
     # Settlement values do not participate in accrual differences. Actual
     # employee/PFU balances are loaded separately from confirmed documents.
@@ -42,6 +42,7 @@ async def build_sick_difference_journal(db, *, company_id, replacement_calculati
     journal.lines = [JournalEntryLine(line_no=index, account_id=accounts[role_map[name]].id,
         debit=debit, credit=credit, description=label+' correction: ' + name)
         for index, (name, debit, credit) in enumerate(sides, 1)]
-    db.add(journal)
-    await db.flush()
+    if persist:
+        db.add(journal)
+        await db.flush()
     return journal

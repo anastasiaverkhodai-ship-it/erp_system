@@ -32,12 +32,32 @@ async def effective_attendance_changes(db, *, company_id, contract_id, as_of=Non
     return result
 
 
-async def prepare_attendance_correction(db, *, company_id, data):
+async def prepare_attendance_correction(db, *, company_id, data, _calendar_leave_id=None, _single=False):
     calc = await db.scalar(select(PayrollCalculation).where(
         PayrollCalculation.company_id == company_id, PayrollCalculation.id == data.calculation_id))
     if calc is None:
         raise AttendanceCorrectionError('Payroll calculation not found in company')
     await require_current_calculation(db, calculation=calc, error_type=AttendanceCorrectionError)
+    if data.sick_calendar is not None and not _single:
+        from app.services.payroll_sick_calendar_validation import validate_calendar
+        leave_id=await validate_calendar(db,company_id=company_id,calculation=calc,data=data)
+        calculations=list((await db.scalars(select(PayrollCalculation).where(
+            PayrollCalculation.company_id==company_id,
+            PayrollCalculation.employment_contract_id==calc.employment_contract_id,
+            current_calculation_filter()).order_by(PayrollCalculation.id))).all())
+        grouped=[]; expectations=[]; covered=set()
+        for target in calculations:
+            target_period=await db.get(PayrollPeriod,target.payroll_period_id)
+            days=[day for day in data.days if target_period.start_date<=day.work_date<=target_period.end_date]
+            if not days and target.id!=calc.id:continue
+            scoped=data.model_copy(update=dict(calculation_id=target.id,days=days))
+            _,changes,expected=await prepare_attendance_correction(db,company_id=company_id,data=scoped,
+                _calendar_leave_id=leave_id,_single=True)
+            grouped.extend(dict(change,calculation_id=target.id,payroll_input_id=target.payroll_input_id) for change in changes)
+            expectations.append(expected);covered.update(day.work_date for day in days)
+        if covered!={day.work_date for day in data.days}:
+            raise AttendanceCorrectionError('Every corrected date requires an existing current payroll month')
+        return calc,grouped,dict(calculations=expectations)
     period = await db.get(PayrollPeriod, calc.payroll_period_id)
     if data.correction_date < period.end_date:
         raise AttendanceCorrectionError('Correction must not precede the payroll month end')
@@ -48,7 +68,11 @@ async def prepare_attendance_correction(db, *, company_id, data):
     from app.services.payroll_leave_correction_sources import leave_read_view
     absences = list((await db.scalars(select(LeaveRequest).where(LeaveRequest.company_id == company_id,
         LeaveRequest.employment_contract_id == calc.employment_contract_id, LeaveRequest.status == 'approved',
-        LeaveRequest.start_date <= period.end_date, LeaveRequest.end_date >= period.start_date))).all())
+        LeaveRequest.start_date <= data.correction_date))).all())
+    calendar_leave_id = _calendar_leave_id
+    if data.sick_calendar is not None and calendar_leave_id is None:
+        from app.services.payroll_sick_calendar_validation import validate_calendar
+        calendar_leave_id = await validate_calendar(db, company_id=company_id, calculation=calc, data=data)
     occupied = set()
     for leave in absences:
         view = await leave_read_view(db, leave)
@@ -56,6 +80,9 @@ async def prepare_attendance_correction(db, *, company_id, data):
         # leave; all dates of other approved absences remain protected.
         from datetime import timedelta
         dates = view.effective_leave_dates
+        if leave.id == calendar_leave_id:
+            dates = [data.sick_calendar.start_date + timedelta(days=i)
+                for i in range((data.sick_calendar.end_date-data.sick_calendar.start_date).days+1)]
         if dates is None:
             dates = [leave.start_date + timedelta(days=i) for i in range((leave.end_date-leave.start_date).days+1)]
         occupied.update(date.fromisoformat(x) if isinstance(x,str) else x for x in dates)
@@ -74,17 +101,6 @@ async def prepare_attendance_correction(db, *, company_id, data):
         changes.append(dict(work_date=day.work_date, attendance_id=row.id,
             old_minutes=old['worked_minutes'] if old else row.worked_minutes,
             new_minutes=day.worked_minutes))
-    # A change to a day with separately paid night/extra work needs its own
-    # verified time classification; preserving the old supplement would mispay.
-    from app.models.payroll_supplement import PayrollSupplement
-    changed_dates = [item['work_date'] for item in changes if item['new_minutes'] != item['old_minutes']]
-    if changed_dates and await db.scalar(select(PayrollSupplement.id).where(
-        PayrollSupplement.company_id == company_id,
-        PayrollSupplement.payroll_input_id == calc.payroll_input_id,
-        PayrollSupplement.work_date.in_(changed_dates),
-        PayrollSupplement.kind.in_(('night', 'overtime', 'rest_day')),
-        PayrollSupplement.cancelled_at.is_(None)).limit(1)):
-        raise AttendanceCorrectionError('Corrected night or extra work requires reviewed supplement time allocation')
     # Preview verifies the original creation-time basis and every salary slice.
     lines = list((await db.scalars(select(PayrollCalculationLine).where(
         PayrollCalculationLine.company_id == company_id, PayrollCalculationLine.payroll_calculation_id == calc.id
@@ -99,6 +115,9 @@ async def prepare_attendance_correction(db, *, company_id, data):
         rate = await db.get(EmployeeSalaryRate, part.salary_rate_id)
         verify_salary_rate_slice(rate, part, company_id=company_id,
             employment_contract_id=calc.employment_contract_id)
+    from app.services.payroll_attendance_premiums import prepare_time_premiums
+    await prepare_time_premiums(db,company_id=company_id,calculation=calc,payroll_input=source,
+        period=period,slices=slices,lines=lines,changes=changes,days=data.days)
     working = calc
     severance = [line for line in lines if line.line_type == 'severance']
     if severance:
@@ -110,8 +129,10 @@ async def prepare_attendance_correction(db, *, company_id, data):
             gross_amount=calc.gross_amount-sum(line.amount for line in severance))
         lines = [line for line in lines if line.line_type != 'severance']
     from app.services.payroll_attendance_payroll_replay import replay_attendance_payroll
-    gross, _, _ = replay_attendance_payroll(calculation=working, lines=lines, slices=slices,
-        monthly_norm_minutes=source.monthly_norm_minutes, changes=changes)
+    gross = working.gross_amount
+    if changes:
+        gross, _, _ = replay_attendance_payroll(calculation=working, lines=lines, slices=slices,
+            monthly_norm_minutes=source.monthly_norm_minutes, changes=changes)
     expected = dict(calculation_id=calc.id, gross=str(gross),
         basis=calc.minimum_wage_assessment['correction_basis']['sha256'],
         changes=[dict(x,work_date=x['work_date'].isoformat()) for x in changes])
@@ -166,6 +187,32 @@ async def apply_attendance_correction(db, *, company_id, request_id, actor_id):
     from app.services.payroll_sick_correction_journal import build_sick_difference_journal
     from app.services.accounting_posting import post_journal_entry
     async with db.begin_nested():
+        if data.sick_calendar is not None:
+            from app.services.payroll_sick_correction_application_service import apply_sick_correction
+            calendar=data.sick_calendar.model_dump(mode='json')
+            from app.services.payroll_attendance_premiums import materialize_time_premiums
+            by_calculation={}
+            for change in changes:by_calculation.setdefault(change['calculation_id'],[]).append(change)
+            for items in by_calculation.values():
+                await materialize_time_premiums(db,company_id=company_id,payroll_input_id=items[0]['payroll_input_id'],
+                    request=request,changes=items,actor_id=actor_id)
+            medical_application=await apply_sick_correction(db,company_id=company_id,
+                original_sick_id=calendar['original_sick_id'],insurance_evidence_id=calendar['insurance_evidence_id'],
+                correction_date=data.correction_date,request_key=f'attendance-calendar:{request.id}',
+                reason=data.reason,actor_id=actor_id,calendar_change=calendar,calendar_request_id=request.id,attendance_by_calculation=by_calculation)
+            changes=[]
+            original=await db.scalar(select(PayrollCalculation).where(
+                PayrollCalculation.company_id==company_id,
+                PayrollCalculation.payroll_input_id==original.payroll_input_id,current_calculation_filter()))
+            affected=list((await db.scalars(select(PayrollCalculation).join(EmploymentContract,
+                (EmploymentContract.company_id==PayrollCalculation.company_id)&
+                (EmploymentContract.id==PayrollCalculation.employment_contract_id)).where(
+                PayrollCalculation.company_id==company_id,PayrollCalculation.id.in_(medical_application.payroll_calculation_ids),
+                EmploymentContract.employee_id==contract.employee_id,current_calculation_filter())
+                .order_by(PayrollCalculation.id))).all())
+        from app.services.payroll_attendance_premiums import materialize_time_premiums
+        await materialize_time_premiums(db,company_id=company_id,payroll_input_id=original.payroll_input_id,
+            request=request,changes=changes,actor_id=actor_id)
         before={}; posted={}; replacements=[]
         for calc in affected:
             await calculate_payroll_statutory_result(db,company_id=company_id,payroll_calculation_id=calc.id,actor_user_id=actor_id)

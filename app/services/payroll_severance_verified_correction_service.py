@@ -204,6 +204,7 @@ async def create_verified_severance_correction(
     request_key: str,
     created_by: int,
     evidence: CorrectionEvidence,
+    _financial_proposal_id=None,
 ):
     """Append one verified revision while holding the event row lock."""
 
@@ -304,6 +305,7 @@ async def create_verified_severance_correction(
             company_id=company_id,
             employment_contract_id=employment_contract_id,
             payroll_input_id=payroll_input_id,
+            **({'allow_finalized_source': True} if _financial_proposal_id is not None else {}),
         )
 
         exact_reference = (
@@ -368,17 +370,21 @@ async def create_verified_severance_correction(
             "Company-scoped payroll input not found"
         )
 
-    await require_no_active_severance_settlement(
-        db,
-        company_id=company_id,
-        payroll_input_id=payroll_input_id,
-    )
+    if _financial_proposal_id is None:
+        await require_no_active_severance_settlement(db,company_id=company_id,payroll_input_id=payroll_input_id)
+    else:
+        from app.services.payroll_severance_execution_review import require_execution_review
+        case,proposal,review=await require_execution_review(db,company_id=company_id,
+            proposal_id=_financial_proposal_id,actor_id=created_by)
+        if case.original_severance_source_id!=previous.id or case.payroll_input_id!=payroll_input_id:
+            raise VerifiedSeveranceSourceError('Financial review identifies a different severance source')
 
     basis = await prepare_verified_severance_basis(
         db,
         company_id=company_id,
         employment_contract_id=employment_contract_id,
         payroll_input_id=payroll_input_id,
+        **({'allow_finalized_source': True} if _financial_proposal_id is not None else {}),
     )
 
     validate_new_revision(

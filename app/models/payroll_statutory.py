@@ -497,8 +497,7 @@ class PayrollStatutoryLineSource(Base):
             name="uq_psls_tax_income_link",
         ),
         CheckConstraint(
-            "source_amount >= 0 "
-            "AND source_amount <> 'NaN'::numeric",
+            "source_amount <> 'NaN'::numeric",
             name="ck_psls_source_amount",
         ),
         CheckConstraint(

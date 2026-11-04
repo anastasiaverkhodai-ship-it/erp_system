@@ -13,7 +13,7 @@ from app.services.payroll_sick_payroll_replay import replay_sick_payroll, SickPa
 
 
 async def build_sick_payroll_revision(db, *, company_id, original, original_sick,
-                                      replacement_sick, request_key, reason, actor_id, source_pairs=None, leave_replacements=None, attendance_changes=None):
+                                      replacement_sick, request_key, reason, actor_id, source_pairs=None, leave_replacements=None, attendance_changes=None, severance_replacement=None):
     await require_current_calculation(db, calculation=original, error_type=SickPayrollReplayError)
     if original.company_id != company_id:
         raise SickPayrollReplayError('Payroll calculation belongs to another company')
@@ -35,7 +35,8 @@ async def build_sick_payroll_revision(db, *, company_id, original, original_sick
     working = original
     if severance_lines:
         from app.services.payroll_severance_trusted_classification import require_trusted_severance_snapshot
-        await require_trusted_severance_snapshot(db, company_id=company_id, payroll_calculation_id=original.id)
+        await require_trusted_severance_snapshot(db, company_id=company_id, payroll_calculation_id=original.id,
+            superseded_by=severance_replacement[1].id if severance_replacement else None)
         working = SimpleNamespace(**{name:getattr(original,name) for name in
             ('company_id','payroll_period_id','payroll_input_id','employment_contract_id','currency_code',
              'minimum_wage_assessment')},
@@ -46,12 +47,14 @@ async def build_sick_payroll_revision(db, *, company_id, original, original_sick
     assessment['correction_basis'] = basis
     pairs = source_pairs if source_pairs is not None else [(original_sick, replacement_sick)]
     for old_source, new_source in pairs:
-        if not any(getattr(line,'source_sick_leave_calculation_id',None)==old_source.id for line in working_lines):
-            continue
         leave = await db.scalar(select(LeaveRequest).where(
             LeaveRequest.company_id==company_id, LeaveRequest.id==old_source.leave_request_id))
         if leave is None:
             raise SickPayrollReplayError('Sick leave not found')
+        if not any(getattr(line,'source_sick_leave_calculation_id',None)==old_source.id for line in working_lines):
+            from app.services.payroll_sick_allocation import sick_period_amount
+            if new_source.employment_contract_id!=original.employment_contract_id or not sick_period_amount(new_source,leave,period.start_date,period.end_date)[0]:
+                continue
         gross, derived, assessment = replay_sick_payroll(calculation=working, lines=working_lines,
             original_sick=old_source, replacement_sick=new_source, leave=leave, period=period)
         # Internal replay of additional affected certificates uses the preceding
@@ -86,9 +89,20 @@ async def build_sick_payroll_revision(db, *, company_id, original, original_sick
         values = {column.name:getattr(source_line,column.name)
                   for column in PayrollCalculationLine.__table__.columns
                   if column.name not in {'id','company_id','payroll_calculation_id','created_at'}}
+        if severance_replacement is not None:
+            old_severance,new_severance=severance_replacement
+            if (source_line.source_termination_severance_id!=old_severance.id
+                    or new_severance.supersedes_id!=old_severance.id
+                    or new_severance.company_id!=company_id
+                    or new_severance.payroll_input_id!=original.payroll_input_id
+                    or new_severance.employment_contract_id!=original.employment_contract_id):
+                raise SickPayrollReplayError('Corrected severance source lineage mismatch')
+            values.update(source_termination_severance_id=new_severance.id,
+                amount=new_severance.gross_amount,rate=new_severance.base_amount,
+                quantity=new_severance.multiplier)
         values['line_no'] = len(derived)+1
         derived.append(values)
-        gross += source_line.amount
+        gross += values['amount']
     replacement = PayrollCalculation(company_id=company_id,
         payroll_period_id=original.payroll_period_id, payroll_input_id=original.payroll_input_id,
         employment_contract_id=original.employment_contract_id, revision=original.revision + 1,

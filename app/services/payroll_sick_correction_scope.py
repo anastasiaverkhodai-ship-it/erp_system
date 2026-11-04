@@ -9,7 +9,7 @@ from app.models.employment_contract import EmploymentContract
 from app.services.payroll_sick_revision_service import current_sick_calculation_filter
 
 
-async def correction_source_scope(db, *, company_id, original):
+async def correction_source_scope(db, *, company_id, original, through=None):
     evidence = await db.scalar(select(Evidence).where(Evidence.company_id==company_id,
         Evidence.id==original.insurance_evidence_id))
     if evidence is None:
@@ -20,14 +20,18 @@ async def correction_source_scope(db, *, company_id, original):
         .join(EmploymentContract, (EmploymentContract.company_id==Sick.company_id) &
             (EmploymentContract.id==Sick.employment_contract_id))
         .where(Sick.company_id==company_id, EmploymentContract.employee_id==evidence.employee_id,
-            current_sick_calculation_filter(), LeaveRequest.end_date>=evidence.case_start)
+            current_sick_calculation_filter())
         .order_by(LeaveRequest.start_date, LeaveRequest.end_date, Sick.id))).all()
+    from app.services.payroll_sick_allocation import effective_sick_leave
+    rows=[(source,effective_sick_leave(source,leave),proof) for source,leave,proof in rows]
+    rows=sorted((row for row in rows if row[1].end_date>=evidence.case_start),key=lambda row:(row[1].start_date,row[1].end_date,row[0].id))
     case_rows = [row for row in rows if row[2].case_start==evidence.case_start]
     if not case_rows or original.id not in {row[0].id for row in case_rows}:
         raise ValueError('Correction requires a current sick source')
     def month_end(day):
         return date(day.year,day.month,monthrange(day.year,day.month)[1])
     frontier = month_end(max(row[1].end_date for row in case_rows))
+    if through is not None:frontier=max(frontier,month_end(through))
     included = []
     for row in rows:
         if row[1].start_date > frontier:

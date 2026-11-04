@@ -5,12 +5,11 @@ only. Partial payments consume the protected balance in creation order; a
 later payment may not predate an earlier reservation. Caller holds the company
 payroll lock. No caller-supplied protection can reduce the derived minimum.
 """
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import aliased
 from app.models.payroll_disbursement import PayrollDisbursement as Payment
 from app.models.journal_entry import JournalEntry
-from app.models.payroll_statutory import PayrollStatutoryResult, PayrollStatutoryResultLine
 from app.services.payroll_severance_financial_guard import require_severance_financial_classification
 
 
@@ -20,38 +19,12 @@ async def severance_net(db, *, company_id, payroll_calculation_id):
         error_type=ValueError, consumer='payment')
     if snapshot is None:
         return Decimal('0.00')
-    result = await db.scalar(select(PayrollStatutoryResult).where(
-        PayrollStatutoryResult.company_id == company_id,
-        PayrollStatutoryResult.payroll_calculation_id == payroll_calculation_id))
-    if result is None:
-        raise ValueError('Severance payment requires statutory results')
-    lines = list((await db.scalars(select(PayrollStatutoryResultLine).where(
-        PayrollStatutoryResultLine.company_id == company_id,
-        PayrollStatutoryResultLine.payroll_statutory_result_id == result.id))).all())
-    # Multiple rows cannot be mapped to one component without
-    # verified dated severance attribution. Fail closed.
-    components = {}
-    for line in lines:
-        if line.component in components:
-            raise ValueError(
-                "Severance statutory component has multiple lines"
-            )
-        components[line.component] = line
-    tax = Decimal('0.00')
-    for component, rate in [('personal_income_tax', Decimal('.18')), ('military_levy', Decimal('.05'))]:
-        line = components.get(component)
-        if line is None or line.rate != rate or line.base_amount < snapshot.severance_gross:
-            raise ValueError('Severance payment tax evidence is inconsistent')
-        # Attribute the rounding remainder to severance so the two income
-        # categories reconcile to the actual immutable tax result, including
-        # employee-wide cumulative rounding across concurrent contracts.
-        ordinary_tax = ((line.base_amount - snapshot.severance_gross) * rate).quantize(
-            Decimal('.01'), rounding=ROUND_HALF_UP)
-        tax += line.amount - ordinary_tax
-    net = snapshot.severance_gross - tax
-    if not 0 <= net <= result.net_amount:
-        raise ValueError('Severance protected net does not reconcile')
-    return net
+    from app.services.payroll_severance_calculated_financial import load_calculated_severance_financial
+    from app.services.payroll_severance_trusted_classification import TRUSTED_POLICIES
+    financial = await load_calculated_severance_financial(
+        db, company_id=company_id, calculation_id=payroll_calculation_id,
+        income_date=snapshot.income_date, policies=TRUSTED_POLICIES)
+    return financial.net
 
 
 async def payment_protected_minimum(db, *, company_id, payment):
@@ -65,7 +38,7 @@ async def payment_protected_minimum(db, *, company_id, payment):
     settlement_ids = await sick_settlement_chain(db, company_id=company_id,
         calculation_id=payment.payroll_calculation_id)
     reversal = aliased(JournalEntry)
-    rows = (await db.execute(select(Payment, JournalEntry.status, reversal.entry_date)
+    rows = (await db.execute(select(Payment, JournalEntry.status, reversal.entry_date, JournalEntry.id)
         .outerjoin(JournalEntry, and_(JournalEntry.company_id == Payment.company_id,
             JournalEntry.payroll_disbursement_id == Payment.id, JournalEntry.reversal_of_id.is_(None)))
         .outerjoin(reversal, and_(reversal.company_id == JournalEntry.company_id,
@@ -73,16 +46,54 @@ async def payment_protected_minimum(db, *, company_id, payment):
         .where(Payment.company_id == company_id,
             Payment.payroll_calculation_id.in_(settlement_ids),
             Payment.id < payment.id,
-            or_(Payment.cancelled_at.is_(None), JournalEntry.status.in_(('posted','reversed')))))).all()
+            or_(Payment.cancelled_at.is_(None), JournalEntry.status.in_(('posted','reversed'))))
+        .order_by(Payment.id))).all()
+    # Process real returns in the same cash chronology as payments. Only a
+    # reviewed severance decrease restores protected income; ordinary sick or
+    # wage refunds cannot create a new severance exemption.
+    from app.models.payroll_sick_return import PayrollSickReturn as Return
+    from app.models.payroll_sick_correction_application import PayrollSickPayrollRevision as Revision, PayrollSickCorrectionApplication as Application
+    returns = (await db.execute(select(Return, JournalEntry.entry_date, Revision.net_delta)
+        .join(JournalEntry, and_(JournalEntry.company_id==Return.company_id, JournalEntry.id==Return.journal_entry_id))
+        .join(Revision, and_(Revision.company_id==Return.company_id, Revision.replacement_calculation_id==Return.payroll_calculation_id))
+        .join(Application, and_(Application.company_id==Revision.company_id, Application.id==Revision.application_id))
+        .where(Return.company_id==company_id, Return.payroll_calculation_id.in_(settlement_ids),
+            Return.kind=='employee', Application.source_kind=='severance', Revision.net_delta<0,
+            JournalEntry.status=='posted', JournalEntry.entry_date<=payment.payment_date)
+        .order_by(JournalEntry.entry_date, JournalEntry.id))).all()
+    events = [(prior.payment_date, journal_id or 0, 'payment', (prior,status,reversed_on))
+              for prior,status,reversed_on,journal_id in rows]
+    events += [(day,returned.journal_entry_id,'return',(returned,-delta)) for returned,day,delta in returns]
     consumed = Decimal('0.00')
-    for prior, status, reversed_on in rows:
+    refunded = {}
+    for _,_,kind,event in sorted(events,key=lambda item:(item[0],item[1])):
+        if kind=='return':
+            returned,ceiling=event
+            already=refunded.get(returned.payroll_calculation_id,Decimal(0))
+            restored=min(returned.amount,max(Decimal(0),ceiling-already),consumed)
+            refunded[returned.payroll_calculation_id]=already+restored
+            consumed-=restored
+            continue
+        prior,status,reversed_on=event
         if status == 'reversed' and reversed_on is not None and reversed_on <= payment.payment_date:
             continue
         if status is None or status == 'draft':
             raise ValueError('Post or cancel the earlier severance payment reservation first')
         if prior.payment_date > payment.payment_date:
             raise ValueError('Severance payment cannot predate an earlier reserved payment')
-        consumed += prior.amount + prior.withheld_amount
+        if prior.payroll_calculation_id==payment.payroll_calculation_id:
+            prior_cap=protected
+        else:
+            from app.models.payroll_severance_statutory_record import PayrollSeveranceStatutoryRecord
+            from app.services.payroll_severance_calculated_financial import load_calculated_severance_financial
+            from app.services.payroll_severance_trusted_classification import TRUSTED_POLICIES
+            record=await db.scalar(select(PayrollSeveranceStatutoryRecord).where(
+                PayrollSeveranceStatutoryRecord.company_id==company_id,
+                PayrollSeveranceStatutoryRecord.payroll_calculation_id==prior.payroll_calculation_id))
+            prior_cap=(await load_calculated_severance_financial(db,company_id=company_id,
+                calculation_id=prior.payroll_calculation_id,income_date=record.income_date,
+                policies=TRUSTED_POLICIES,historical=True)).net if record else Decimal(0)
+        consumed += min(prior.amount+prior.withheld_amount,max(Decimal(0),prior_cap-consumed))
     return min(payment.amount + payment.withheld_amount, max(Decimal('0.00'), protected - consumed))
 
 

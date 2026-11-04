@@ -10,6 +10,7 @@ class PayrollSupplement(Base):
     __tablename__='payroll_supplements'
     __table_args__=(
         UniqueConstraint('company_id','id',name='uq_payroll_supplement_company_id'),
+        ForeignKeyConstraint(['company_id','correction_request_id'],['payroll_attendance_correction_requests.company_id','payroll_attendance_correction_requests.id'],name='fk_supplement_attendance_request',ondelete='RESTRICT'),
         UniqueConstraint('company_id','request_key',name='uq_payroll_supplement_request'),
         ForeignKeyConstraint(['company_id','payroll_input_id'],['payroll_inputs.company_id','payroll_inputs.id'],name='fk_payroll_supplement_input',ondelete='RESTRICT'),
         CheckConstraint("kind IN ('bonus','holiday_bonus','hardship','night','overtime','rest_day','regular_extra')",name='ck_payroll_supplement_kind'),
@@ -17,6 +18,7 @@ class PayrollSupplement(Base):
         CheckConstraint("minutes >= 0 AND coefficient >= 0 AND amount >= 0",name='ck_payroll_supplement_values'),
         CheckConstraint("(cancelled_at IS NULL) = (cancelled_by IS NULL)",name='ck_payroll_supplement_cancel'),
     )
+    correction_request_id: Mapped[int | None]=mapped_column(Integer,nullable=True)
     average_basis: Mapped[dict | None]=mapped_column(JSON(none_as_null=True),nullable=True)
     id: Mapped[int]=mapped_column(primary_key=True)
     company_id: Mapped[int]=mapped_column(Integer,nullable=False)

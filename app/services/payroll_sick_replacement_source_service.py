@@ -12,7 +12,7 @@ from app.services.payroll_mutation_guard import serialized_payroll_mutation
 
 @serialized_payroll_mutation(PayrollSickLeaveConflictError)
 async def materialize_sick_replacement(db, *, company_id, original_calculation_id,
-                                      insurance_evidence_id, calculated_by, excluded_source_ids=()):
+                                      insurance_evidence_id, calculated_by, excluded_source_ids=(), calendar_change=None, calendar_request_id=None):
     original = await db.scalar(select(PayrollSickLeaveCalculation).where(
         PayrollSickLeaveCalculation.company_id == company_id,
         PayrollSickLeaveCalculation.id == original_calculation_id,
@@ -23,6 +23,7 @@ async def materialize_sick_replacement(db, *, company_id, original_calculation_i
         db, company_id=company_id, leave_request_id=original.leave_request_id,
         insurance_evidence_id=insurance_evidence_id, calculated_by=calculated_by,
         _preview_replacement_of=original.id, _correction_excluded_ids=excluded_source_ids,
+        _calendar_change=calendar_change,_calendar_request_id=calendar_request_id,
     )
     row.revision = original.revision + 1
     row.supersedes_id = original.id

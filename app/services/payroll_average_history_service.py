@@ -41,11 +41,15 @@ def next_month(day):
 
 
 async def derive_leave_average_history(db, *, company_id, leave_request_id,
-                                      reference_period_start=None, reference_period_end=None, salary_substitution=None):
+                                      reference_period_start=None, reference_period_end=None, salary_substitution=None, _leave_override=None):
     leave = await db.scalar(select(LeaveRequest).where(
         LeaveRequest.company_id == company_id, LeaveRequest.id == leave_request_id))
     if leave is None:
         raise PayrollAverageHistoryNotFoundError('Leave request not found')
+    if _leave_override is not None:
+        if _leave_override.id!=leave.id or _leave_override.company_id!=company_id:
+            raise PayrollAverageHistoryError('Average-history calendar ownership mismatch')
+        leave=_leave_override
     if leave.status != LeaveRequestStatus.APPROVED:
         raise PayrollAverageHistoryError('Average pay requires approved leave')
     if leave.leave_type not in PAID_VACATION_TYPES | {LeaveType.SICK}:
@@ -208,8 +212,23 @@ async def _erp_vacation_source(db, *, company_id, contract_id, calculation, peri
         raise PayrollAverageHistoryError('ERP source lines do not reconcile to gross earnings')
     leaves = list((await db.scalars(select(LeaveRequest).where(
         LeaveRequest.company_id == company_id, LeaveRequest.employment_contract_id == contract_id,
-        LeaveRequest.status == LeaveRequestStatus.APPROVED,
-        LeaveRequest.start_date <= month_end, LeaveRequest.end_date >= month))).all())
+        LeaveRequest.status == LeaveRequestStatus.APPROVED))).all())
+    from app.models.payroll_sick_leave import PayrollSickLeaveCalculation
+    from app.services.payroll_sick_allocation import effective_sick_leave
+    frozen_calendars=(calculation.minimum_wage_assessment or {}).get('correction_basis',{}).get('payload',{}).get('sick_calendar_sources',{})
+    sick_ids={line.source_sick_leave_calculation_id for line in lines if line.line_type=='sick_pay'}
+    sources=list((await db.scalars(select(PayrollSickLeaveCalculation).where(
+        PayrollSickLeaveCalculation.company_id==company_id,
+        PayrollSickLeaveCalculation.id.in_(sick_ids|set(frozen_calendars.values()))))).all())
+    by_leave={source.leave_request_id:source for source in sources}
+    projected=[]
+    for leave in leaves:
+        source=by_leave.get(leave.id)
+        if source is not None:
+            leave=effective_sick_leave(source,leave)
+            leave.frozen_sick_source_id=source.id
+        if leave.start_date<=month_end and leave.end_date>=month:projected.append(leave)
+    leaves=projected
     if any(leave.leave_type not in PAID_VACATION_TYPES | {LeaveType.UNPAID, LeaveType.SICK} for leave in leaves):
         raise PayrollAverageHistoryError('ERP other absences require an explicit average-pay classification')
     await _verify_paid_leave_lines(db, company_id=company_id, contract_id=contract_id,
@@ -283,8 +302,15 @@ async def _erp_vacation_source(db, *, company_id, contract_id, calculation, peri
         Attendance.work_date <= month_end))).all())
     corrected = ((calculation.minimum_wage_assessment or {}).get('correction_basis', {})
                  .get('payload', {}).get('attendance_day_minutes', {}))
-    if any((corrected[row.work_date.isoformat()] == 0 if row.work_date.isoformat() in corrected
-            else row.status == 'absent') for row in attendance):
+    # Approved absences have already been reconciled with their pay sources.
+    # A corrected zero-work day inside that calendar is classified, not an
+    # unexplained absence. Days outside it must still fail closed.
+    def classified_absence(day):
+        return any(leave.start_date <= day <= leave.end_date for leave in leaves)
+
+    if any(not classified_absence(row.work_date) and
+            (corrected[row.work_date.isoformat()] == 0 if row.work_date.isoformat() in corrected
+             else row.status == 'absent') for row in attendance):
         raise PayrollAverageHistoryError('Unclassified absence in ERP reference month')
     excluded = set()
     for leave in leaves:
@@ -360,7 +386,8 @@ async def _verify_paid_leave_lines(db, *, company_id, contract_id, leaves, lines
         vacation = leave.leave_type in PAID_VACATION_TYPES
         model = PayrollVacationCalculation if vacation else PayrollSickLeaveCalculation
         source = await db.scalar(select(model).where(model.company_id == company_id,
-            model.employment_contract_id == contract_id, model.leave_request_id == leave.id))
+            model.employment_contract_id == contract_id, model.leave_request_id == leave.id,
+            model.id==leave.frozen_sick_source_id if hasattr(leave,'frozen_sick_source_id') else True))
         if source is None:
             raise PayrollAverageHistoryError('Approved paid absence has no calculated pay source')
         days = source.leave_days if vacation else source.sick_days

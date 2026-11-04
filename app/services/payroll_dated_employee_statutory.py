@@ -53,7 +53,8 @@ async def dated_employee_plan(db, *, company_id, calculation):
                 from app.services.payroll_dated_income_days import verify_dated_salary_line
                 await verify_dated_salary_line(db,company_id=company_id,calculation=calc,line=line)
             if line.line_type!='severance':ordinary_total+=line.amount
-            if line.amount<0:raise Error('Negative dated income requires a separate reviewed adjustment')
+            if line.amount<0 and line.line_type!='manual_adjustment':
+                raise Error('Negative dated income requires a reviewed manual adjustment')
             for component in Component:
                 pieces=await income_policy_pieces(db,company_id=company_id,period=period,
                     employment=employment,calc=calc,line=line,component=component)
@@ -77,6 +78,19 @@ async def dated_employee_plan(db, *, company_id, calculation):
                     groups.append(dict(calc=calc,contract=employment,component=component,rate=rate,profile=profile,rule=rule,
                         amount=part['amount'],base=D(0) if exempt or (severance and component==Component.UNIFIED_SOCIAL_CONTRIBUTION) else part['amount'],
                         benefit=D(0),exempt=exempt,severance=severance,source=line,start=part['start'],end=part['end'],floor=None,ceiling=None))
+    # Net signed adjustments within the exact policy that earned the income
+    # before applying monthly benefits or limits. Keep every signed source link.
+    net_groups={}
+    for g in groups:
+        key=(g['calc'].id,g['component'].value,g['rate'].id,
+            g['profile'].id if g['profile'] else None,g['rule'].id if g['rule'] else None,g['severance'])
+        target=net_groups.setdefault(key,dict(g,amount=D(0),base=D(0),sources=[]))
+        target['amount']+=g['amount'];target['base']+=g['base']
+        target['start']=min(target['start'],g['start']);target['end']=max(target['end'],g['end'])
+        target['sources'].append((g['source'],g['amount'],g['start'],g['end']))
+    groups=list(net_groups.values())
+    if any(g['amount']<0 or g['base']<0 for g in groups):
+        raise Error('Adjustment exceeds income under its dated policy; correct the original earning period')
     # PSP is a monthly entitlement, never a fresh deduction per dated segment.
     beneficiaries=[g for g in groups if g['component']==Component.PERSONAL_INCOME_TAX and not g['severance']
         and g['profile'] and g['profile'].category=='benefit_eligible' and g['rule'] and g['rule'].base_mode=='gross_after_benefit']
@@ -127,7 +141,7 @@ async def dated_employee_plan(db, *, company_id, calculation):
         target=merged[key]
         for field in ('base','amount','benefit'):target[field]+=g[field]
         target['start']=min(target['start'],g['start']);target['end']=max(target['end'],g['end'])
-        target['sources'].append((g['source'],g['amount'],g['start'],g['end']))
+        target['sources'].extend(g['sources'])
         if g['floor'] is not None:target['floor']=g['floor']
         if g['ceiling'] is not None:target['ceiling']=g['ceiling']
     cumulative=defaultdict(lambda:D(0));previous=defaultdict(lambda:D(0))

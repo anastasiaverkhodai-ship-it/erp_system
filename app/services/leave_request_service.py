@@ -259,8 +259,6 @@ async def _ensure_no_active_overlap(
                 LeaveRequestStatus.APPROVED,
             ]
         ),
-        LeaveRequest.start_date <= end_date,
-        LeaveRequest.end_date >= start_date,
     ]
 
     if exclude_id is not None:
@@ -268,16 +266,14 @@ async def _ensure_no_active_overlap(
             LeaveRequest.id != exclude_id
         )
 
-    result = await db.execute(
-        select(LeaveRequest.id)
-        .where(and_(*conditions))
-        .limit(1)
-    )
-
-    if result.scalar_one_or_none() is not None:
-        raise LeaveRequestConflictError(
-            "Leave request overlaps an existing active leave request"
-        )
+    from app.services.payroll_leave_correction_sources import leave_read_view
+    rows=(await db.scalars(select(LeaveRequest).where(and_(*conditions)))).all()
+    for row in rows:
+        view=await leave_read_view(db,row)
+        overlap=(any(start_date<=day<=end_date for day in view.effective_leave_dates)
+                 if view.effective_leave_dates is not None else row.start_date<=end_date and row.end_date>=start_date)
+        if overlap:
+            raise LeaveRequestConflictError("Leave request overlaps an existing active leave request")
 
 
 async def list_leave_requests(

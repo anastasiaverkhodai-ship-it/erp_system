@@ -145,6 +145,7 @@ async def calculate_sick_leave_pay(
     calculated_by: int,
     sources: list[dict] | None = None,
     _preview: bool = False,
+    _leave_override=None,
 ) -> PayrollSickLeaveCalculation:
     existing = None if _preview else await get_sick_leave_calculation_for_leave(
         db,
@@ -192,6 +193,10 @@ async def calculate_sick_leave_pay(
             "Leave request not found"
         )
 
+    if _leave_override is not None:
+        if not _preview or _leave_override.id!=leave_request.id or _leave_override.company_id!=company_id:
+            raise PayrollSickLeaveConflictError('Calendar override requires an atomic correction preview')
+        leave_request=_leave_override
     if leave_request.status != LeaveRequestStatus.APPROVED:
         raise PayrollSickLeaveConflictError(
             "Sick leave pay requires approved leave"
@@ -440,8 +445,6 @@ async def derive_sick_pay_lines(
             LeaveRequest.status == LeaveRequestStatus.APPROVED,
             current_sick_calculation_filter(),
             LeaveRequest.leave_type == LeaveType.SICK,
-            LeaveRequest.start_date <= period.end_date,
-            LeaveRequest.end_date >= period.start_date,
         )
         .order_by(PayrollSickLeaveCalculation.id)
     )
@@ -452,6 +455,9 @@ async def derive_sick_pay_lines(
 
     from app.services.payroll_sick_allocation import sick_period_amount
     for row, leave in rows:
+        from app.services.payroll_sick_allocation import effective_sick_leave
+        leave=effective_sick_leave(row,leave)
+        if leave.start_date>period.end_date or leave.end_date<period.start_date:continue
         if Decimal((leave.end_date - leave.start_date).days + 1) != row.sick_days:
             raise PayrollSickLeaveDerivationError('Leave dates changed after calculation; use a correction')
         try:

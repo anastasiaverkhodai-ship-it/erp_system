@@ -24,7 +24,7 @@ from app.services.payroll_disbursement_service import create_payroll_disbursemen
 pytestmark = pytest.mark.asyncio
 
 
-async def setup(db, *, service_months=120, post=True):
+async def setup(db, *, service_months=120, post=True, with_salary=False):
     from test_payroll_insurance_evidence import insurance_setup
     from app.services.payroll_insurance_evidence_service import review_insurance_evidence
     company, user, contract, leave, reviewer, _, evidence = await insurance_setup(db, total=service_months)
@@ -33,7 +33,7 @@ async def setup(db, *, service_months=120, post=True):
     args = dict(company_id=company.id, leave_request_id=leave.id,
         insurance_evidence_id=evidence.id, calculated_by=user.id)
     sick = await calculate_sick_from_history(db, **args)
-    calc = await payroll_for_sick(db, company, sick, args['calculated_by'])
+    calc = await payroll_for_sick(db, company, sick, args['calculated_by'], with_salary=with_salary)
     for component, rate in [(Component.PERSONAL_INCOME_TAX, D('.18')),
             (Component.MILITARY_LEVY, D('.05')), (Component.UNIFIED_SOCIAL_CONTRIBUTION, D('.22'))]:
         await create_statutory_rate(db, company_id=company.id, component=component, rate=rate,

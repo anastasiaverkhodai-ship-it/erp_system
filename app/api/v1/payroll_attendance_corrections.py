@@ -10,6 +10,8 @@ from app.models.payroll_sick_correction_application import PayrollSickCorrection
 from app.schemas.payroll_attendance_correction import AttendanceCorrectionCreate
 from app.services.payroll_attendance_correction_service import request_attendance_correction, apply_attendance_correction, effective_attendance_changes
 from app.api.v1.payroll_sick_correction_applications import application_response, ERRORS
+from app.services.payroll_supplement_service import PayrollSupplementError
+ERRORS=(*ERRORS,PayrollSupplementError)
 
 router=APIRouter(prefix='/companies/{company_id}/payroll-attendance-corrections', tags=['Payroll attendance corrections'])
 

@@ -30,15 +30,24 @@ def replay_sick_payroll(*, calculation, lines, original_sick, replacement_sick, 
     frozen = _decode(payload['lines'])
     matched = [line for line in frozen
                if line.get('source_sick_leave_calculation_id') == original_sick.id]
-    if len(matched) != 1 or matched[0]['line_type'] != 'sick_pay':
-        raise SickPayrollReplayError('Exactly one original sick-pay line is required')
-    line = matched[0]
     old_days, old_amount = sick_period_amount(original_sick, leave, period.start_date, period.end_date)
     days, amount = sick_period_amount(replacement_sick, leave, period.start_date, period.end_date)
-    if days <= 0 or days != old_days or line['quantity'] != old_days or line['amount'] != old_amount:
+    if len(matched)>1 or (matched and (matched[0]['line_type']!='sick_pay' or matched[0]['quantity']!=old_days or matched[0]['amount']!=old_amount)):
         raise SickPayrollReplayError('Original sick payroll does not reconcile to dated source')
-    line.update(source_sick_leave_calculation_id=replacement_sick.id,
-                quantity=Decimal(days), amount=amount, rate=replacement_sick.daily_benefit_amount)
+    if not matched and old_days:
+        raise SickPayrollReplayError('Original sick-pay source is missing from payroll')
+    if matched:
+        line=matched[0]
+        if days:
+            line.update(source_sick_leave_calculation_id=replacement_sick.id,
+                quantity=Decimal(days),amount=amount,rate=replacement_sick.daily_benefit_amount)
+        else:
+            frozen.remove(line)
+    elif days:
+        frozen.append(dict(line_no=len(frozen)+1,line_type='sick_pay',description='Corrected sick certificate dates',
+            quantity=Decimal(days),rate=replacement_sick.daily_benefit_amount,amount=amount,
+            currency_code=calculation.currency_code,source_sick_leave_calculation_id=replacement_sick.id))
+    for number,line in enumerate(frozen,1):line['line_no']=number
     earnings = payload['facts']['earnings']
     frozen_sick_total = sum((Decimal(item['amount']) for item in earnings
                              if item['category'] == 'sick_pay'), Decimal(0))
@@ -48,6 +57,7 @@ def replay_sick_payroll(*, calculation, lines, original_sick, replacement_sick, 
         raise SickPayrollReplayError('Frozen sick-pay classifications do not reconcile')
     payload['facts']['earnings'] = [item for item in earnings if item['category'] != 'sick_pay']
     payload['facts']['earnings'].append(dict(category='sick_pay', amount=str(actual_sick_total)))
+    payload.setdefault('sick_calendar_sources',{})[str(leave.id)]=replacement_sick.id
     payload['lines'] = _canonical_value(frozen)
     parent_fingerprint = basis['sha256']
     basis.pop('seal', None)

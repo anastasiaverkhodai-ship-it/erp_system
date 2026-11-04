@@ -33,13 +33,15 @@ def snapshot_json(snapshot):
 
 @serialized_payroll_mutation(SickCorrectionApplicationError)
 async def apply_sick_correction(db, *, company_id, original_sick_id, insurance_evidence_id,
-                                correction_date, request_key, reason, actor_id):
+                                correction_date, request_key, reason, actor_id, calendar_change=None, calendar_request_id=None, attendance_by_calculation=None):
     if (not isinstance(request_key, str) or not request_key.strip() or len(request_key) > 100
             or not isinstance(reason, str) or len(reason.strip()) < 10
             or not isinstance(correction_date, date)):
         raise SickCorrectionApplicationError('Valid request key, documented reason and correction date are required')
     payload = dict(original_sick_id=original_sick_id, insurance_evidence_id=insurance_evidence_id,
         correction_date=correction_date.isoformat(), reason=reason.strip())
+    if calendar_change is not None:
+        payload.update(calendar_change=calendar_change,calendar_request_id=calendar_request_id)
     fingerprint = generate_request_fingerprint(payload)
     existing = await db.scalar(select(PayrollSickCorrectionApplication).where(
         PayrollSickCorrectionApplication.company_id == company_id,
@@ -56,13 +58,23 @@ async def apply_sick_correction(db, *, company_id, original_sick_id, insurance_e
     from app.services.payroll_sick_correction_scope import correction_source_scope
     from app.models.employment_contract import EmploymentContract
     employee_id, corrected_case_start, sources = await correction_source_scope(db,
-        company_id=company_id, original=original_sick)
+        company_id=company_id, original=original_sick,
+        through=date.fromisoformat(calendar_change["end_date"]) if calendar_change else None)
     source_ids = tuple(row[0].id for row in sources)
     period_ids = select(PayrollCalculation.payroll_period_id).join(PayrollCalculationLine,
         (PayrollCalculationLine.company_id==PayrollCalculation.company_id) &
         (PayrollCalculationLine.payroll_calculation_id==PayrollCalculation.id)).where(
         PayrollCalculation.company_id==company_id, current_calculation_filter(),
         PayrollCalculationLine.source_sick_leave_calculation_id.in_(source_ids))
+    if calendar_change is not None:
+        from app.models.payroll import PayrollPeriod
+        from sqlalchemy import or_
+        period_ids=select(PayrollPeriod.id).where(PayrollPeriod.company_id==company_id,or_(
+            PayrollPeriod.id.in_(period_ids),
+            PayrollPeriod.id.in_(select(PayrollCalculation.payroll_period_id).where(
+                PayrollCalculation.company_id==company_id,PayrollCalculation.id.in_(tuple(attendance_by_calculation or {})))),
+            (PayrollPeriod.start_date<=date.fromisoformat(calendar_change['end_date'])) &
+            (PayrollPeriod.end_date>=date.fromisoformat(calendar_change['start_date']))))
     affected = list((await db.scalars(select(PayrollCalculation).join(EmploymentContract,
         (EmploymentContract.company_id==PayrollCalculation.company_id) &
         (EmploymentContract.id==PayrollCalculation.employment_contract_id)).where(
@@ -113,14 +125,17 @@ async def apply_sick_correction(db, *, company_id, original_sick_id, insurance_e
             replacement = await materialize_sick_replacement(db, company_id=company_id,
                 original_calculation_id=source.id,
                 insurance_evidence_id=insurance_evidence_id if evidence.case_start==corrected_case_start else evidence.id,
-                calculated_by=actor_id, excluded_source_ids=source_ids)
+                calculated_by=actor_id, excluded_source_ids=source_ids,
+                calendar_change=calendar_change if source.id==original_sick_id else None,
+                calendar_request_id=calendar_request_id if evidence.case_start==corrected_case_start else None)
             source_pairs.append((source,replacement))
         replacement_sick = next(new for old,new in source_pairs if old.id==original_sick.id)
         replacements = []
         for original in affected:
             replacement = await build_sick_payroll_revision(db, company_id=company_id, original=original,
                 original_sick=original_sick, replacement_sick=replacement_sick, source_pairs=source_pairs,
-                request_key=f'sick:{fingerprint[:32]}:{original.id}', reason=reason.strip(), actor_id=actor_id)
+                request_key=f'sick:{fingerprint[:32]}:{original.id}', reason=reason.strip(), actor_id=actor_id,
+                attendance_changes=(attendance_by_calculation or {}).get(original.id))
             replacements.append((original, replacement))
         application = PayrollSickCorrectionApplication(company_id=company_id,
             original_sick_id=original_sick.id, replacement_sick_id=replacement_sick.id,

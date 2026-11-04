@@ -58,8 +58,22 @@ def allocate_sick_days(*, start, end, case_start, daily, maximum, previous=None)
     return result
 
 
+def effective_sick_leave(source, leave):
+    """The original order stays immutable; each calculation freezes its dates."""
+    assessment=source.insurance_assessment or {}
+    interval=assessment.get('certificate_dates')
+    if interval is None:return leave
+    from types import SimpleNamespace
+    values={column.name:getattr(leave,column.name) for column in leave.__table__.columns} if hasattr(leave,'__table__') else vars(leave).copy()
+    start,end=date.fromisoformat(interval['start']),date.fromisoformat(interval['end'])
+    if start>end:raise ValueError('Invalid frozen sick certificate dates')
+    values.update(start_date=start,end_date=end)
+    return SimpleNamespace(**values)
+
+
 def sick_period_amount(row, leave, period_start, period_end):
     """Use saved dated amounts; legacy calculations retain their old allocation."""
+    leave = effective_sick_leave(row,leave)
     assessment = row.insurance_assessment or {}
     if row.rule_version not in DATED_ALLOCATION_VERSIONS:
         return allocate_leave_amount(start=leave.start_date, end=leave.end_date,

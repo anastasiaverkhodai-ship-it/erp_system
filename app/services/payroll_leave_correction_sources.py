@@ -113,4 +113,13 @@ async def leave_read_view(db, row):
         if correction is not None:
             result.correction_id=correction.id
             result.effective_leave_dates=[date.fromisoformat(value) for value in correction.replacement_snapshot['used_dates']]
+    if row.leave_type == 'sick':
+        from datetime import timedelta
+        from app.services.payroll_sick_leave_service import get_sick_leave_calculation_for_leave
+        from app.services.payroll_sick_allocation import effective_sick_leave
+        sick=await get_sick_leave_calculation_for_leave(db,company_id=row.company_id,leave_request_id=row.id)
+        if sick is not None:
+            effective=effective_sick_leave(sick,row)
+            result.effective_leave_dates=[effective.start_date+timedelta(days=i)
+                for i in range((effective.end_date-effective.start_date).days+1)]
     return result

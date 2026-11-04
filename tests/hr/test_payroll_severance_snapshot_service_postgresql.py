@@ -172,6 +172,9 @@ async def _run_severance_snapshot_service_e2e(*, exercise_financial_path=False, 
                 )
                 db.add(salary_slice)
 
+                from app.services.hr_change_service import snapshot as contract_snapshot
+                ended_state = contract_snapshot(contract)
+                active_state = {**ended_state, 'status': 'active', 'end_date': None}
                 event = EmploymentEvent(
                     company_id=company.id,
                     employment_contract_id=contract.id,
@@ -181,8 +184,8 @@ async def _run_severance_snapshot_service_e2e(*, exercise_financial_path=False, 
                     order_date=date(2026, termination_month, termination_day),
                     reason="Documented redundancy",
                     request_key=f"term-{token}",
-                    before_state={},
-                    after_state={},
+                    before_state=active_state,
+                    after_state=ended_state,
                     request_payload={
                         "termination_basis": {
                             "ground": "redundancy",

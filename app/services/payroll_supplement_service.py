@@ -68,7 +68,8 @@ async def derive_supplement_lines(db, *, company_id, payroll_input, period, sala
         _load_attendance,_assignment_for_day,_scheduled_minutes_for_day)
     from app.services.employment_event_service import employment_state_on
     rows=list((await db.scalars(select(PayrollSupplement).where(PayrollSupplement.company_id==company_id,
-        PayrollSupplement.payroll_input_id==payroll_input.id,PayrollSupplement.cancelled_at.is_(None))
+        PayrollSupplement.payroll_input_id==payroll_input.id,PayrollSupplement.cancelled_at.is_(None),
+        PayrollSupplement.correction_request_id.is_(None))
         .order_by(PayrollSupplement.work_date,PayrollSupplement.id))).all())
     assignments=await _load_schedule_assignments(db,company_id=company_id,
         employment_contract_id=payroll_input.employment_contract_id,date_from=period.start_date,date_to=period.end_date)
