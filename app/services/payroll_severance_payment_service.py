@@ -53,7 +53,7 @@ async def payment_protected_minimum(db, *, company_id, payment):
     # wage refunds cannot create a new severance exemption.
     from app.models.payroll_sick_return import PayrollSickReturn as Return
     from app.models.payroll_sick_correction_application import PayrollSickPayrollRevision as Revision, PayrollSickCorrectionApplication as Application
-    returns = (await db.execute(select(Return, JournalEntry.entry_date, Revision.net_delta)
+    returns = (await db.execute(select(Return, JournalEntry.entry_date, Revision)
         .join(JournalEntry, and_(JournalEntry.company_id==Return.company_id, JournalEntry.id==Return.journal_entry_id))
         .join(Revision, and_(Revision.company_id==Return.company_id, Revision.replacement_calculation_id==Return.payroll_calculation_id))
         .join(Application, and_(Application.company_id==Revision.company_id, Application.id==Revision.application_id))
@@ -61,9 +61,29 @@ async def payment_protected_minimum(db, *, company_id, payment):
             Return.kind=='employee', Application.source_kind=='severance', Revision.net_delta<0,
             JournalEntry.status=='posted', JournalEntry.entry_date<=payment.payment_date)
         .order_by(JournalEntry.entry_date, JournalEntry.id))).all()
+    historical_caps = {}
+
+    async def historical_cap(calculation_id):
+        if calculation_id not in historical_caps:
+            from app.models.payroll_severance_statutory_record import PayrollSeveranceStatutoryRecord
+            from app.services.payroll_severance_calculated_financial import load_calculated_severance_financial
+            from app.services.payroll_severance_trusted_classification import TRUSTED_POLICIES
+            record = await db.scalar(select(PayrollSeveranceStatutoryRecord).where(
+                PayrollSeveranceStatutoryRecord.company_id==company_id,
+                PayrollSeveranceStatutoryRecord.payroll_calculation_id==calculation_id))
+            historical_caps[calculation_id] = (await load_calculated_severance_financial(
+                db,company_id=company_id,calculation_id=calculation_id,
+                income_date=record.income_date,policies=TRUSTED_POLICIES,historical=True)).net if record else Decimal(0)
+        return historical_caps[calculation_id]
+
     events = [(prior.payment_date, journal_id or 0, 'payment', (prior,status,reversed_on))
               for prior,status,reversed_on,journal_id in rows]
-    events += [(day,returned.journal_entry_id,'return',(returned,-delta)) for returned,day,delta in returns]
+    for returned,day,revision in returns:
+        # A payroll net difference can also contain ordinary-income tax
+        # changes. Restore only the actual severance component's decrease.
+        ceiling = max(Decimal(0), await historical_cap(revision.original_calculation_id)
+                      - await historical_cap(revision.replacement_calculation_id))
+        events.append((day,returned.journal_entry_id,'return',(returned,ceiling)))
     consumed = Decimal('0.00')
     refunded = {}
     for _,_,kind,event in sorted(events,key=lambda item:(item[0],item[1])):
@@ -84,15 +104,7 @@ async def payment_protected_minimum(db, *, company_id, payment):
         if prior.payroll_calculation_id==payment.payroll_calculation_id:
             prior_cap=protected
         else:
-            from app.models.payroll_severance_statutory_record import PayrollSeveranceStatutoryRecord
-            from app.services.payroll_severance_calculated_financial import load_calculated_severance_financial
-            from app.services.payroll_severance_trusted_classification import TRUSTED_POLICIES
-            record=await db.scalar(select(PayrollSeveranceStatutoryRecord).where(
-                PayrollSeveranceStatutoryRecord.company_id==company_id,
-                PayrollSeveranceStatutoryRecord.payroll_calculation_id==prior.payroll_calculation_id))
-            prior_cap=(await load_calculated_severance_financial(db,company_id=company_id,
-                calculation_id=prior.payroll_calculation_id,income_date=record.income_date,
-                policies=TRUSTED_POLICIES,historical=True)).net if record else Decimal(0)
+            prior_cap=await historical_cap(prior.payroll_calculation_id)
         consumed += min(prior.amount+prior.withheld_amount,max(Decimal(0),prior_cap-consumed))
     return min(payment.amount + payment.withheld_amount, max(Decimal('0.00'), protected - consumed))
 
