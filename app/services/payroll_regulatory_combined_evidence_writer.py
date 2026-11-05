@@ -9,6 +9,11 @@ It does not authorize official statutory generation.
 
 from sqlalchemy import text
 
+from app.services.payroll_regulatory_pit_levy_evidence_writer import (
+    bind_independent_pit_levy_evidence,
+    verify_anchor as verify_pit_levy_anchor,
+)
+
 from app.services.payroll_regulatory_d1_evidence_bound_writer import (
     bind_d1_aggregate_evidence,
     deserialize_anchor as verify_d1_anchor,
@@ -46,6 +51,7 @@ async def verify_combined_persisted_snapshot(
     payroll_period,
     snapshot_id,
     d1_anchor,
+    tax_anchors,
     payment_anchors,
     hr_anchor,
 ):
@@ -96,6 +102,8 @@ async def verify_combined_persisted_snapshot(
             "Incomplete four-form snapshot"
         )
 
+    verified_tax_calculations = set()
+
     for row in rows_by_form["D1"]:
         actual = row["attributes"].get(
             "d1_aggregate_evidence"
@@ -107,6 +115,39 @@ async def verify_combined_persisted_snapshot(
             raise CombinedEvidenceError(
                 "Persisted D1 evidence mismatch"
             )
+
+        calculation_id = row["source_id"]
+
+        if (
+            calculation_id not in tax_anchors
+            or calculation_id in verified_tax_calculations
+        ):
+            raise CombinedEvidenceError(
+                "D1 tax calculation coverage mismatch"
+            )
+
+        verified_tax_calculations.add(calculation_id)
+
+        tax_value = row["attributes"].get(
+            "pit_levy_statutory_evidence"
+        )
+
+        checked = verify_pit_levy_anchor(tax_value)
+
+        if (
+            tax_value != tax_anchors[calculation_id]
+            or checked["calculation"] != calculation_id
+            or checked["company"] != company_id
+            or checked["period"] != payroll_period_id
+        ):
+            raise CombinedEvidenceError(
+                "Persisted PIT/levy source mismatch"
+            )
+
+    if verified_tax_calculations != set(tax_anchors):
+        raise CombinedEvidenceError(
+            "Incomplete PIT/levy evidence"
+        )
 
     observed_calculations = set()
 
@@ -215,6 +256,14 @@ async def persist_combined_four_form_review(
         report_references=report_references,
     )
 
+    tax_anchors = await bind_independent_pit_levy_evidence(
+        db,
+        company_id=company_id,
+        payroll_period_id=payroll_period_id,
+        payroll_period=payroll_period,
+        report_references=report_references,
+    )
+
     payment_anchors = await bind_4df_posted_payment_evidence(
         db,
         company_id=company_id,
@@ -249,6 +298,7 @@ async def persist_combined_four_form_review(
         payroll_period=payroll_period,
         snapshot_id=result["id"],
         d1_anchor=d1_anchor,
+        tax_anchors=tax_anchors,
         payment_anchors=payment_anchors,
         hr_anchor=hr_anchor,
     )
@@ -262,6 +312,8 @@ async def persist_combined_four_form_review(
         **result,
         "all_four_forms_in_one_snapshot": True,
         "d1_aggregate_evidence_verified": True,
+        "pit_levy_statutory_components_verified": True,
+        "pit_levy_statutory_evidence_in_snapshot": True,
         "fourdf_posted_payment_evidence_verified": True,
         "d5_d6_hr_inventory_verified": True,
         "separate_pit_statutory_mapping_verified": False,

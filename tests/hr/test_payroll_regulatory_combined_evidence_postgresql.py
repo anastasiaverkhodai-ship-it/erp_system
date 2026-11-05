@@ -25,6 +25,9 @@ from app.services.payroll_regulatory_combined_evidence_writer import (
 from app.services.payroll_regulatory_d1_evidence_bound_writer import (
     deserialize_anchor,
 )
+from app.services.payroll_regulatory_pit_levy_evidence_writer import (
+    verify_anchor as verify_tax_anchor,
+)
 
 from app.services.payroll_regulatory_4df_payment_bound_writer import (
     verify_anchor as verify_payment_anchor,
@@ -274,6 +277,12 @@ async def test_real_combined_four_form_immutable_evidence():
             assert first["all_four_forms_in_one_snapshot"]
             assert first["d1_aggregate_evidence_verified"]
             assert first[
+                "pit_levy_statutory_components_verified"
+            ] is True
+            assert first[
+                "pit_levy_statutory_evidence_in_snapshot"
+            ] is True
+            assert first[
                 "fourdf_posted_payment_evidence_verified"
             ]
             assert first["d5_d6_hr_inventory_verified"]
@@ -317,6 +326,20 @@ async def test_real_combined_four_form_immutable_evidence():
                     ]
                 )["control"]
 
+                tax = verify_tax_anchor(
+                    row["attributes"][
+                        "pit_levy_statutory_evidence"
+                    ]
+                )
+
+                assert tax["calculation"] == calculation.id
+                assert tax["company"] == company.id
+                assert tax["period"] == period["id"]
+                assert (
+                    float(tax["pit"]) + float(tax["levy"])
+                    == float(tax["withheld"])
+                )
+
             for row in evidence_by_form["4DF"]:
                 verified = verify_payment_anchor(
                     row["attributes"][
@@ -344,6 +367,8 @@ async def test_real_combined_four_form_immutable_evidence():
                 "REAL STATUTORY PAYROLL SOURCES = PASS",
                 "REAL HR INVENTORY = PASS",
                 "ALL THREE EVIDENCE DIGESTS = PASS",
+                "INDEPENDENT PIT/LEVY LINES = PASS",
+                "PIT/LEVY IMMUTABLE BINDING = PASS",
                 flush=True,
                 sep="\n",
             )
@@ -395,6 +420,12 @@ async def test_real_combined_four_form_immutable_evidence():
                     payroll_period_id=period["id"],
                     payroll_period=label,
                     snapshot_id=snapshot_id,
+                    tax_anchors={
+                        calculation.id:
+                        evidence_by_form["D1"][0][
+                            "attributes"
+                        ]["pit_levy_statutory_evidence"]
+                    },
                     d1_anchor=deserialize_anchor(
                         evidence_by_form["D1"][0][
                             "attributes"
