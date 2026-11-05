@@ -88,7 +88,7 @@ async def test_severance_snapshot_concurrent_idempotency_e2e():
             head = await conn.scalar(
                 text("SELECT version_num FROM alembic_version")
             )
-            assert head == "13d4a7b8c063"
+            assert head == "p13d6grant261105"
 
         async with Session() as db:
             async with db.begin():

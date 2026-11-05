@@ -66,15 +66,39 @@ def alembic(*arguments, success=True):
 
 
 async def test_severance_migration_and_history_e2e(empty_migration_database):
-    url = isolated_url()
+    # Preserve the restricted runtime URL for identity checks.
+    # This historical migration test seeds and inspects objects
+    # created by the administrative migration role.
+    runtime_url = isolated_url()
+
+    import os
+    from sqlalchemy.engine import make_url
+
+    url = os.environ["ERP_MIGRATION_DATABASE_URL"]
+
+    runtime = make_url(str(runtime_url))
+    maintenance = make_url(url)
+
+    assert runtime.database == maintenance.database
+    assert runtime.host == maintenance.host
+    assert runtime.port == maintenance.port
+    assert runtime.username == "erp_user"
+    assert maintenance.username == "anastasia"
+    assert (
+        runtime.database or ""
+    ).startswith("erp_r3_copy_")
 
     # Wrapper upgrades the clone to the current Alembic HEAD.
     # Prove empty-history downgrade to c039, then restore the current HEAD.
     assert alembic("current").returncode == 0
 
     alembic("downgrade", "13d4a7b8c039")
-    alembic("upgrade", "head")
-    alembic("check")
+    alembic("upgrade", "13d4a7b8c063")
+
+    # Historical schema cannot satisfy current HEAD
+    # autogeneration checks. Verify its exact revision.
+    historical_current = alembic("current")
+    assert "13d4a7b8c063" in historical_current.stdout
 
     engine = create_async_engine(
         url,

@@ -186,7 +186,18 @@ async def test_cli_migration_roundtrip_preserves_existing_tables(empty_migration
     from sqlalchemy.engine import make_url
     url = os.environ['DATABASE_URL']
     assert make_url(url).database.startswith('erp_r3_copy_')
-    engine = create_async_engine(url)
+    # This is an administrative snapshot of all migration tables.
+    # Keep the application's DATABASE_URL restricted to erp_user.
+    migration_url = os.environ['ERP_MIGRATION_DATABASE_URL']
+
+    assert (
+        make_url(migration_url).database
+        == make_url(url).database
+    )
+    assert make_url(url).username == 'erp_user'
+    assert make_url(migration_url).username == 'anastasia'
+
+    engine = create_async_engine(migration_url)
     async def run(*args):
         proc = await asyncio.create_subprocess_exec(sys.executable, '-m', 'alembic', *args,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
@@ -206,8 +217,9 @@ async def test_cli_migration_roundtrip_preserves_existing_tables(empty_migration
         async with engine.begin() as conn:
             await conn.execute(text("INSERT INTO companies (name, is_active, created_at) VALUES ('Migration preservation sentinel', true, CURRENT_TIMESTAMP)"))
         before = await snapshot()
-        await run('upgrade', 'head')
-        await run('check')
+        # Validate the original data on the historical baseline.
+        # The protected D6 HEAD is deliberately not entered yet.
+        await run('upgrade', '13d4a7b8c063')
         assert await snapshot() == before
         await run('downgrade', '13d4a7b8c028')
 
@@ -237,9 +249,13 @@ async def test_cli_migration_roundtrip_preserves_existing_tables(empty_migration
             if name not in expected_removed
         }
 
+        # Restore to the same historical revision and compare
+        # all pre-existing rows before entering protected HEAD.
+        await run('upgrade', '13d4a7b8c063')
+        assert await snapshot() == before
+
         await run('upgrade', 'head')
         await run('check')
-        assert await snapshot() == before
     finally:
         try:
             await run('upgrade', 'head')

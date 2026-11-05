@@ -98,7 +98,7 @@ async def test_payroll_withheld_schema_probe():
 
 
 @pytest.mark.asyncio
-async def test_payroll_withheld_schema_probe_after_roundtrip(empty_migration_database):
+async def test_payroll_withheld_schema_probe_after_roundtrip(empty_migration_database, monkeypatch):
     print()
     import asyncio
     import sys
@@ -110,5 +110,27 @@ async def test_payroll_withheld_schema_probe_after_roundtrip(empty_migration_dat
         output,_=await process.communicate()
         assert process.returncode==0,output.decode()
     print("AFTER MIGRATION ROUNDTRIP — NEW CONNECTION")
-    await test_payroll_withheld_schema_probe()
+    # Only the administrative schema probe uses the
+    # maintenance connection. Runtime access stays limited.
+    maintenance_url = os.environ['ERP_MIGRATION_DATABASE_URL']
+
+    from sqlalchemy.engine import make_url
+
+    assert (
+        make_url(maintenance_url).database
+        == make_url(str(settings.database_url)).database
+    )
+
+    with monkeypatch.context() as probe_context:
+        probe_context.setenv(
+            'DATABASE_URL',
+            maintenance_url,
+        )
+        probe_context.setattr(
+            settings,
+            'database_url',
+            maintenance_url,
+        )
+        await test_payroll_withheld_schema_probe()
+
     print("AFTER ROUNDTRIP SCHEMA = PASS")

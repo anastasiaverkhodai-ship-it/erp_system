@@ -982,16 +982,46 @@ async def test_dated_two_rate_real_postgresql(employee_engine):
         before = await db.scalar(result_query())
         assert before == 0
 
-        with pytest.raises(
-            PayrollStatutoryValidationError,
-            match="dated allocation|rate changes|rate change",
-        ):
-            await calculate_payroll_statutory_result(
-                db,
-                company_id=f["company"],
-                payroll_calculation_id=calculation.id,
-                actor_user_id=f["actor"],
+        # A valid two-rate allocation must now be accepted by the
+        # dated statutory writer. Exercise a genuinely invalid
+        # policy instead: leave 14 September without a PIT rate.
+        # The mutation must reach PostgreSQL and be rolled back.
+        rate_gap_savepoint = await db.begin_nested()
+        try:
+            first_rate.effective_to = date(2026, 9, 13)
+            await db.flush()
+
+            assert first_rate.effective_to == date(2026, 9, 13)
+
+            with pytest.raises(
+                PayrollStatutoryError,
+                match="(?i)rate|dated|allocation",
+            ):
+                await calculate_payroll_statutory_result(
+                    db,
+                    company_id=f["company"],
+                    payroll_calculation_id=calculation.id,
+                    actor_user_id=f["actor"],
+                )
+
+            assert await db.scalar(result_query()) == before
+            print(
+                "13.10-B2-D1 REAL RATE GAP REJECTED = PASS"
             )
+        finally:
+            if rate_gap_savepoint.is_active:
+                await rate_gap_savepoint.rollback()
+
+        await db.refresh(first_rate)
+        assert first_rate.effective_to == date(2026, 9, 14)
+
+        # Verify rollback preserved the original valid allocation.
+        assert await preview_verified_dated_salary_tax(
+            db,
+            company_id=f["company"],
+            payroll_calculation_id=calculation.id,
+            component=component,
+        ) == result
 
         await db.flush()
 

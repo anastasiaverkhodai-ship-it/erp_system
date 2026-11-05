@@ -66,7 +66,7 @@ async def test_real_postgresql_severance_payroll_line():
             revision = await conn.scalar(
                 text("SELECT version_num FROM alembic_version")
             )
-            assert revision == "13d4a7b8c063"
+            assert revision == "p13d6grant261105"
 
             constraints = {
                 name: definition

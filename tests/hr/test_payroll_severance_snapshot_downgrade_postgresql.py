@@ -61,7 +61,7 @@ def test_empty_severance_snapshot_downgrade_and_restore(empty_migration_database
     from sqlalchemy.ext.asyncio import create_async_engine
 
     async def inspect_table():
-        engine = create_async_engine(str(settings.database_url))
+        engine = create_async_engine(os.environ['ERP_MIGRATION_DATABASE_URL'])
         try:
             async with engine.connect() as conn:
                 rows = await conn.scalar(text(
@@ -82,7 +82,7 @@ def test_empty_severance_snapshot_downgrade_and_restore(empty_migration_database
         assert revision() == OLD
 
         async def table_absent():
-            engine = create_async_engine(str(settings.database_url))
+            engine = create_async_engine(os.environ['ERP_MIGRATION_DATABASE_URL'])
             try:
                 async with engine.connect() as conn:
                     return await conn.scalar(text(
@@ -104,6 +104,12 @@ def test_empty_severance_snapshot_downgrade_and_restore(empty_migration_database
             )
 
     assert revision() == HEAD
+
+    # Historical proof is complete; now enter the protected HEAD.
+    latest = alembic("upgrade", "head")
+    assert latest.returncode == 0, (
+        latest.stdout, latest.stderr
+    )
 
     check = alembic("check")
     assert check.returncode == 0, (
