@@ -206,7 +206,7 @@ async def test_real_postgresql_writer_full_lifecycle():
                 )
             ).scalar_one()
 
-            assert revision == "p13regint261105"
+            assert revision == "p13d6grant261105"
 
             # Reuse actual tenant/period/employee identities
             # from the disposable copy. No sample payroll amounts

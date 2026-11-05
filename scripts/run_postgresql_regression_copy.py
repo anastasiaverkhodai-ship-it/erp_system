@@ -67,7 +67,20 @@ async def remove_isolated_database(conn, database_name):
 
 def pg_environment(url):
     env = dict(os.environ)
-    env["PGHOST"] = url.host
+    for key in (
+        "PGHOST",
+        "PGHOSTADDR",
+        "PGPORT",
+        "PGUSER",
+        "PGDATABASE",
+        "PGPASSWORD",
+        "PGSERVICE",
+    ):
+        env.pop(key, None)
+
+    if url.host:
+        env["PGHOST"] = url.host
+
     env["PGPORT"] = str(url.port or 5432)
     env["PGUSER"] = url.username or ""
     env["PGDATABASE"] = url.database
@@ -275,7 +288,9 @@ async def run_copy():
 
                     os.chmod(temporary_directory, 0o700)
 
-                    source_env = pg_environment(source_url)
+                    source_env = pg_environment(
+                        admin_url.set(database="erp_db")
+                    )
 
                     print(
                         "POSTGRESQL FULL DUMP START",
@@ -286,8 +301,6 @@ async def run_copy():
                         [
                             "pg_dump",
                             "--format=custom",
-                            "--no-owner",
-                            "--no-acl",
                             "--no-password",
                             "--file",
                             str(dump_path),
@@ -334,14 +347,14 @@ async def run_copy():
                         flush=True,
                     )
 
-                    target_env = pg_environment(target_url)
+                    target_env = pg_environment(
+                        admin_url.set(database=database_name)
+                    )
 
                     pg_command(
                         [
                             "pg_restore",
                             "--exit-on-error",
-                            "--no-owner",
-                            "--no-acl",
                             "--no-password",
                             "--dbname",
                             database_name,
@@ -406,10 +419,25 @@ async def run_copy():
                     )
 
                     if upgrade_copy:
+                        migration_env = dict(test_env)
+                        migration_env["DATABASE_URL"] = (
+                            admin_url.set(
+                                database=database_name
+                            ).render_as_string(
+                                hide_password=False
+                            )
+                        )
+                        migration_env.pop(
+                            "ERP_MIGRATION_DATABASE_URL", None
+                        )
+                        migration_env.pop(
+                            "ERP_MIGRATION_OWNER_ROLE", None
+                        )
+
                         for operation in (("upgrade", "head"), ("check",)):
                             migration = await asyncio.create_subprocess_exec(
                                 sys.executable, "-m", "alembic", *operation,
-                                env=test_env,
+                                env=migration_env,
                             )
                             require(await migration.wait() == 0, "Copy migration failed")
 
