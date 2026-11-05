@@ -7,6 +7,46 @@ from app.services.payroll_severance_net_tax_settlement import SeveranceFinancial
 from app.services.payroll_severance_trusted_classification import require_trusted_severance_snapshot
 
 
+
+def require_severance_component_attribution(
+    lines, attributed_line_ids
+):
+    """Reject unproven repeated severance statutory components.
+
+    Valid dated multiline rows remain possible when every repeated
+    line has persisted source attribution. The existing dated seal,
+    income-class and financial reconciliation checks still apply.
+    """
+    allowed = {
+        "personal_income_tax",
+        "military_levy",
+        "unified_social_contribution",
+    }
+
+    linked = set(attributed_line_ids)
+    groups = {}
+
+    for line in lines:
+        if line.component not in allowed:
+            raise ValueError(
+                "Unsupported severance statutory component"
+            )
+
+        groups.setdefault(line.component, []).append(line)
+
+    for group in groups.values():
+        if len(group) <= 1:
+            continue
+
+        if any(line.id not in linked for line in group):
+            raise ValueError(
+                "Severance statutory component has multiple lines "
+                "without persisted dated source attribution"
+            )
+
+    return groups
+
+
 async def load_calculated_severance_financial(db, *, company_id, calculation_id, income_date, policies, historical=False):
     if historical:
         from app.models.payroll_severance_statutory_record import PayrollSeveranceStatutoryRecord
@@ -30,6 +70,33 @@ async def load_calculated_severance_financial(db, *, company_id, calculation_id,
     from app.services.payroll_accounting_service import _component_amounts,_validate_source_reconciliation
     from app.models.payroll import PayrollCalculation
     calculation=await db.get(PayrollCalculation,calculation_id)
+    # Fail before monetary aggregation when a repeated statutory
+    # component has no corresponding persisted attribution.
+    counts = {}
+    for line in lines:
+        counts[line.component] = counts.get(line.component, 0) + 1
+
+    if any(count > 1 for count in counts.values()):
+        duplicate_ids = [
+            line.id
+            for line in lines
+            if counts[line.component] > 1
+        ]
+        attributed_ids = set(
+            (await db.scalars(
+                select(Source.statutory_line_id).where(
+                    Source.company_id == company_id,
+                    Source.statutory_line_id.in_(duplicate_ids),
+                )
+            )).all()
+        )
+    else:
+        attributed_ids = set()
+
+    require_severance_component_attribution(
+        lines, attributed_ids
+    )
+
     components=_component_amounts(lines)
     _validate_source_reconciliation(calculation=calculation,statutory=result,components=components)
     severance_ids=set((await db.scalars(select(PayrollCalculationLine.id).where(

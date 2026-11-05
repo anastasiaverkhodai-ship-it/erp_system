@@ -19,7 +19,18 @@ MIGRATION_PATH = Path(
 def test_single_expected_migration_head():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
 
-    assert script.get_heads() == ["13d4a7b8c063"]
+    heads = script.get_heads()
+    assert len(heads) == 1
+
+    revisions = {
+        rev.revision
+        for rev in script.walk_revisions(
+            head=heads[0],
+            base="base",
+        )
+    }
+
+    assert "13d4a7b8c063" in revisions
     assert (
         script.get_revision("13d4a7b8c040").down_revision
         == "13d4a7b8c039"

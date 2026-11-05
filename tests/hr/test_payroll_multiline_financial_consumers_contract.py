@@ -57,19 +57,28 @@ def test_tax_balance_references_persisted_line_amounts():
     assert "PayrollStatutoryResultLine.amount" in source
 
 
-def test_severance_mapping_rejects_duplicates():
+def test_severance_mapping_rejects_unattributed_duplicates():
     path = (
         ROOT / "app/services/"
-        "payroll_severance_payment_service.py"
+        "payroll_severance_calculated_financial.py"
     )
     source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
 
+    assert isinstance(tree, ast.Module)
+    assert (
+        "def require_severance_component_attribution("
+        in source
+    )
     assert (
         "Severance statutory component has multiple lines"
         in source
     )
 
-    assert (
-        "components = {line.component: line for line in lines}"
-        not in source
+    # Verify this guard is actually invoked before
+    # the general payroll aggregation.
+    assert source.index(
+        "    require_severance_component_attribution("
+    ) < source.index(
+        "    components=_component_amounts(lines)"
     )
