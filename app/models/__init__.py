@@ -273,3 +273,5 @@ from app.models.payroll_attendance_correction import PayrollAttendanceCorrection
 from app.models.payroll_income_dates import PayrollIncomeDateRequest, PayrollIncomeDateApproval
 
 from app.models.payroll_taxpayer_identity_review import PayrollTaxpayerIdentityReview
+
+from app.models.payroll_d6_evidence import PayrollD6Evidence, PayrollD6EvidenceReview

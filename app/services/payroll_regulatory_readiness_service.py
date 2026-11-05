@@ -25,6 +25,16 @@ async def payroll_regulatory_readiness(db, *, company_id, payroll_period_id, rep
     period = await _get_period(db, company_id=company_id, payroll_period_id=payroll_period_id)
     kind = _kind_value(report_kind)
     blockers = ['DATED_STATUTORY_FORM_MAPPING_MISSING', *FORM_BLOCKERS[kind]]
+    applicability = 'not_determined'
+    if kind == 'd6':
+        from app.services.payroll_d6_evidence_service import period_evidence
+        evidence = await period_evidence(db, company_id=company_id, payroll_period_id=payroll_period_id)
+        applicability = evidence['applicability'].lower()
+        if evidence['coverage'] == 'MIGRATION_REQUIRED':
+            blockers.append('D6_EVIDENCE_MIGRATION_REQUIRED')
+        if evidence['coverage'] == 'COMPLETE':
+            blockers.remove('D6_APPLICABILITY_AND_SPECIAL_SERVICE_EVIDENCE_MISSING')
+        # Approved personnel facts never clear the statutory field-mapping gate.
     if period.status != PayrollPeriodStatus.FINALIZED:
         blockers.append('PAYROLL_PERIOD_NOT_FINALIZED')
     records = (await db.execute(
@@ -75,7 +85,7 @@ async def payroll_regulatory_readiness(db, *, company_id, payroll_period_id, rep
         })
     return {
         'company_id': company_id, 'payroll_period_id': payroll_period_id,
-        'report_kind': kind, 'ready': False, 'applicability': 'not_determined',
+        'report_kind': kind, 'ready': False, 'applicability': applicability,
         'blocking_issues': blockers, 'calculation_sources': rows,
         'notice': 'Джерела для перевірки. Це не сформований регламентований звіт.',
     }

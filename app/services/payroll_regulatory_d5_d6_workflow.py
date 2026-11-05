@@ -5,7 +5,7 @@ from verified tenant-scoped HR source inventory.
 
 This module does not:
 - infer statutory D5 event codes;
-- claim D6 applicability;
+- infer D6 applicability without independently reviewed facts;
 - approve normative mappings;
 - mutate HR records;
 - mark regulatory reports as GENERATED;
@@ -401,4 +401,24 @@ async def build_verified_d5_d6_workflow(
         payroll_period_id=payroll_period_id,
     )
 
-    return assemble_hr_review(inventory)
+    review = assemble_hr_review(inventory)
+    from app.services.payroll_d6_evidence_service import period_evidence
+    evidence = await period_evidence(db, company_id=company_id, payroll_period_id=payroll_period_id)
+    # Bind approved facts and their review provenance into the existing immutable
+    # snapshot and source-diff mechanism. This never approves statutory mapping.
+    review["snapshot"]["d6_evidence"] = evidence
+    for record in evidence["records"]:
+        review["snapshot"]["records"].append({
+            "source_table": "payroll_d6_evidence",
+            "source_id": record["evidence_id"],
+            "source_sha256": digest(record),
+            "event_date": None,
+            "date_field": None,
+            "evidence_state": "INDEPENDENTLY_REVIEWED",
+            "statutory_classification": "NOT_VERIFIED",
+        })
+    review["snapshot_sha256"] = digest(review["snapshot"])
+    review["source_record_count"] = len(review["snapshot"]["records"])
+    review["d6"].update(applicability=evidence["applicability"],
+        source_coverage=evidence["coverage"], missing_contract_ids=evidence["missing_contract_ids"])
+    return review
