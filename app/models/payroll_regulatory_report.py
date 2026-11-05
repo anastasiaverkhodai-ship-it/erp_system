@@ -417,3 +417,244 @@ _HRReviewEvent.listen(
     "after_create",
     _HR_REVIEW_PROTECT_TRIGGER_DDL,
 )
+
+
+# PHASE13_REGULATORY_INTERNAL_SNAPSHOT_METADATA_V1
+#
+# This table registers the already-defined Alembic schema with
+# SQLAlchemy metadata. It does not perform DDL or authorize
+# official report generation.
+#
+# Keep this registration in the existing regulatory model module
+# so Alembic's established model-import path sees the table.
+
+from sqlalchemy import (
+    Table as _reg_table,
+    Column as _reg_column,
+    BigInteger as _reg_bigint,
+    Integer as _reg_integer,
+    String as _reg_string,
+    Text as _reg_text,
+    CHAR as _reg_char,
+    DateTime as _reg_datetime,
+    Identity as _reg_identity,
+    ForeignKeyConstraint as _reg_fk,
+    UniqueConstraint as _reg_unique,
+    CheckConstraint as _reg_check,
+    text as _reg_text_expression,
+)
+
+
+payroll_regulatory_internal_snapshots_table = _reg_table(
+    "payroll_regulatory_internal_snapshots",
+    PayrollRegulatoryReport.metadata,
+
+    _reg_column(
+        "id",
+        _reg_bigint,
+        _reg_identity(always=False),
+        primary_key=True,
+    ),
+
+    _reg_column(
+        "company_id",
+        _reg_integer,
+        nullable=False,
+    ),
+
+    _reg_column(
+        "payroll_period_id",
+        _reg_integer,
+        nullable=False,
+    ),
+
+    _reg_column(
+        "version",
+        _reg_integer,
+        nullable=False,
+    ),
+
+    _reg_column(
+        "request_key",
+        _reg_string(120),
+        nullable=False,
+    ),
+
+    _reg_column(
+        "d1_report_id",
+        _reg_integer,
+        nullable=False,
+    ),
+
+    _reg_column(
+        "fourdf_report_id",
+        _reg_integer,
+        nullable=False,
+    ),
+
+    _reg_column(
+        "d5_report_id",
+        _reg_integer,
+        nullable=False,
+    ),
+
+    _reg_column(
+        "d6_report_id",
+        _reg_integer,
+        nullable=False,
+    ),
+
+    _reg_column(
+        "previous_snapshot_id",
+        _reg_bigint,
+        nullable=True,
+    ),
+
+    _reg_column(
+        "payload_json",
+        _reg_text,
+        nullable=False,
+    ),
+
+    _reg_column(
+        "snapshot_sha256",
+        _reg_char(64),
+        nullable=False,
+    ),
+
+    _reg_column(
+        "status",
+        _reg_string(40),
+        nullable=False,
+        server_default=_reg_text_expression(
+            "'internal_review_only'"
+        ),
+    ),
+
+    _reg_column(
+        "created_at",
+        _reg_datetime(timezone=True),
+        nullable=False,
+        server_default=_reg_text_expression(
+            "CURRENT_TIMESTAMP"
+        ),
+    ),
+
+    _reg_unique(
+        "company_id",
+        "id",
+        name="uq_regint_snapshot_company_id",
+    ),
+
+    _reg_unique(
+        "company_id",
+        "payroll_period_id",
+        "version",
+        name="uq_regint_snapshot_revision",
+    ),
+
+    _reg_unique(
+        "company_id",
+        "payroll_period_id",
+        "request_key",
+        name="uq_regint_snapshot_request",
+    ),
+
+    _reg_fk(
+        ["company_id", "payroll_period_id"],
+        ["payroll_periods.company_id", "payroll_periods.id"],
+        name="fk_regint_period",
+        ondelete="RESTRICT",
+    ),
+
+    _reg_fk(
+        ["company_id", "d1_report_id"],
+        [
+            "payroll_regulatory_reports.company_id",
+            "payroll_regulatory_reports.id",
+        ],
+        name="fk_regint_d1",
+        ondelete="RESTRICT",
+    ),
+
+    _reg_fk(
+        ["company_id", "fourdf_report_id"],
+        [
+            "payroll_regulatory_reports.company_id",
+            "payroll_regulatory_reports.id",
+        ],
+        name="fk_regint_4df",
+        ondelete="RESTRICT",
+    ),
+
+    _reg_fk(
+        ["company_id", "d5_report_id"],
+        [
+            "payroll_regulatory_reports.company_id",
+            "payroll_regulatory_reports.id",
+        ],
+        name="fk_regint_d5",
+        ondelete="RESTRICT",
+    ),
+
+    _reg_fk(
+        ["company_id", "d6_report_id"],
+        [
+            "payroll_regulatory_reports.company_id",
+            "payroll_regulatory_reports.id",
+        ],
+        name="fk_regint_d6",
+        ondelete="RESTRICT",
+    ),
+
+    _reg_fk(
+        ["company_id", "previous_snapshot_id"],
+        [
+            "payroll_regulatory_internal_snapshots.company_id",
+            "payroll_regulatory_internal_snapshots.id",
+        ],
+        name="fk_regint_previous",
+        ondelete="RESTRICT",
+    ),
+
+    _reg_check(
+        "version > 0",
+        name="ck_regint_version",
+    ),
+
+    _reg_check(
+        "length(request_key) BETWEEN 8 AND 120",
+        name="ck_regint_request",
+    ),
+
+    _reg_check(
+        "snapshot_sha256 ~ '^[0-9a-f]{64}$'",
+        name="ck_regint_digest",
+    ),
+
+    _reg_check(
+        "status = 'internal_review_only'",
+        name="ck_regint_status",
+    ),
+
+    _reg_check(
+        """
+        d1_report_id <> fourdf_report_id
+        AND d1_report_id <> d5_report_id
+        AND d1_report_id <> d6_report_id
+        AND fourdf_report_id <> d5_report_id
+        AND fourdf_report_id <> d6_report_id
+        AND d5_report_id <> d6_report_id
+        """,
+        name="ck_regint_distinct_reports",
+    ),
+
+    _reg_check(
+        """
+        (version = 1 AND previous_snapshot_id IS NULL)
+        OR
+        (version > 1 AND previous_snapshot_id IS NOT NULL)
+        """,
+        name="ck_regint_chain",
+    ),
+)
