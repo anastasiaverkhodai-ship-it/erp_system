@@ -142,9 +142,7 @@ def import_approved_classifier(
     # Reject overlapping validity for the same classification identity.
     by_identity = {}
     for entry in result:
-        by_identity.setdefault(
-            (entry.profession_code, entry.professional_name), []
-        ).append(entry)
+        by_identity.setdefault(entry.profession_code, []).append(entry)
 
     for records in by_identity.values():
         records.sort(key=lambda value: value.effective_from)
