@@ -2,4 +2,5 @@
 # The application verifies these artifacts against pinned SHA-256 hashes.
 app/data/payroll_forms/2026_11/*.xsd binary
 docs/normative_evidence/2026_11_06/order241_copy.html binary
+docs/normative_evidence/2026_11_06/law1403_copy.html binary
 docs/normative_evidence/2026_11_05/order243_buhgalter911_full.html binary

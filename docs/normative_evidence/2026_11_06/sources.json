@@ -22,5 +22,26 @@
     "url": "https://www.zakon.cc/law/document/read/z0514-20",
     "sha256": "de97047d4a52bf762529299a81a2420d8520d09b10c82d4b5b0e46285c86f924",
     "production_classifier_approved": false
+  },
+  {
+    "file": "amendment5_archived_ministry.pdf",
+    "url": "https://web.archive.org/web/20220121141548id_/https://www.msp.gov.ua/files/5.pdf",
+    "sha256": "7ed7c5b0d4cbdf5decd1795dcffc61795da0223b8dc8f58f3cc4d784c3496442",
+    "production_classifier_approved": false,
+    "review": "Archived ministry file; order and all 5 declared annex pages visually reviewed"
+  },
+  {
+    "file": "amendment4_publisher.docx",
+    "url": "https://vk24.ua/sites/default/files/npa/nakaz-394.docx",
+    "sha256": "8621b4ec874bded425b591945cc71494b51dd8481850644f7a712d250fddd66f",
+    "production_classifier_approved": false,
+    "review": "Publisher copy; full tables available; order/annex effective dates conflict"
+  },
+  {
+    "file": "law1403_copy.html",
+    "url": "https://www.zakon.cc/law/document/read/1403-19",
+    "sha256": "8eaf88f0ed6a6c9b2e8c76761092176d295147a5c9ebacab98b07fa40d6fc100",
+    "review": "Secondary law text; commencement independently corroborated by official court publication",
+    "production_classifier_approved": false
   }
 ]

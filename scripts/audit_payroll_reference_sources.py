@@ -39,6 +39,22 @@ def audit():
     if indices[0] != indices[1] or any(n != 1 for n in indices[0].values()):
         raise ValueError("Appendices A/B disagree or contain duplicate pairs")
 
+    # Audit the complete amendment copy without resolving its conflicting dates.
+    word_ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    with zipfile.ZipFile(current / "amendment4_publisher.docx") as archive:
+        document = ET.fromstring(archive.read("word/document.xml"))
+    tables = [
+        [[" ".join("".join(cell.itertext()).split())
+          for cell in row.findall("w:tc", word_ns)]
+         for row in table.findall("w:tr", word_ns)]
+        for table in document.findall(".//w:tbl", word_ns)
+    ]
+    if len(tables) != 7:
+        raise ValueError("Unexpected amendment 4 table inventory")
+    for left, right in ((1, 4), (2, 5), (3, 6)):
+        if Counter(tuple(row[1:]) for row in tables[left][1:]) != Counter(tuple(row[1:]) for row in tables[right][1:]):
+            raise ValueError("Amendment 4 appendices disagree")
+
     raw = json.loads((EVIDENCE / "2026_11_05/annex_tables_review.json").read_text())
     decisions = json.loads((EVIDENCE / "2026_11_05/date_conflicts.json").read_text())
     ends = {(r["code"], r["start"], r["raw_end"]): r["resolved_end"] for r in decisions["issues"]}
@@ -59,6 +75,11 @@ def audit():
     return {
         "classifier_unique_pairs_in_each_appendix": len(indices[0]),
         "classifier_appendices_equal": True,
+        "amendment4_appendices_equal": True,
+        "amendment4_cancellations": len(tables[1]) - 1,
+        "amendment4_replacements": (len(tables[2]) - 1) // 2,
+        "amendment4_additions": len(tables[3]) - 1,
+        "amendment4_effective_date_status": "CONFLICT_UNRESOLVED",
         "income_rows": len(raw["tables"]["income_codes"]),
         "income_unique_codes": len(periods),
         "income_overlaps_after_documented_resolutions": 0,

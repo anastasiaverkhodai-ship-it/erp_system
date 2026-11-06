@@ -38,6 +38,36 @@ verification of the other annex dictionaries. The Ministry working spreadsheet
 cannot silently replace this dated history. Registry approvals remain unchanged.
 No database, migration, or financial calculation was changed in this delivery.
 
+## Subsequent recovery in the same review
+
+The full amendment 5 PDF was recovered from the Internet Archive capture of
+the Ministry of Social Policy file (2022-01-21 14:15:48). All seven PDF pages
+were visually reviewed: signed order, cover, and five declared annex pages.
+The missing-annex issue for amendment 5 is resolved. General commencement is
+2016-08-15. The two private-enforcement professions commence 2016-10-05:
+clause 3 refers to commencement of law 1403-VIII, independently corroborated by
+the Commercial Court of Ternopil's publication of 2016-10-26. This is distinct
+from the later introduction of provisions governing private enforcement activity.
+
+A complete publisher DOCX of amendment 4 was also recovered. All seven tables
+were extracted; appendix A and B agree on nine cancellations, five replacements,
+and twelve additions. However, the order says 2016-03-01 while the annex says
+2016-04-01 and retains blank approval fields. Full text availability is now
+resolved; authoritative commencement reconciliation is **not** resolved.
+No guessed date was entered into the trusted classifier.
+
+Thus the earlier missing-file statements above describe the initial review,
+not the latest acquisition state. The remaining blockers are dated-history
+verification, the amendment 4 discrepancy, base/appendix V provenance, and
+semantic verification of the other dictionaries.
+
+Recovered sources:
+
+- https://web.archive.org/web/20220121141548id_/https://www.msp.gov.ua/files/5.pdf
+- https://vk24.ua/sites/default/files/npa/nakaz-394.docx
+- https://www.zakon.cc/law/document/read/1403-19
+- https://te.arbitr.gov.ua/sud5022/pres-centr/news/302671/
+
 ## Sources
 
 - Ministry workbook: https://me.gov.ua/download/47467434-c638-46d8-a4ca-f6924f6acf11/file.xlsx

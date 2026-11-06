@@ -35,7 +35,7 @@
     "production_entry_transcription_verified": false
   },
   "amendment5": {
-    "source": "amendment5_order.doc",
+    "source": "amendment5_archived_ministry.pdf",
     "order_date": "2016-08-10",
     "general_effective_date": "2016-08-15",
     "exception_names": [
@@ -43,7 +43,27 @@
       "Помічник приватного виконавця"
     ],
     "exception_date_rule": "Simultaneous with the law named in clause 3; date not inferred from general commencement",
-    "annex_present": false
+    "annex_present": true,
+    "pages_reviewed": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "annex_declared_pages": 5,
+    "annex_observed_pages": 5,
+    "archive_timestamp": "20220121141548",
+    "original_url": "https://www.msp.gov.ua/files/5.pdf",
+    "exception_effective_date": "2016-10-05",
+    "exception_date_evidence": {
+      "order_clause": 3,
+      "law": "1403-VIII",
+      "official_corroboration": "https://te.arbitr.gov.ua/sud5022/pres-centr/news/302671/",
+      "distinction": "Law commencement, not later introduction of provisions governing private enforcement activity"
+    }
   },
   "classifier_workbook": {
     "modified_metadata": "2021-11-05T15:10:55Z",
@@ -53,9 +73,24 @@
   },
   "remaining_verification": [
     "Complete base and appendix V provenance/history",
-    "Amendment 4 full annex and effective date reconciliation",
-    "Amendment 5 full annex and exception commencement evidence",
+    "Amendment 4 order/annex commencement discrepancy: March 1 versus April 1, 2016",
     "Row-by-row integration and dated history of all applicable amendments",
     "Other annex dictionaries: semantic/legal verification beyond structural extraction"
-  ]
+  ],
+  "amendment4_appendices_equal": true,
+  "amendment4_cancellations": 9,
+  "amendment4_replacements": 5,
+  "amendment4_additions": 12,
+  "amendment4_effective_date_status": "CONFLICT_UNRESOLVED",
+  "amendment4": {
+    "source": "amendment4_publisher.docx",
+    "full_tables_acquired": true,
+    "cancellations": 9,
+    "replacements": 5,
+    "additions": 12,
+    "appendices_agree": true,
+    "effective_date_order": "2016-03-01",
+    "effective_date_annex": "2016-04-01",
+    "effective_date_approved": false
+  }
 }
