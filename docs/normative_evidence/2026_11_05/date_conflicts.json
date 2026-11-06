@@ -7,7 +7,10 @@
       "code": "125",
       "start": "01.01.2011",
       "raw_end": "30.06.2020 30.09.2024",
-      "resolution": "UNRESOLVED_DO_NOT_GUESS"
+      "resolution": "CORROBORATED_HISTORICAL_END_DATE",
+      "resolved_end": "30.06.2020",
+      "corroborating_source": "https://www.zakon.cc/law/document/read/z0111-15",
+      "corroborating_sha256": "15cb24cd332792c347e069d6c7c6ab76dde9d7b3601013d28e79eb3e3d73cef9"
     },
     {
       "table": "income_codes",
@@ -15,7 +18,10 @@
       "code": "125",
       "start": "01.07.2020",
       "raw_end": "31.12.2022 30.09.2024",
-      "resolution": "UNRESOLVED_DO_NOT_GUESS"
+      "resolution": "CORROBORATED_HISTORICAL_END_DATE",
+      "resolved_end": "31.12.2022",
+      "corroborating_source": "https://www.zakon.cc/law/document/read/z0111-15",
+      "corroborating_sha256": "15cb24cd332792c347e069d6c7c6ab76dde9d7b3601013d28e79eb3e3d73cef9"
     },
     {
       "table": "income_codes",
@@ -23,8 +29,22 @@
       "code": "185",
       "start": "01.07.2014",
       "raw_end": "31.12.2020 30.09.2024",
-      "resolution": "UNRESOLVED_DO_NOT_GUESS"
+      "resolution": "CORROBORATED_HISTORICAL_END_DATE",
+      "resolved_end": "31.12.2020",
+      "corroborating_source": "https://www.zakon.cc/law/document/read/z0111-15",
+      "corroborating_sha256": "15cb24cd332792c347e069d6c7c6ab76dde9d7b3601013d28e79eb3e3d73cef9"
     }
   ],
-  "production_approved": false
+  "production_approved": false,
+  "interpretation": "Historical end dates corroborated against earlier consolidated text. Order 435 introduces replacement entries from 01.10.2024; this does not approve all form mappings.",
+  "remaining_conflicts": [
+    {
+      "code": "150",
+      "date": "2020-06-30",
+      "issue": "Two published validity intervals include this day",
+      "status": "UNRESOLVED",
+      "candidate_reference": "https://i.factor.ua/ukr/law-194/section-928/article-27441/2020-05-26/",
+      "do_not_infer_replacement_date": true
+    }
+  ]
 }
