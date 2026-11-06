@@ -1,0 +1,3289 @@
+{
+  "d1": {
+    "form_code": "J0510111",
+    "schema_sha256": "567d002432ea80527f62c488861a7bfc6901fbd177e01f080fb0b83bbd3f3aec",
+    "common_types_sha256": "f53226747bda74c793f2fd9e9b55d55e5073219f866b2cd29c10e60ba340fef1",
+    "header": {
+      "particle": "complexType",
+      "attributes": {
+        "name": "DHead"
+      },
+      "children": [
+        {
+          "particle": "sequence",
+          "attributes": {},
+          "children": [
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "TIN",
+                "type": "DGLong"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC",
+                "type": "xs:string",
+                "fixed": "J05"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_SUB",
+                "type": "xs:string",
+                "fixed": "101"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_VER",
+                "type": "xs:string",
+                "fixed": "11"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_TYPE",
+                "type": "xs:nonNegativeInteger"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_CNT",
+                "type": "xs:nonNegativeInteger"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_REG",
+                "type": "DGsti"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_RAJ",
+                "type": "DGsti"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "PERIOD_MONTH",
+                "type": "DGMonth"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "PERIOD_TYPE",
+                "type": "DGPType"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "PERIOD_YEAR",
+                "type": "DGYear"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_STI_ORIG",
+                "type": "DGc_dpi"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_STAN",
+                "type": "DGSTAN"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "LINKED_DOCS",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": [
+                {
+                  "particle": "complexType",
+                  "attributes": {},
+                  "children": [
+                    {
+                      "particle": "sequence",
+                      "attributes": {},
+                      "children": [
+                        {
+                          "particle": "element",
+                          "attributes": {
+                            "name": "DOC",
+                            "minOccurs": "1",
+                            "maxOccurs": "unbounded"
+                          },
+                          "children": [
+                            {
+                              "particle": "complexType",
+                              "attributes": {},
+                              "children": [
+                                {
+                                  "particle": "sequence",
+                                  "attributes": {},
+                                  "children": [
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC",
+                                        "type": "DGC_DOC"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_SUB",
+                                        "type": "DGC_DOC_SUB"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_VER",
+                                        "type": "DGC_DOC_VER"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_TYPE",
+                                        "type": "xs:nonNegativeInteger"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_CNT",
+                                        "type": "xs:nonNegativeInteger"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_STAN",
+                                        "type": "DGSTAN"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "FILENAME",
+                                        "type": "DGFilename"
+                                      },
+                                      "children": []
+                                    }
+                                  ]
+                                },
+                                {
+                                  "particle": "attribute",
+                                  "attributes": {
+                                    "name": "NUM",
+                                    "type": "xs:nonNegativeInteger"
+                                  },
+                                  "children": []
+                                },
+                                {
+                                  "particle": "attribute",
+                                  "attributes": {
+                                    "name": "TYPE",
+                                    "type": "DGTypeLinkDoc"
+                                  },
+                                  "children": []
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "particle": "unique",
+                  "attributes": {
+                    "name": "UH_DOC_NUM"
+                  },
+                  "children": [
+                    {
+                      "particle": "selector",
+                      "attributes": {
+                        "xpath": "DOC"
+                      },
+                      "children": []
+                    },
+                    {
+                      "particle": "field",
+                      "attributes": {
+                        "xpath": "@NUM"
+                      },
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "D_FILL",
+                "type": "DGDate"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "SOFTWARE",
+                "type": "xs:string",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    "body": {
+      "particle": "complexType",
+      "attributes": {
+        "name": "DBody"
+      },
+      "children": [
+        {
+          "particle": "sequence",
+          "attributes": {},
+          "children": [
+            {
+              "particle": "choice",
+              "attributes": {},
+              "children": [
+                {
+                  "particle": "element",
+                  "attributes": {
+                    "name": "HZ",
+                    "type": "DGchk"
+                  },
+                  "children": []
+                },
+                {
+                  "particle": "element",
+                  "attributes": {
+                    "name": "HZN",
+                    "type": "DGchk"
+                  },
+                  "children": []
+                },
+                {
+                  "particle": "sequence",
+                  "attributes": {},
+                  "children": [
+                    {
+                      "particle": "element",
+                      "attributes": {
+                        "name": "HZU",
+                        "type": "DGchk"
+                      },
+                      "children": []
+                    },
+                    {
+                      "particle": "element",
+                      "attributes": {
+                        "name": "HTIN1",
+                        "type": "DGLong",
+                        "nillable": "true",
+                        "minOccurs": "0"
+                      },
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HZY",
+                "type": "DGYear"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HZM",
+                "type": "DGMonth"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HNAME",
+                "type": "DGHNAME"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HDDGV",
+                "type": "DGDate",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HNDGV",
+                "type": "xs:string",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HTIN",
+                "type": "DGHTINJ"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HFIL",
+                "type": "xs:string",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG5",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG6",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG7S",
+                "type": "NumZOColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG8",
+                "type": "I2inomColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG9",
+                "type": "I2inomColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG101",
+                "type": "MonthColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG102",
+                "type": "YearColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG111S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG112S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG113S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG12",
+                "type": "IntColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG13",
+                "type": "IntColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG14",
+                "type": "IntColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG15",
+                "type": "IntColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG16",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG17",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG18",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG19",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG20",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG21",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG22",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG23",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG24",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG25",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG26",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R01G16",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R01G17",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R01G18",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R01G19",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R01G20",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HFILL",
+                "type": "DGDate"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HKBOS",
+                "type": "DGDRFO_10"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HBOS",
+                "type": "DGHBOS"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HKBUH",
+                "type": "DGDRFO_10",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HBUH",
+                "type": "DGHBUH",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    "official_generation": "BLOCKED",
+    "statutory_mapping_approved": false
+  },
+  "4df": {
+    "form_code": "J0510411",
+    "schema_sha256": "fd4c7305bfd1fe1e5f5848f84be17a9bbb93d677c2f287b44133f30b28adcf27",
+    "common_types_sha256": "f53226747bda74c793f2fd9e9b55d55e5073219f866b2cd29c10e60ba340fef1",
+    "header": {
+      "particle": "complexType",
+      "attributes": {
+        "name": "DHead"
+      },
+      "children": [
+        {
+          "particle": "sequence",
+          "attributes": {},
+          "children": [
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "TIN",
+                "type": "DGLong"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC",
+                "type": "xs:string",
+                "fixed": "J05"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_SUB",
+                "type": "xs:string",
+                "fixed": "104"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_VER",
+                "type": "xs:string",
+                "fixed": "11"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_TYPE",
+                "type": "xs:nonNegativeInteger"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_CNT",
+                "type": "xs:nonNegativeInteger"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_REG",
+                "type": "DGsti"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_RAJ",
+                "type": "DGsti"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "PERIOD_MONTH",
+                "type": "DGMonth"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "PERIOD_TYPE",
+                "type": "DGPType"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "PERIOD_YEAR",
+                "type": "DGYear"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_STI_ORIG",
+                "type": "DGc_dpi"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_STAN",
+                "type": "DGSTAN"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "LINKED_DOCS",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": [
+                {
+                  "particle": "complexType",
+                  "attributes": {},
+                  "children": [
+                    {
+                      "particle": "sequence",
+                      "attributes": {},
+                      "children": [
+                        {
+                          "particle": "element",
+                          "attributes": {
+                            "name": "DOC",
+                            "minOccurs": "1",
+                            "maxOccurs": "unbounded"
+                          },
+                          "children": [
+                            {
+                              "particle": "complexType",
+                              "attributes": {},
+                              "children": [
+                                {
+                                  "particle": "sequence",
+                                  "attributes": {},
+                                  "children": [
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC",
+                                        "type": "DGC_DOC"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_SUB",
+                                        "type": "DGC_DOC_SUB"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_VER",
+                                        "type": "DGC_DOC_VER"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_TYPE",
+                                        "type": "xs:nonNegativeInteger"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_CNT",
+                                        "type": "xs:nonNegativeInteger"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_STAN",
+                                        "type": "DGSTAN"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "FILENAME",
+                                        "type": "DGFilename"
+                                      },
+                                      "children": []
+                                    }
+                                  ]
+                                },
+                                {
+                                  "particle": "attribute",
+                                  "attributes": {
+                                    "name": "NUM",
+                                    "type": "xs:nonNegativeInteger"
+                                  },
+                                  "children": []
+                                },
+                                {
+                                  "particle": "attribute",
+                                  "attributes": {
+                                    "name": "TYPE",
+                                    "type": "DGTypeLinkDoc"
+                                  },
+                                  "children": []
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "particle": "unique",
+                  "attributes": {
+                    "name": "UH_DOC_NUM"
+                  },
+                  "children": [
+                    {
+                      "particle": "selector",
+                      "attributes": {
+                        "xpath": "DOC"
+                      },
+                      "children": []
+                    },
+                    {
+                      "particle": "field",
+                      "attributes": {
+                        "xpath": "@NUM"
+                      },
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "D_FILL",
+                "type": "DGDate"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "SOFTWARE",
+                "type": "xs:string",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    "body": {
+      "particle": "complexType",
+      "attributes": {
+        "name": "DBody"
+      },
+      "children": [
+        {
+          "particle": "sequence",
+          "attributes": {},
+          "children": [
+            {
+              "particle": "choice",
+              "attributes": {},
+              "children": [
+                {
+                  "particle": "element",
+                  "attributes": {
+                    "name": "HZ",
+                    "type": "DGchk"
+                  },
+                  "children": []
+                },
+                {
+                  "particle": "element",
+                  "attributes": {
+                    "name": "HZN",
+                    "type": "DGchk"
+                  },
+                  "children": []
+                },
+                {
+                  "particle": "element",
+                  "attributes": {
+                    "name": "HZU",
+                    "type": "DGchk"
+                  },
+                  "children": []
+                }
+              ]
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HZY",
+                "type": "DGYear"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HZM",
+                "type": "DGMonth"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HNUM",
+                "type": "DGI4nom"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HNAME",
+                "type": "DGHNAME"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HTIN",
+                "type": "DGHTINJ"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HKATOTTG",
+                "type": "DGKATOTTG"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R00G01I",
+                "type": "xs:nonNegativeInteger",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R00G02I",
+                "type": "xs:nonNegativeInteger",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG02",
+                "type": "TinColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG03A",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG03",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG04A",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG04",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG5A",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG5",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG05",
+                "type": "Odoh1DFColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG06D",
+                "type": "DateColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG07D",
+                "type": "DateColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG08",
+                "type": "Oplg1DFColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG09",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R01G03A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R01G03",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R01G04A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R01G04",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R01G5A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R01G5",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0201G03A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0201G04A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0201G04",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0201G5A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0201G5",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0202G03A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0202G04A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0202G04",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0202G5A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0202G5",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0203G03A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0203G03",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0203G04A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0203G04",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0203G5A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0203G5",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0204G03A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0204G03",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0204G04A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0204G04",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0204G5A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0204G5",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0205G03A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0205G03",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0205G04A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0205G04",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0205G5A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0205G5",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0206G03A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0206G03",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0206G04A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0206G04",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0206G5A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0206G5",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0207G03A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0207G03",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0207G04A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0207G04",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0207G5A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0207G5",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0208G03A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0208G03",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0208G04A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0208G04",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0208G5A",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "R0208G5",
+                "type": "DGdecimal2",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T3RXXXXG02S",
+                "type": "TinColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T3RXXXXG03S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T3RXXXXG04D",
+                "type": "DateColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T3RXXXXG05D",
+                "type": "DateColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T3RXXXXG06S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T3RXXXXG07D",
+                "type": "DateColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T3RXXXXG08A",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T3RXXXXG08",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T3RXXXXG09A",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T3RXXXXG09",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T3RXXXXG10A",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T3RXXXXG10",
+                "type": "Decimal2Column",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T3RXXXXG11",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HFILL",
+                "type": "DGDate"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HKBOS",
+                "type": "DGDRFO_10"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HBOS",
+                "type": "DGHBOS"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HKBUH",
+                "type": "DGDRFO_10",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HBUH",
+                "type": "DGHBUH",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    "official_generation": "BLOCKED",
+    "statutory_mapping_approved": false
+  },
+  "d5": {
+    "form_code": "J0510511",
+    "schema_sha256": "8e624643d369d75d44d7b64c95a0771a0e2cd40be0c3d36e4744937bf7e18400",
+    "common_types_sha256": "f53226747bda74c793f2fd9e9b55d55e5073219f866b2cd29c10e60ba340fef1",
+    "header": {
+      "particle": "complexType",
+      "attributes": {
+        "name": "DHead"
+      },
+      "children": [
+        {
+          "particle": "sequence",
+          "attributes": {},
+          "children": [
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "TIN",
+                "type": "DGLong"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC",
+                "type": "xs:string",
+                "fixed": "J05"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_SUB",
+                "type": "xs:string",
+                "fixed": "105"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_VER",
+                "type": "xs:string",
+                "fixed": "11"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_TYPE",
+                "type": "xs:nonNegativeInteger"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_CNT",
+                "type": "xs:nonNegativeInteger"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_REG",
+                "type": "DGsti"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_RAJ",
+                "type": "DGsti"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "PERIOD_MONTH",
+                "type": "DGMonth"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "PERIOD_TYPE",
+                "type": "DGPType"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "PERIOD_YEAR",
+                "type": "DGYear"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_STI_ORIG",
+                "type": "DGc_dpi"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_STAN",
+                "type": "DGSTAN"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "LINKED_DOCS",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": [
+                {
+                  "particle": "complexType",
+                  "attributes": {},
+                  "children": [
+                    {
+                      "particle": "sequence",
+                      "attributes": {},
+                      "children": [
+                        {
+                          "particle": "element",
+                          "attributes": {
+                            "name": "DOC",
+                            "minOccurs": "1",
+                            "maxOccurs": "unbounded"
+                          },
+                          "children": [
+                            {
+                              "particle": "complexType",
+                              "attributes": {},
+                              "children": [
+                                {
+                                  "particle": "sequence",
+                                  "attributes": {},
+                                  "children": [
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC",
+                                        "type": "DGC_DOC"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_SUB",
+                                        "type": "DGC_DOC_SUB"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_VER",
+                                        "type": "DGC_DOC_VER"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_TYPE",
+                                        "type": "xs:nonNegativeInteger"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_CNT",
+                                        "type": "xs:nonNegativeInteger"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_STAN",
+                                        "type": "DGSTAN"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "FILENAME",
+                                        "type": "DGFilename"
+                                      },
+                                      "children": []
+                                    }
+                                  ]
+                                },
+                                {
+                                  "particle": "attribute",
+                                  "attributes": {
+                                    "name": "NUM",
+                                    "type": "xs:nonNegativeInteger"
+                                  },
+                                  "children": []
+                                },
+                                {
+                                  "particle": "attribute",
+                                  "attributes": {
+                                    "name": "TYPE",
+                                    "type": "DGTypeLinkDoc"
+                                  },
+                                  "children": []
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "particle": "unique",
+                  "attributes": {
+                    "name": "UH_DOC_NUM"
+                  },
+                  "children": [
+                    {
+                      "particle": "selector",
+                      "attributes": {
+                        "xpath": "DOC"
+                      },
+                      "children": []
+                    },
+                    {
+                      "particle": "field",
+                      "attributes": {
+                        "xpath": "@NUM"
+                      },
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "D_FILL",
+                "type": "DGDate"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "SOFTWARE",
+                "type": "xs:string",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    "body": {
+      "particle": "complexType",
+      "attributes": {
+        "name": "DBody"
+      },
+      "children": [
+        {
+          "particle": "sequence",
+          "attributes": {},
+          "children": [
+            {
+              "particle": "choice",
+              "attributes": {},
+              "children": [
+                {
+                  "particle": "element",
+                  "attributes": {
+                    "name": "HZ",
+                    "type": "DGchk"
+                  },
+                  "children": []
+                },
+                {
+                  "particle": "element",
+                  "attributes": {
+                    "name": "HZN",
+                    "type": "DGchk"
+                  },
+                  "children": []
+                },
+                {
+                  "particle": "sequence",
+                  "attributes": {},
+                  "children": [
+                    {
+                      "particle": "element",
+                      "attributes": {
+                        "name": "HZU",
+                        "type": "DGchk"
+                      },
+                      "children": []
+                    },
+                    {
+                      "particle": "element",
+                      "attributes": {
+                        "name": "HTIN1",
+                        "type": "DGLong",
+                        "nillable": "true",
+                        "minOccurs": "0"
+                      },
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HZY",
+                "type": "DGYear"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HZM",
+                "type": "DGMonth"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HNAME",
+                "type": "DGHNAME"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HDDGV",
+                "type": "DGDate",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HNDGV",
+                "type": "xs:string",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HTIN",
+                "type": "DGHTINJ"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HFIL",
+                "type": "xs:string",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG5",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG6",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG7",
+                "type": "DGI1nomColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG8S",
+                "type": "NumZOColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG91S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG92S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG93S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG101D",
+                "type": "DateColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG102D",
+                "type": "DateColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG11",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG12",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG13S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG14S",
+                "type": "KOD_KPColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG15S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG16S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG17S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG18D",
+                "type": "DateColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG19S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG20",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HFILL",
+                "type": "DGDate"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HKBOS",
+                "type": "DGDRFO_10"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HBOS",
+                "type": "DGHBOS"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HKBUH",
+                "type": "DGDRFO_10",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HBUH",
+                "type": "DGHBUH",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    "official_generation": "BLOCKED",
+    "statutory_mapping_approved": false
+  },
+  "d6": {
+    "form_code": "J0510611",
+    "schema_sha256": "a37449eda57ca8a69d5740f521e820b7e652e7268323c321f61fb0595fab48f3",
+    "common_types_sha256": "f53226747bda74c793f2fd9e9b55d55e5073219f866b2cd29c10e60ba340fef1",
+    "header": {
+      "particle": "complexType",
+      "attributes": {
+        "name": "DHead"
+      },
+      "children": [
+        {
+          "particle": "sequence",
+          "attributes": {},
+          "children": [
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "TIN",
+                "type": "DGLong"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC",
+                "type": "xs:string",
+                "fixed": "J05"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_SUB",
+                "type": "xs:string",
+                "fixed": "106"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_VER",
+                "type": "xs:string",
+                "fixed": "11"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_TYPE",
+                "type": "xs:nonNegativeInteger"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_CNT",
+                "type": "xs:nonNegativeInteger"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_REG",
+                "type": "DGsti"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_RAJ",
+                "type": "DGsti"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "PERIOD_MONTH",
+                "type": "DGMonth"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "PERIOD_TYPE",
+                "type": "DGPType"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "PERIOD_YEAR",
+                "type": "DGYear"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_STI_ORIG",
+                "type": "DGc_dpi"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "C_DOC_STAN",
+                "type": "DGSTAN"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "LINKED_DOCS",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": [
+                {
+                  "particle": "complexType",
+                  "attributes": {},
+                  "children": [
+                    {
+                      "particle": "sequence",
+                      "attributes": {},
+                      "children": [
+                        {
+                          "particle": "element",
+                          "attributes": {
+                            "name": "DOC",
+                            "minOccurs": "1",
+                            "maxOccurs": "unbounded"
+                          },
+                          "children": [
+                            {
+                              "particle": "complexType",
+                              "attributes": {},
+                              "children": [
+                                {
+                                  "particle": "sequence",
+                                  "attributes": {},
+                                  "children": [
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC",
+                                        "type": "DGC_DOC"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_SUB",
+                                        "type": "DGC_DOC_SUB"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_VER",
+                                        "type": "DGC_DOC_VER"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_TYPE",
+                                        "type": "xs:nonNegativeInteger"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_CNT",
+                                        "type": "xs:nonNegativeInteger"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "C_DOC_STAN",
+                                        "type": "DGSTAN"
+                                      },
+                                      "children": []
+                                    },
+                                    {
+                                      "particle": "element",
+                                      "attributes": {
+                                        "name": "FILENAME",
+                                        "type": "DGFilename"
+                                      },
+                                      "children": []
+                                    }
+                                  ]
+                                },
+                                {
+                                  "particle": "attribute",
+                                  "attributes": {
+                                    "name": "NUM",
+                                    "type": "xs:nonNegativeInteger"
+                                  },
+                                  "children": []
+                                },
+                                {
+                                  "particle": "attribute",
+                                  "attributes": {
+                                    "name": "TYPE",
+                                    "type": "DGTypeLinkDoc"
+                                  },
+                                  "children": []
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "particle": "unique",
+                  "attributes": {
+                    "name": "UH_DOC_NUM"
+                  },
+                  "children": [
+                    {
+                      "particle": "selector",
+                      "attributes": {
+                        "xpath": "DOC"
+                      },
+                      "children": []
+                    },
+                    {
+                      "particle": "field",
+                      "attributes": {
+                        "xpath": "@NUM"
+                      },
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "D_FILL",
+                "type": "DGDate"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "SOFTWARE",
+                "type": "xs:string",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    "body": {
+      "particle": "complexType",
+      "attributes": {
+        "name": "DBody"
+      },
+      "children": [
+        {
+          "particle": "sequence",
+          "attributes": {},
+          "children": [
+            {
+              "particle": "choice",
+              "attributes": {},
+              "children": [
+                {
+                  "particle": "element",
+                  "attributes": {
+                    "name": "HZ",
+                    "type": "DGchk"
+                  },
+                  "children": []
+                },
+                {
+                  "particle": "element",
+                  "attributes": {
+                    "name": "HZN",
+                    "type": "DGchk"
+                  },
+                  "children": []
+                },
+                {
+                  "particle": "sequence",
+                  "attributes": {},
+                  "children": [
+                    {
+                      "particle": "element",
+                      "attributes": {
+                        "name": "HZU",
+                        "type": "DGchk"
+                      },
+                      "children": []
+                    },
+                    {
+                      "particle": "element",
+                      "attributes": {
+                        "name": "HTIN1",
+                        "type": "DGLong",
+                        "nillable": "true",
+                        "minOccurs": "0"
+                      },
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HZY",
+                "type": "DGYear"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HZM",
+                "type": "DGMonth"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HNAME",
+                "type": "DGHNAME"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HTIN",
+                "type": "DGHTINJ"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG5",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG6S",
+                "type": "NumZOColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG7S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG81S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG82S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG83S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG9",
+                "type": "IntColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG10",
+                "type": "IntColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG11",
+                "type": "IntColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG121",
+                "type": "IntColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG122",
+                "type": "IntColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG131",
+                "type": "IntColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG132",
+                "type": "IntColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG133",
+                "type": "IntColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG14S",
+                "type": "StrColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG15D",
+                "type": "DateColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG16",
+                "type": "SeazonColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "T1RXXXXG17",
+                "type": "OznColumn",
+                "nillable": "true",
+                "minOccurs": "0",
+                "maxOccurs": "999999"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HFILL",
+                "type": "DGDate"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HKBOS",
+                "type": "DGDRFO_10"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HBOS",
+                "type": "DGHBOS"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HKBUH",
+                "type": "DGDRFO_10",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            },
+            {
+              "particle": "element",
+              "attributes": {
+                "name": "HBUH",
+                "type": "DGHBUH",
+                "nillable": "true",
+                "minOccurs": "0"
+              },
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    "official_generation": "BLOCKED",
+    "statutory_mapping_approved": false
+  }
+}

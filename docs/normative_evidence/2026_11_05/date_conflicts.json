@@ -1,0 +1,30 @@
+{
+  "source_sha256": "cf343b0d9924a636554d979015458ed631e4bcf02a0debb935c24b3aa443e35c",
+  "issues": [
+    {
+      "table": "income_codes",
+      "row": 34,
+      "code": "125",
+      "start": "01.01.2011",
+      "raw_end": "30.06.2020 30.09.2024",
+      "resolution": "UNRESOLVED_DO_NOT_GUESS"
+    },
+    {
+      "table": "income_codes",
+      "row": 35,
+      "code": "125",
+      "start": "01.07.2020",
+      "raw_end": "31.12.2022 30.09.2024",
+      "resolution": "UNRESOLVED_DO_NOT_GUESS"
+    },
+    {
+      "table": "income_codes",
+      "row": 120,
+      "code": "185",
+      "start": "01.07.2014",
+      "raw_end": "31.12.2020 30.09.2024",
+      "resolution": "UNRESOLVED_DO_NOT_GUESS"
+    }
+  ],
+  "production_approved": false
+}

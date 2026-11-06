@@ -232,6 +232,24 @@ def field_review_status(
     for kind in KINDS:
         candidates = catalogue_for_form(kind)
 
+        from app.services.payroll_regulatory_xsd_contract import (
+            FormSchemaError, form_structure,
+        )
+        try:
+            structure = form_structure(kind)
+            schema_artifact = {
+                "status": "MIRROR_BYTES_PINNED",
+                "form_code": structure["form_code"],
+                "schema_sha256": structure["schema_sha256"],
+                "common_types_sha256": structure["common_types_sha256"],
+                "statutory_mapping_approved": False,
+            }
+        except FormSchemaError:
+            schema_artifact = {
+                "status": "UNAVAILABLE_OR_CHANGED",
+                "statutory_mapping_approved": False,
+            }
+
         forms[kind] = {
             "candidate_fields": len(candidates),
             "source_anchors": sorted({
@@ -241,6 +259,7 @@ def field_review_status(
             "effective_date_coverage_verified": False,
             "field_mapping_approved": 0,
             "complete_form_schema_verified": False,
+            "electronic_schema_artifact": schema_artifact,
             "official_generation": "BLOCKED",
         }
 
