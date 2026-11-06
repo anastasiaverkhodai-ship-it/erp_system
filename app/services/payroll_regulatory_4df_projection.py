@@ -171,6 +171,13 @@ def project_4df_financial_groups(
             "paid_amount": str(
                 totals["paid_amount"]
             ),
+            # This evidence is reconciled to NET disbursements. Tax
+            # remittances can settle advances/other dates, so adding them
+            # does not establish statutory gross income paid (column 3).
+            "paid_amount_basis": "NET_DISBURSEMENT",
+            "net_paid_amount": str(totals["paid_amount"]),
+            "gross_paid_income": None,
+            "gross_paid_income_verified": False,
             "pit_remitted": str(
                 totals["pit_remitted"]
             ),

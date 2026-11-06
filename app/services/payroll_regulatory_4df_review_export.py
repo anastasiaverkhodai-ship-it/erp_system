@@ -40,6 +40,7 @@ EXPORT_COLUMNS = (
     "pit_accrued_amount",
     "levy_accrued_amount",
     "paid_amount",
+    "paid_amount_basis",
     "pit_remitted",
     "levy_remitted",
     "payment_evidence_reference",
@@ -160,6 +161,7 @@ async def export_4df_financial_review(
             "pit_accrued_amount": payload["pit_accrued_amount"],
             "levy_accrued_amount": payload["levy_accrued_amount"],
             "paid_amount": payload["paid_amount"],
+            "paid_amount_basis": "NET_DISBURSEMENT",
             "pit_remitted": payload["pit_remitted"],
             "levy_remitted": payload["levy_remitted"],
             "payment_evidence_reference":

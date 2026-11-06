@@ -63,6 +63,12 @@ def test_two_partial_payments_become_one_review_group():
     assert group["pit_accrued"] == "180.00"
     assert group["levy_accrued"] == "50.00"
     assert group["paid_amount"] == "770.00"
+    assert group["net_paid_amount"] == "770.00"
+    assert group["paid_amount_basis"] == "NET_DISBURSEMENT"
+    # Even fully paid net salary is not evidence of a statutory gross
+    # payment allocation. Do not substitute net or sum tax remittances.
+    assert group["gross_paid_income"] is None
+    assert group["gross_paid_income_verified"] is False
 
     assert group["payment_dates"] == [
         "2026-10-20",
