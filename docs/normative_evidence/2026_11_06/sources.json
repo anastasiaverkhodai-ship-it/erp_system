@@ -1,0 +1,26 @@
+[
+  {
+    "file": "classifier_ministry_working.xlsx",
+    "url": "https://me.gov.ua/download/47467434-c638-46d8-a4ca-f6924f6acf11/file.xlsx",
+    "sha256": "f0def66d74600c96e8131a527bd2e1a7e62dd4bf8262dc42922cd15876444345",
+    "production_classifier_approved": false
+  },
+  {
+    "file": "amendment3_university_scan.pdf",
+    "url": "https://onu.edu.ua/pub/bank/userfiles/files/nauk%20method%20rada/new_classificator.pdf",
+    "sha256": "3729c2bd4795f67a6fb2ccd69ba3dffeba916a04c347165b2019f6de6e9e51a6",
+    "production_classifier_approved": false
+  },
+  {
+    "file": "amendment5_order.doc",
+    "url": "https://csm.kiev.ua/images/stories/2016/document/nakazmert_1328_2016.doc",
+    "sha256": "a98bdb837537724ce8a4c4379e4aadf4c4229f2b626b147350c045bfcbc7bd6a",
+    "production_classifier_approved": false
+  },
+  {
+    "file": "order241_copy.html",
+    "url": "https://www.zakon.cc/law/document/read/z0514-20",
+    "sha256": "de97047d4a52bf762529299a81a2420d8520d09b10c82d4b5b0e46285c86f924",
+    "production_classifier_approved": false
+  }
+]

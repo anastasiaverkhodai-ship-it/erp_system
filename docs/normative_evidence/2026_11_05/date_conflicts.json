@@ -37,14 +37,26 @@
   ],
   "production_approved": false,
   "interpretation": "Historical end dates corroborated against earlier consolidated text. Order 435 introduces replacement entries from 01.10.2024; this does not approve all form mappings.",
-  "remaining_conflicts": [
+  "remaining_conflicts": [],
+  "resolved_start_dates": [
     {
       "code": "150",
-      "date": "2020-06-30",
-      "issue": "Two published validity intervals include this day",
-      "status": "UNRESOLVED",
-      "candidate_reference": "https://i.factor.ua/ukr/law-194/section-928/article-27441/2020-05-26/",
-      "do_not_infer_replacement_date": true
+      "raw_start": "30.06.2020",
+      "resolved_start": "01.07.2020",
+      "resolution": "ACT_COPY_AND_OFFICIAL_TAX_PUBLICATION_CORROBORATED",
+      "act_copy": {
+        "file": "order241_copy.html",
+        "url": "https://www.zakon.cc/law/document/read/z0514-20",
+        "sha256": "de97047d4a52bf762529299a81a2420d8520d09b10c82d4b5b0e46285c86f924",
+        "production_classifier_approved": false
+      },
+      "official_corroboration": {
+        "url": "https://od.tax.gov.ua/media-ark/news-ark/424224.html",
+        "publication_date": "2020-07-01",
+        "reviewed": "2026-11-06",
+        "claim": "Income code 150 replacement applies from 2020-07-01 under order 241",
+        "retrieval": "Web text reviewed; direct byte download returned HTTP 403; no local official byte snapshot claimed"
+      }
     }
   ]
 }
