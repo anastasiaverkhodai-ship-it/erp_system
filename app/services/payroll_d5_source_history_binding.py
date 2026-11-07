@@ -231,6 +231,7 @@ async def create_source_bound_d5_professional_evidence(
         source=source,
         evidence=evidence,
         history=history,
+        candidate_history=candidate_history,
         classifier_bytes=classifier_bytes,
         request_key=request_key,
         created_by=created_by,

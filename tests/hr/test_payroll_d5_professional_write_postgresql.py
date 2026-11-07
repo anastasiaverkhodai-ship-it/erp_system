@@ -49,6 +49,11 @@ from app.services.payroll_d5_position_provenance import (
     D5PositionProvenanceError,
 )
 
+from app.services.payroll_d5_profession_history import (
+    ProfessionEvent,
+    build_candidate_history,
+)
+
 pytestmark = pytest.mark.asyncio
 
 
@@ -232,7 +237,25 @@ async def test_d5_verified_write_idempotency_and_negative_e2e(
             (approved_for_test,),
         )
 
+        def make_candidate(code):
+            return build_candidate_history([
+                ProfessionEvent(
+                    profession_code=code,
+                    operation="add",
+                    effective_date=day,
+                    candidate_dates=(day,),
+                    title=professional.professional_name,
+                    source_id="synthetic-pg-e2e",
+                    source_sha256="a" * 64,
+                    source_reference="Synthetic test only",
+                )
+            ])
+
+        candidate_history = make_candidate("2419.2")
+        alternative_history = make_candidate("2419.3")
+
         args = dict(
+            candidate_history=candidate_history,
             classifier_bytes=classifier_bytes,
             source=source,
             evidence=evidence,
@@ -240,6 +263,17 @@ async def test_d5_verified_write_idempotency_and_negative_e2e(
             request_key="F2-WRITE-" + token,
             created_by=actor.id,
         )
+
+        # Legacy entry point must not bypass source history.
+        with pytest.raises(
+            D5ProfessionalWriteError,
+            match="Source-bound profession history required",
+        ):
+            await create_verified_d5_professional_evidence(
+                db,
+                **{**args, "candidate_history": None},
+            )
+
 
         with pytest.raises(
             D5ProfessionalWriteError,
@@ -384,6 +418,7 @@ async def test_d5_verified_write_idempotency_and_negative_e2e(
                 db,
                 **{
                     **args,
+                    "candidate_history": alternative_history,
                     "history": replace(
                         history,
                         profession_code="2419.3",

@@ -100,6 +100,7 @@ async def create_verified_d5_professional_evidence(
     request_key: str,
     created_by: int,
     classifier_bytes: bytes | None = None,
+    candidate_history=None,
 ) -> PayrollD5ProfessionalEvidence:
     """Persist an evidence snapshot; reject conflicts and key reuse.
 
@@ -116,6 +117,30 @@ async def create_verified_d5_professional_evidence(
         source, evidence, history, request_key, created_by,
         classifier_bytes,
     )
+
+    # All persistence paths require independently checked history.
+    # Import locally to avoid a module-level dependency cycle.
+    from app.services.payroll_d5_source_history_binding import (
+        D5SourceHistoryBindingError,
+        verify_d5_source_history_binding,
+    )
+
+    if candidate_history is None:
+        raise D5ProfessionalWriteError(
+            "Source-bound profession history required"
+        )
+
+    try:
+        verify_d5_source_history_binding(
+            source=source,
+            history=history,
+            candidate_history=candidate_history,
+            classifier_bytes=classifier_bytes,
+        )
+    except D5SourceHistoryBindingError as exc:
+        raise D5ProfessionalWriteError(
+            f"Source history verification refused: {exc}"
+        ) from exc
 
     # Validate actual database identities and persisted HR event.
     await verify_database_d5_position(
