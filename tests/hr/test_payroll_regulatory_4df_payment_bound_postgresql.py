@@ -7,6 +7,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from test_employee_foundation import employee_engine
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -33,7 +34,7 @@ from app.services.payroll_regulatory_internal_reconciliation import (
 
 
 @pytest.mark.asyncio
-async def test_real_posted_payment_bound_4df_snapshot():
+async def test_real_posted_payment_bound_4df_snapshot(employee_engine):
     assert os.environ.get("RUN_POSTGRES_E2E") == "1"
 
     payment_factory = runpy.run_path(
@@ -47,7 +48,7 @@ async def test_real_posted_payment_bound_4df_snapshot():
     create_report = helpers["create_report"]
     add_row = helpers["add_internal_row"]
 
-    engine = create_async_engine(settings.database_url)
+    engine = employee_engine
 
     try:
         sessions = async_sessionmaker(

@@ -324,7 +324,7 @@ async def review_persisted_four_form_reports(
             text("""
                 SELECT id, company_id, payroll_period_id,
                        report_kind, revision, status
-                FROM public.payroll_regulatory_reports
+                FROM payroll_regulatory_reports
                 WHERE company_id = :company_id
                   AND id = :report_id
             """),
@@ -367,7 +367,7 @@ async def review_persisted_four_form_reports(
                        row_no, row_code, payload_json,
                        employee_id, employment_contract_id,
                        payroll_calculation_id
-                FROM public.payroll_regulatory_report_rows
+                FROM payroll_regulatory_report_rows
                 WHERE company_id = :company_id
                   AND payroll_regulatory_report_id = :report_id
                 ORDER BY row_no, id

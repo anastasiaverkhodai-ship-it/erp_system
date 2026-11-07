@@ -48,24 +48,7 @@ CENT = Decimal("0.01")
 ZERO = Decimal("0.00")
 
 
-@pytest.fixture
-def employee_engine():
-    raw = os.environ.get("DATABASE_URL")
-    if not raw:
-        pytest.fail("Isolated DATABASE_URL required")
-
-    url = make_url(raw)
-
-    if (
-        not url.drivername.startswith("postgresql")
-        or not (url.database or "").startswith("erp_r3_copy_")
-    ):
-        pytest.fail("Refusing source or non-isolated database")
-
-    if url.drivername != "postgresql+asyncpg":
-        url = url.set(drivername="postgresql+asyncpg")
-
-    return create_async_engine(url, pool_pre_ping=True)
+from test_employee_foundation import employee_engine
 
 
 def money(value):
