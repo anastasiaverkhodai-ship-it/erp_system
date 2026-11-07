@@ -160,3 +160,73 @@ def test_boolean_replacement_link_not_accepted():
             original_event_id=1,
             expected_replacement_id=5,
         )
+
+
+def test_competing_link_with_different_event_type_rejected():
+    from app.services.payroll_d5_database_correction_chain import (
+        _require_unique_replacement,
+    )
+
+    _, _, replacement = records()
+    competing = SimpleNamespace(
+        id=33,
+        event_type="transfer",
+        request_payload={
+            "replaces_employment_event_id": 3,
+        },
+    )
+
+    with pytest.raises(
+        D5CorrectionChainError,
+        match="Unique active replacement link",
+    ):
+        _require_unique_replacement(
+            [replacement, competing],
+            original_event_id=3,
+            expected_replacement_id=5,
+        )
+
+
+def test_competing_link_with_different_date_rejected():
+    from app.services.payroll_d5_database_correction_chain import (
+        _require_unique_replacement,
+    )
+
+    _, _, replacement = records()
+    competing = SimpleNamespace(
+        id=34,
+        effective_date=date(2026, 11, 15),
+        request_payload={
+            "replaces_employment_event_id": 3,
+        },
+    )
+
+    with pytest.raises(
+        D5CorrectionChainError,
+        match="Unique active replacement link",
+    ):
+        _require_unique_replacement(
+            [replacement, competing],
+            original_event_id=3,
+            expected_replacement_id=5,
+        )
+
+
+def test_unrelated_replacement_links_do_not_block():
+    from app.services.payroll_d5_database_correction_chain import (
+        _require_unique_replacement,
+    )
+
+    _, _, replacement = records()
+    unrelated = SimpleNamespace(
+        id=77,
+        request_payload={
+            "replaces_employment_event_id": 999,
+        },
+    )
+
+    assert _require_unique_replacement(
+        [replacement, unrelated],
+        original_event_id=3,
+        expected_replacement_id=5,
+    ) is True

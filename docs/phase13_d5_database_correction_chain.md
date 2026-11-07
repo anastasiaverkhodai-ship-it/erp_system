@@ -39,3 +39,20 @@ PostgreSQL database, not only an in-memory model.
 These controls do not authorize official D5 correcting rows.
 Normative applicability and correction markers remain
 unapproved and fail closed.
+
+## Cross-period and cross-kind duplicate protection
+
+The uniqueness query now examines all persisted HR events
+within the company, rather than only events with the same
+contract, event type or effective date.
+
+Any second event explicitly referencing the original event
+as its replacement target makes the correction review fail
+closed. Cross-date and cross-kind bypass attempts have
+separate real PostgreSQL acceptance cases.
+
+The rule applies to the internal HR correction-chain review.
+It is not a legal interpretation of which statutory D5
+correction rows must be submitted.
+
+Official generation remains BLOCKED.

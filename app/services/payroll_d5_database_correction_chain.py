@@ -171,18 +171,14 @@ async def review_persisted_d5_correction_chain(
 
     _validate_link(original, reversal, replacement)
 
-    # A replacement is not unique merely because the caller
-    # supplies one event ID. Inspect all matching persisted
-    # HR events in the company/contract/date scope.
+    # Check every event in the company, not just matching
+    # contracts, event kinds or reporting dates. A competing
+    # correction link outside the expected scope must never
+    # silently escape uniqueness verification.
     replacement_candidates = (
         await db.scalars(
             select(EmploymentEvent).where(
                 EmploymentEvent.company_id == company_id,
-                EmploymentEvent.employment_contract_id
-                == original.employment_contract_id,
-                EmploymentEvent.event_type == original.event_type,
-                EmploymentEvent.effective_date
-                == original.effective_date,
             ).order_by(EmploymentEvent.id)
         )
     ).all()

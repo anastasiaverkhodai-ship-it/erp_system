@@ -271,3 +271,87 @@ async def test_real_pg_duplicate_replacement_is_blocked(
             )
 
         await db.rollback()
+
+
+@pytest.mark.parametrize(
+    "different_kind,different_day",
+    [
+        (True, False),
+        (False, True),
+    ],
+)
+async def test_real_pg_cross_scope_competing_replacement_blocked(
+    employee_engine,
+    different_kind,
+    different_day,
+):
+    from datetime import timedelta
+
+    async with AsyncSession(
+        employee_engine,
+        expire_on_commit=False,
+    ) as db:
+        (
+            company, actor, contract, original,
+            reversal, replacement, new_evidence,
+        ) = await setup_correction(db)
+
+        kwargs = {
+            "company_id": company.id,
+            "original_event_id": original.id,
+            "reversal_event_id": reversal.id,
+            "replacement_event_id": replacement.id,
+        }
+
+        initial = await review_persisted_d5_correction_chain(
+            db, **kwargs
+        )
+
+        assert initial["official_generation"] == "BLOCKED"
+
+        token = uuid4().hex
+
+        other_kind = (
+            "transfer"
+            if different_kind
+            else original.event_type
+        )
+
+        other_day = (
+            original.effective_date + timedelta(days=32)
+            if different_day
+            else original.effective_date
+        )
+
+        db.add(
+            EmploymentEvent(
+                company_id=company.id,
+                employment_contract_id=contract.id,
+                event_type=other_kind,
+                effective_date=other_day,
+                order_number="COMPETING-" + token,
+                order_date=other_day,
+                reason="Cross-scope competing source",
+                request_key="COMPETING-KEY-" + token,
+                before_state={},
+                after_state={
+                    "position_id": new_evidence.position_id,
+                },
+                request_payload={
+                    "replaces_employment_event_id": original.id,
+                },
+                created_by=actor.id,
+            )
+        )
+
+        await db.flush()
+
+        with pytest.raises(
+            D5CorrectionChainError,
+            match="Unique active replacement link",
+        ):
+            await review_persisted_d5_correction_chain(
+                db, **kwargs
+            )
+
+        await db.rollback()
