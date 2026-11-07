@@ -1,3 +1,7 @@
+from app.services.payroll_d5_event_inventory import (
+    load_active_employment_event_records,
+)
+
 """Internal D5/D6 source evidence and applicability controls.
 
 No official normative event classification or filing output is
@@ -22,6 +26,7 @@ SOURCE_TABLES = (
     "hr_changes",
     "employment_contracts",
     "payroll_d5_professional_evidence",
+    "employment_events",
 )
 
 EVENT_DATE_COLUMNS = (
@@ -293,17 +298,25 @@ async def build_d5_d6_source_control(
             missing_tables.append(name)
             continue
 
-        statement = (
-            select(table)
-            .where(table.c.company_id == company_id)
-            .order_by(table.c.id)
-            .limit(MAX_ROWS_PER_TABLE + 1)
-        )
+        if name == "employment_events":
+            records = await load_active_employment_event_records(
+                db,
+                table=table,
+                company_id=company_id,
+                limit=MAX_ROWS_PER_TABLE,
+            )
+        else:
+            statement = (
+                select(table)
+                .where(table.c.company_id == company_id)
+                .order_by(table.c.id)
+                .limit(MAX_ROWS_PER_TABLE + 1)
+            )
 
-        records = [
-            dict(row)
-            for row in (await db.execute(statement)).mappings().all()
-        ]
+            records = [
+                dict(row)
+                for row in (await db.execute(statement)).mappings().all()
+            ]
 
         if len(records) > MAX_ROWS_PER_TABLE:
             raise D5D6SourceError(

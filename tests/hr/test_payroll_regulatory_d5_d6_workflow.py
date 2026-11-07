@@ -15,7 +15,7 @@ HASH_B = "b" * 64
 
 
 def inventory():
-    return {
+    result = {
         "company_id": 1,
         "payroll_period_id": 2,
         "period_start": "2026-10-01",
@@ -47,6 +47,11 @@ def inventory():
             "undated_evidence": [],
         }],
     }
+    result["missing_source_tables"] = sorted(
+        set(result["missing_source_tables"])
+        | {"employment_events"}
+    )
+    return result
 
 
 def test_positive_workflow():
