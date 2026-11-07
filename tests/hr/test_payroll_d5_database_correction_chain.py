@@ -101,3 +101,62 @@ def test_termination_requires_separate_review():
 def test_invalid_ids(value):
     with pytest.raises(D5CorrectionChainError):
         _id(value, "event_id")
+
+
+def test_unique_replacement_link():
+    from app.services.payroll_d5_database_correction_chain import (
+        _require_unique_replacement,
+    )
+
+    _, _, replacement = records()
+
+    assert _require_unique_replacement(
+        [replacement],
+        original_event_id=3,
+        expected_replacement_id=5,
+    ) is True
+
+
+def test_duplicate_replacement_links_rejected():
+    from app.services.payroll_d5_database_correction_chain import (
+        _require_unique_replacement,
+    )
+
+    _, _, replacement = records()
+    other = SimpleNamespace(
+        id=6,
+        request_payload={
+            "replaces_employment_event_id": 3,
+        },
+    )
+
+    with pytest.raises(
+        D5CorrectionChainError,
+        match="Unique active replacement link",
+    ):
+        _require_unique_replacement(
+            [replacement, other],
+            original_event_id=3,
+            expected_replacement_id=5,
+        )
+
+
+def test_boolean_replacement_link_not_accepted():
+    from app.services.payroll_d5_database_correction_chain import (
+        _require_unique_replacement,
+    )
+
+    _, _, replacement = records()
+    replacement.request_payload = {
+        "replaces_employment_event_id": True,
+    }
+
+    with pytest.raises(
+        D5CorrectionChainError,
+        match="Unique active replacement link",
+    ):
+        _require_unique_replacement(
+            [replacement],
+            original_event_id=1,
+            expected_replacement_id=5,
+        )

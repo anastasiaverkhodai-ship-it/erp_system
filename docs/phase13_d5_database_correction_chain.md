@@ -25,3 +25,17 @@ rules and acceptance.
 
 OFFICIAL D5 GENERATION = BLOCKED.
 PHASE 13 = OPEN.
+
+## Additional correction uniqueness acceptance
+
+The correction-chain reviewer also rejects multiple persisted
+replacement events claiming the same original HR source.
+Original and replacement professional evidence must refer
+to the same employee.
+
+A competing replacement is tested against a real isolated
+PostgreSQL database, not only an in-memory model.
+
+These controls do not authorize official D5 correcting rows.
+Normative applicability and correction markers remain
+unapproved and fail closed.

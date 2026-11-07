@@ -211,3 +211,63 @@ async def test_real_pg_replacement_tamper_and_reversal(
             )
 
         await db.rollback()
+
+
+async def test_real_pg_duplicate_replacement_is_blocked(
+    employee_engine,
+):
+    async with AsyncSession(
+        employee_engine, expire_on_commit=False
+    ) as db:
+        (
+            company, actor, contract, original,
+            reversal, replacement, new_evidence,
+        ) = await setup_correction(db)
+
+        # Confirm that the original chain works before
+        # another competing replacement is inserted.
+        kwargs = {
+            "company_id": company.id,
+            "original_event_id": original.id,
+            "reversal_event_id": reversal.id,
+            "replacement_event_id": replacement.id,
+        }
+
+        before = await review_persisted_d5_correction_chain(
+            db, **kwargs
+        )
+        assert before["official_generation"] == "BLOCKED"
+
+        token = uuid4().hex
+
+        competitor = EmploymentEvent(
+            company_id=company.id,
+            employment_contract_id=contract.id,
+            event_type=original.event_type,
+            effective_date=original.effective_date,
+            order_number="DUPLICATE-CORR-" + token,
+            order_date=original.effective_date,
+            reason="Competing replacement source",
+            request_key="DUPLICATE-CORR-KEY-" + token,
+            before_state={},
+            after_state={
+                "position_id": new_evidence.position_id,
+            },
+            request_payload={
+                "replaces_employment_event_id": original.id,
+            },
+            created_by=actor.id,
+        )
+
+        db.add(competitor)
+        await db.flush()
+
+        with pytest.raises(
+            D5CorrectionChainError,
+            match="Unique active replacement link",
+        ):
+            await review_persisted_d5_correction_chain(
+                db, **kwargs
+            )
+
+        await db.rollback()

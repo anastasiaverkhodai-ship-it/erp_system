@@ -95,6 +95,36 @@ def _validate_link(original, reversal, replacement):
         )
 
 
+
+def _require_unique_replacement(
+    candidates,
+    *,
+    original_event_id,
+    expected_replacement_id,
+):
+    """One explicit replacement per original HR event."""
+
+    links = []
+
+    for event in candidates:
+        payload = event.request_payload
+
+        if not isinstance(payload, dict):
+            continue
+
+        link = payload.get("replaces_employment_event_id")
+
+        if type(link) is int and link == original_event_id:
+            links.append(event.id)
+
+    if links != [expected_replacement_id]:
+        raise D5CorrectionChainError(
+            "Unique active replacement link required"
+        )
+
+    return True
+
+
 async def review_persisted_d5_correction_chain(
     db,
     *,
@@ -140,6 +170,28 @@ async def review_persisted_d5_correction_chain(
         )
 
     _validate_link(original, reversal, replacement)
+
+    # A replacement is not unique merely because the caller
+    # supplies one event ID. Inspect all matching persisted
+    # HR events in the company/contract/date scope.
+    replacement_candidates = (
+        await db.scalars(
+            select(EmploymentEvent).where(
+                EmploymentEvent.company_id == company_id,
+                EmploymentEvent.employment_contract_id
+                == original.employment_contract_id,
+                EmploymentEvent.event_type == original.event_type,
+                EmploymentEvent.effective_date
+                == original.effective_date,
+            ).order_by(EmploymentEvent.id)
+        )
+    ).all()
+
+    _require_unique_replacement(
+        replacement_candidates,
+        original_event_id=original.id,
+        expected_replacement_id=replacement.id,
+    )
 
     reversal_ids = (
         await db.scalars(
@@ -217,6 +269,18 @@ async def review_persisted_d5_correction_chain(
         raise D5CorrectionChainError(
             "Replacement database projection rejected"
         ) from exc
+
+    # The initial and replacement evidence must describe
+    # the same persisted employee, not merely the same
+    # employment contract identifier supplied by a caller.
+    replacement_employee_id = current[
+        "candidate"
+    ]["identity"]["employee_id"]
+
+    if old_evidence.employee_id != replacement_employee_id:
+        raise D5CorrectionChainError(
+            "Original/replacement employee identity mismatch"
+        )
 
     old_digest = _canonical_digest({
         "company_id": company_id,
