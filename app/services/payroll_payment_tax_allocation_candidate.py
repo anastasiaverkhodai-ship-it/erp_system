@@ -217,10 +217,20 @@ async def create_payment_tax_allocation_candidate(
     used = (
         await db.execute(
             text(f"""
-                SELECT COALESCE(SUM(amount), 0)
-                FROM {TABLE}
-                WHERE company_id=:c
-                  AND statutory_line_id=:l
+                SELECT COALESCE(SUM(
+                    COALESCE(latest.amount, c.amount)
+                ), 0)
+                FROM {TABLE} c
+                LEFT JOIN LATERAL (
+                    SELECT x.amount
+                    FROM payroll_payment_tax_allocation_corrections x
+                    WHERE x.company_id=c.company_id
+                      AND x.original_candidate_id=c.id
+                    ORDER BY x.id DESC
+                    LIMIT 1
+                ) latest ON TRUE
+                WHERE c.company_id=:c
+                  AND c.statutory_line_id=:l
             """),
             {"c": company_id, "l": line_id},
         )

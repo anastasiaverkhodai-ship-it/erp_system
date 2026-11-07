@@ -86,9 +86,35 @@ def _install_candidate_migration(sync_connection):
             "STOP: Invalid review migration lineage"
         )
 
+    correction_migration = runpy.run_path(
+        "alembic/versions/"
+        "p13wtcorr261107_payment_tax_corrections.py"
+    )
+
+    if (
+        correction_migration["revision"] != "p13wtcorr261107"
+        or correction_migration["down_revision"]
+            != "p13wtrev261107"
+    ):
+        raise RuntimeError(
+            "STOP: Unexpected correction migration lineage"
+        )
+
     with Operations.context(context):
         migration["upgrade"]()
         review_migration["upgrade"]()
+        correction_migration["upgrade"]()
+
+    corrections = sync_connection.exec_driver_sql(
+        "SELECT to_regclass("
+        "'payroll_payment_tax_allocation_corrections'"
+        ")"
+    ).scalar_one()
+
+    if corrections is None:
+        raise RuntimeError(
+            "STOP: Correction table missing after migration"
+        )
 
     events = sync_connection.exec_driver_sql(
         "SELECT to_regclass("
