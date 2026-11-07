@@ -15,7 +15,7 @@ from app.services.payroll_regulatory_report_service import (
 FORM_BLOCKERS = {
     'd1': ['D1_CATEGORY_AND_INCOME_MONTH_ALLOCATION_MISSING'],
     '4df': ['FOUR_DF_GROSS_PAYMENT_AND_TAX_ALLOCATION_MISSING'],
-    'd5': ['D5_PROFESSIONAL_DETAILS_AND_EVENT_MAPPING_MISSING'],
+    'd5': ['D5_PROFESSIONAL_DETAILS_AND_EVENT_MAPPING_MISSING', 'D5_NORMATIVE_SOURCE_CHAIN_NOT_APPROVED'],
     'd6': ['D6_APPLICABILITY_AND_SPECIAL_SERVICE_EVIDENCE_MISSING'],
 }
 
@@ -83,9 +83,32 @@ async def payroll_regulatory_readiness(db, *, company_id, payroll_period_id, rep
             'currency_code': statutory.currency_code if statutory else None,
             'components': components.get(statutory.id, []) if statutory else [],
         })
-    return {
+    result = {
         'company_id': company_id, 'payroll_period_id': payroll_period_id,
         'report_kind': kind, 'ready': False, 'applicability': applicability,
         'blocking_issues': blockers, 'calculation_sources': rows,
         'notice': 'Джерела для перевірки. Це не сформований регламентований звіт.',
     }
+
+    if kind == 'd5':
+        from app.services.payroll_d5_normative_acceptance import (
+            assess_d5_normative_candidates,
+        )
+
+        assessment = assess_d5_normative_candidates()
+
+        result['d5_normative_evidence'] = {
+            'status': assessment.status,
+            'official_generation': assessment.official_generation,
+            'official_rows_generated': assessment.official_rows_generated,
+            'candidate_count': assessment.candidate_count,
+            'missing_source_kinds': list(
+                assessment.missing_source_kinds
+            ),
+            'conflicting_document_ids': list(
+                assessment.conflicting_document_ids
+            ),
+            'blockers': list(assessment.blockers),
+        }
+
+    return result
