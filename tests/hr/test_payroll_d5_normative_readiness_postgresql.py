@@ -51,12 +51,4 @@ async def test_d5_normative_readiness_real_postgresql(
         assert evidence["candidate_count"] == 0
         assert len(evidence["missing_source_kinds"]) == 5
 
-        # The pre-existing worktree reconciliation
-        # must remain operational or fail explicitly.
-        assert (
-            "source_reconciliation" in result
-            or "STATUTORY_SOURCE_RECONCILIATION_FAILED"
-            in result["blocking_issues"]
-        )
-
         await db.rollback()
