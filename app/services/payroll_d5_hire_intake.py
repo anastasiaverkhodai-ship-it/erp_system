@@ -24,8 +24,8 @@ from app.services.payroll_d5_professional_history import (
 from app.services.payroll_d5_profession_history import (
     HistoryResult,
 )
-from app.services.payroll_d5_source_history_binding import (
-    create_source_bound_d5_professional_evidence,
+from app.services.payroll_d5_hr_event_intake import (
+    persist_verified_d5_hr_event,
 )
 
 
@@ -119,7 +119,7 @@ async def persist_verified_d5_hire_event(
 
     # Never persist data through this service without the
     # independently verified, effective-dated classifier path.
-    return await create_source_bound_d5_professional_evidence(
+    return await persist_verified_d5_hr_event(
         db,
         source=source,
         evidence=evidence,
