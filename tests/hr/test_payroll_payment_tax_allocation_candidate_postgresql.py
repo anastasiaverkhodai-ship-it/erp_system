@@ -72,8 +72,34 @@ def _install_candidate_migration(sync_connection):
 
     context = MigrationContext.configure(sync_connection)
 
+    review_migration = runpy.run_path(
+        "alembic/versions/"
+        "p13wtrev261107_payment_tax_allocation_events.py"
+    )
+
+    if (
+        review_migration["revision"] != "p13wtrev261107"
+        or review_migration["down_revision"]
+            != "p13wtalloc261107"
+    ):
+        raise RuntimeError(
+            "STOP: Invalid review migration lineage"
+        )
+
     with Operations.context(context):
         migration["upgrade"]()
+        review_migration["upgrade"]()
+
+    events = sync_connection.exec_driver_sql(
+        "SELECT to_regclass("
+        "'payroll_payment_tax_allocation_candidate_events'"
+        ")"
+    ).scalar_one()
+
+    if events is None:
+        raise RuntimeError(
+            "STOP: Review event table missing after upgrade"
+        )
 
     installed = sync_connection.exec_driver_sql(
         "SELECT to_regclass("

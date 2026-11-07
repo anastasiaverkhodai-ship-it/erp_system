@@ -186,6 +186,27 @@ async def create_payment_tax_allocation_candidate(
             raise PaymentTaxAllocationError(
                 "Idempotency key conflict"
             )
+        revoked = (
+            await db.execute(
+                text("""
+                    SELECT 1
+                    FROM payroll_payment_tax_allocation_candidate_events
+                    WHERE company_id=:company
+                      AND candidate_id=:candidate
+                      AND event_kind='revoked'
+                """),
+                {
+                    "company": company_id,
+                    "candidate": existing["id"],
+                },
+            )
+        ).scalar_one_or_none()
+
+        if revoked is not None:
+            raise PaymentTaxAllocationError(
+                "Revoked candidate cannot be reused"
+            )
+
         return {
             "id": existing["id"],
             "status": "draft",
