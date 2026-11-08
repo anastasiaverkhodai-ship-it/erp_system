@@ -191,6 +191,45 @@ async def custody_engine():
 
                 await connection.run_sync(upgrade)
 
+            # Business-operation E2E runs under erp_user.
+            # All database objects here belong to the disposable
+            # test DB; never grant mutable privileges to custody.
+            await connection.execute(text("""
+                DO $$
+                DECLARE
+                    item record;
+                BEGIN
+                    FOR item IN
+                        SELECT n.nspname AS schema_name,
+                               c.relname AS table_name
+                        FROM pg_class c
+                        JOIN pg_namespace n
+                          ON n.oid=c.relnamespace
+                        WHERE n.nspname='public'
+                          AND c.relkind IN ('r','p')
+                          AND c.relname NOT IN (
+                            'payroll_payment_tax_secure_custody',
+                            'payroll_payment_tax_document_integrity',
+                            'payroll_payment_tax_document_reviews'
+                          )
+                    LOOP
+                        EXECUTE format(
+                          'GRANT SELECT, INSERT, UPDATE, DELETE '
+                          'ON TABLE %I.%I TO erp_user',
+                          item.schema_name,
+                          item.table_name
+                        );
+                    END LOOP;
+                END
+                $$;
+            """))
+
+            await connection.execute(text("""
+                GRANT USAGE, SELECT
+                ON ALL SEQUENCES IN SCHEMA public
+                TO erp_user
+            """))
+
             await connection.execute(
                 text("GRANT USAGE ON SCHEMA public TO erp_user")
             )
