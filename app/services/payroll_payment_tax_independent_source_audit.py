@@ -13,6 +13,7 @@ from app.services.payroll_payment_tax_allocation_candidate import (
     PaymentTaxAllocationError,
     require_id,
 )
+from app.services.payroll_payment_tax_payment_claim_guard import assess_payment_tax_claims
 from app.services.payroll_regulatory_payment_evidence import (
     active_posted_journal_query,
 )
@@ -113,7 +114,9 @@ async def audit_payment_tax_sources(
                        e.correction_id,
                        e.amount AS evidence_amount,
                        c.payroll_calculation_id,
+                       c.component AS source_component,
                        p.amount AS payroll_amount,
+                       p.payment_date AS source_payment_date,
                        p.confirmed_at,
                        p.cancelled_at,
                        p.reversed_on,
@@ -313,6 +316,44 @@ async def audit_payment_tax_sources(
         independent_review_count=review_count,
     )
 
+    # Internal consistency only. This is NOT issuer evidence.
+    # The source date is the database payment date, not an
+    # independently authenticated withholding event.
+    claim_binding = assess_payment_tax_claims(
+        company_id=company_id,
+        payments=[
+            {
+                "id": record["payroll_disbursement_id"],
+                "payment_date": record["source_payment_date"],
+                "active": (
+                    record["cancelled_at"] is None
+                    and record["reversed_on"] is None
+                ),
+                "currency_code": record["currency_code"],
+            },
+        ],
+        claims=[
+            {
+                "company_id": record["company_id"],
+                "payment_id": record["payroll_disbursement_id"],
+                "component": record["source_component"],
+                "amount": str(record["evidence_amount"]),
+                "source_id": record["id"],
+                "source_date": record["source_payment_date"],
+                "currency_code": record["currency_code"],
+            },
+        ],
+    )
+
+    if (
+        claim_binding["official_generation"] != "BLOCKED"
+        or claim_binding["payment_specific_withholding"]
+            != "NOT_VERIFIED"
+    ):
+        raise PaymentTaxAllocationError(
+            "Unsafe payment-specific claim approval"
+        )
+
     return {
         "company_id": company_id,
         "evidence_id": evidence_id,
@@ -323,6 +364,7 @@ async def audit_payment_tax_sources(
             "payroll_calculation_id"
         ],
         "source_inventory": result,
+        "payment_specific_claim_binding": claim_binding,
         "independent_actual_withholding":
             "NOT_VERIFIED",
         "read_only": True,
