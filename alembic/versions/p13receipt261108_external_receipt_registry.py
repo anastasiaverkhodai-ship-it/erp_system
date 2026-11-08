@@ -148,19 +148,25 @@ def upgrade():
     op.execute("""
         REVOKE ALL
         ON public.payroll_external_receipt_registry
-        FROM PUBLIC, erp_user;
+        FROM PUBLIC, erp_user
+    """)
 
+    op.execute("""
         GRANT SELECT, INSERT
         ON public.payroll_external_receipt_registry
-        TO erp_user;
+        TO erp_user
+    """)
 
+    op.execute("""
         GRANT USAGE, SELECT
         ON SEQUENCE public.payroll_external_receipt_registry_id_seq
-        TO erp_user;
+        TO erp_user
+    """)
 
+    op.execute("""
         REVOKE ALL
         ON FUNCTION public.p13_receipt_forbid_mutation()
-        FROM PUBLIC;
+        FROM PUBLIC
     """)
 
 
