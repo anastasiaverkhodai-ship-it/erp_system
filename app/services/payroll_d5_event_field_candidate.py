@@ -107,7 +107,10 @@ def _validate(facts):
         "effective_date",
     )
 
-    if facts.person_category not in CATEGORIES:
+    if (
+        type(facts.person_category) is not int
+        or facts.person_category not in CATEGORIES
+    ):
         raise D5FieldCandidateError(
             "Unsupported category for this projection"
         )

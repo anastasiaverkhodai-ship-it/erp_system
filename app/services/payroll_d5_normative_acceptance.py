@@ -144,6 +144,7 @@ def assess_d5_normative_candidates(candidates=()):
         identity = (
             candidate.document_id,
             candidate.source_kind,
+            candidate.source_url,
             candidate.content_sha256,
             candidate.effective_from,
             candidate.effective_to,
@@ -163,6 +164,7 @@ def assess_d5_normative_candidates(candidates=()):
             by_document[candidate.document_id] = candidate
         elif (
             previous.source_kind != candidate.source_kind
+            or previous.source_url != candidate.source_url
             or previous.content_sha256
             != candidate.content_sha256
             or previous.effective_from
@@ -199,3 +201,74 @@ def assess_d5_normative_candidates(candidates=()):
         ),
         blockers=tuple(blockers),
     )
+
+
+def review_d5_sources_for_period(candidates, reporting_date):
+    """Review date-effective source coverage; never approve filing.
+
+    Multiple active sources of one kind are reported as ambiguous,
+    not silently selected as an authoritative version.
+    """
+    if type(reporting_date) is not date:
+        raise D5NormativeEvidenceError(
+            "Exact reporting date required"
+        )
+
+    assessment = assess_d5_normative_candidates(candidates)
+
+    active = {
+        kind: []
+        for kind in sorted(REQUIRED_SOURCE_KINDS)
+    }
+
+    for candidate in candidates:
+        if (
+            candidate.effective_from <= reporting_date
+            and (
+                candidate.effective_to is None
+                or reporting_date <= candidate.effective_to
+            )
+        ):
+            active[candidate.source_kind].append(
+                candidate.document_id
+            )
+
+    missing = tuple(
+        kind for kind, ids in active.items()
+        if not ids
+    )
+
+    ambiguous = tuple(
+        kind for kind, ids in active.items()
+        if len(ids) > 1
+    )
+
+    blockers = list(assessment.blockers)
+
+    if missing:
+        blockers.append(
+            "D5_REPORTING_PERIOD_SOURCE_COVERAGE_INCOMPLETE"
+        )
+
+    if ambiguous:
+        blockers.append(
+            "D5_REPORTING_PERIOD_SOURCE_VERSION_AMBIGUOUS"
+        )
+
+    return {
+        "reporting_date": reporting_date.isoformat(),
+        "active_source_ids": {
+            kind: tuple(ids)
+            for kind, ids in active.items()
+        },
+        "missing_source_kinds": missing,
+        "ambiguous_source_kinds": ambiguous,
+        "conflicting_document_ids": (
+            assessment.conflicting_document_ids
+        ),
+        "blockers": tuple(dict.fromkeys(blockers)),
+        "status": "REVIEW_REQUIRED",
+        "normative_mapping": "NOT_APPROVED",
+        "official_generation": "BLOCKED",
+        "official_rows_generated": 0,
+    }
