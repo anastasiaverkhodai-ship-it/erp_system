@@ -137,6 +137,147 @@ async def test_real_postgresql_projection_and_rejections(
         assert result["official_generation"] == "BLOCKED"
         assert result["official_rows_generated"] == 0
 
+        # Positive/negative date-effective normative candidate
+        # coverage is bound to a genuine PostgreSQL HR event.
+        # Synthetic source metadata is NOT legal approval.
+        from app.services.payroll_d5_database_field_projection import (
+            review_persisted_d5_event_period_sources,
+        )
+        from app.services.payroll_d5_normative_acceptance import (
+            D5NormativeSourceCandidate,
+            REQUIRED_SOURCE_KINDS,
+        )
+
+        def make_source(kind, *, suffix="", offset=0):
+            return D5NormativeSourceCandidate(
+                document_id=f"{kind}{suffix}",
+                source_kind=kind,
+                source_url=(
+                    f"https://example.org/{kind}{suffix}"
+                ),
+                content_sha256="a" * 64,
+                effective_from=(
+                    event.effective_date
+                    - timedelta(days=10)
+                    + timedelta(days=offset)
+                ),
+                effective_to=None,
+                review_reference="Synthetic source fixture",
+            )
+
+        candidates = [
+            make_source(kind)
+            for kind in sorted(REQUIRED_SOURCE_KINDS)
+        ]
+
+        period_review = (
+            await review_persisted_d5_event_period_sources(
+                db,
+                company_id=company.id,
+                employment_event_id=event.id,
+                normative_candidates=candidates,
+            )
+        )
+
+        assert period_review["period_source_coverage"] == (
+            "COMPLETE_CANDIDATE_COVERAGE"
+        )
+        assert period_review["source_binding"] == (
+            "PERSISTED_POSTGRESQL_RECORDS_VERIFIED"
+        )
+        assert (
+            period_review["persisted_erp_evidence_sha256"]
+            == result["persisted_erp_evidence_sha256"]
+        )
+        assert period_review["normative_mapping"] == (
+            "NOT_APPROVED"
+        )
+        assert period_review["independent_normative_approval"] == (
+            "NOT_VERIFIED"
+        )
+        assert period_review["official_generation"] == (
+            "BLOCKED"
+        )
+        assert period_review["official_rows_generated"] == 0
+
+        incomplete = (
+            await review_persisted_d5_event_period_sources(
+                db,
+                company_id=company.id,
+                employment_event_id=event.id,
+                normative_candidates=candidates[:-1],
+            )
+        )
+        assert incomplete["period_source_coverage"] == (
+            "REVIEW_BLOCKED"
+        )
+        assert incomplete["normative_source_review"][
+            "missing_source_kinds"
+        ]
+
+        ambiguous = (
+            await review_persisted_d5_event_period_sources(
+                db,
+                company_id=company.id,
+                employment_event_id=event.id,
+                normative_candidates=[
+                    *candidates,
+                    make_source(
+                        candidates[0].source_kind,
+                        suffix="-alternative",
+                    ),
+                ],
+            )
+        )
+        assert ambiguous["period_source_coverage"] == (
+            "REVIEW_BLOCKED"
+        )
+        assert ambiguous["normative_source_review"][
+            "ambiguous_source_kinds"
+        ]
+
+        future = (
+            await review_persisted_d5_event_period_sources(
+                db,
+                company_id=company.id,
+                employment_event_id=event.id,
+                normative_candidates=[
+                    make_source(
+                        kind,
+                        offset=20,
+                    )
+                    for kind in sorted(REQUIRED_SOURCE_KINDS)
+                ],
+            )
+        )
+        assert future["period_source_coverage"] == (
+            "REVIEW_BLOCKED"
+        )
+        assert len(future["normative_source_review"][
+            "missing_source_kinds"
+        ]) == len(REQUIRED_SOURCE_KINDS)
+
+        with pytest.raises(
+            D5DatabaseProjectionError,
+            match="not found",
+        ):
+            await review_persisted_d5_event_period_sources(
+                db,
+                company_id=company.id + 100000000,
+                employment_event_id=event.id,
+                normative_candidates=candidates,
+            )
+
+        assert all(
+            review["official_generation"] == "BLOCKED"
+            for review in (
+                period_review, incomplete, ambiguous, future
+            )
+        )
+
+        print("D5 PG PERIOD SOURCE BINDING = PASS")
+
+
         repeat = await project_persisted_d5_event(
             db,
             company_id=company.id,

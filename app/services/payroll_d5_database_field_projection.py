@@ -364,3 +364,89 @@ async def project_persisted_d5_event(
         "official_generation": "BLOCKED",
         "review_only": True,
     }
+
+
+async def review_persisted_d5_event_period_sources(
+    db,
+    *,
+    company_id,
+    employment_event_id,
+    normative_candidates,
+):
+    """Join persisted HR evidence to date-effective source candidates.
+
+    This operation performs internal review only. Source metadata
+    cannot establish official document authenticity or approve D5.
+    """
+    from app.services.payroll_d5_normative_acceptance import (
+        review_d5_sources_for_period,
+    )
+
+    persisted = await project_persisted_d5_event(
+        db,
+        company_id=company_id,
+        employment_event_id=employment_event_id,
+    )
+
+    if persisted.get("source_binding") != (
+        "PERSISTED_POSTGRESQL_RECORDS_VERIFIED"
+    ):
+        raise D5DatabaseProjectionError(
+            "Verified persisted HR evidence required"
+        )
+
+    if persisted.get("official_generation") != "BLOCKED":
+        raise D5DatabaseProjectionError(
+            "Unexpected statutory generation state"
+        )
+
+    identity = persisted["candidate"]["identity"]
+
+    if identity.get("company_id") != company_id:
+        raise D5DatabaseProjectionError(
+            "Company identity mismatch"
+        )
+
+    if identity.get("employment_event_id") != employment_event_id:
+        raise D5DatabaseProjectionError(
+            "Employment event identity mismatch"
+        )
+
+    event_date = date.fromisoformat(
+        identity["effective_date"]
+    )
+
+    review = review_d5_sources_for_period(
+        normative_candidates,
+        event_date,
+    )
+
+    missing = review["missing_source_kinds"]
+    ambiguous = review["ambiguous_source_kinds"]
+    conflicting = review["conflicting_document_ids"]
+
+    complete = not (
+        missing or ambiguous or conflicting
+    )
+
+    return {
+        "company_id": company_id,
+        "employment_event_id": employment_event_id,
+        "event_effective_date": event_date.isoformat(),
+        "persisted_erp_evidence_sha256": (
+            persisted["persisted_erp_evidence_sha256"]
+        ),
+        "candidate_sha256": (
+            persisted["candidate"]["candidate_sha256"]
+        ),
+        "source_binding": persisted["source_binding"],
+        "normative_source_review": review,
+        "period_source_coverage": (
+            "COMPLETE_CANDIDATE_COVERAGE"
+            if complete else "REVIEW_BLOCKED"
+        ),
+        "independent_normative_approval": "NOT_VERIFIED",
+        "normative_mapping": "NOT_APPROVED",
+        "official_generation": "BLOCKED",
+        "official_rows_generated": 0,
+    }
