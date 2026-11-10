@@ -551,4 +551,55 @@ async def test_real_postgresql_reversed_event_is_blocked(
                 employment_event_id=event.id,
             )
 
+
+        from app.services.payroll_d5_correction_chain import (
+            D5CorrectionChainError,
+            review_persisted_d5_correction_chain,
+        )
+
+        chain = await review_persisted_d5_correction_chain(
+            db,
+            company_id=company.id,
+            employment_event_id=event.id,
+        )
+
+        assert chain["chain_state"] == "SOURCE_REVERSED"
+        assert chain["reversal_count"] == 1
+        assert chain["chain_event_ids"][0] == event.id
+        assert len(chain["chain_event_ids"]) == 2
+        assert chain["blockers"] == []
+        assert chain["normative_mapping"] == "NOT_APPROVED"
+        assert chain["official_generation"] == "BLOCKED"
+        assert chain["official_rows_generated"] == 0
+
+        repeated = await review_persisted_d5_correction_chain(
+            db,
+            company_id=company.id,
+            employment_event_id=event.id,
+        )
+
+        assert repeated["correction_chain_sha256"] == (
+            chain["correction_chain_sha256"]
+        )
+
+        with pytest.raises(
+            D5CorrectionChainError,
+            match="not found",
+        ):
+            await review_persisted_d5_correction_chain(
+                db,
+                company_id=company.id + 100000000,
+                employment_event_id=event.id,
+            )
+
+        with pytest.raises(
+            D5CorrectionChainError,
+            match="Unsupported original",
+        ):
+            await review_persisted_d5_correction_chain(
+                db,
+                company_id=company.id,
+                employment_event_id=chain["chain_event_ids"][1],
+            )
+
         await db.rollback()
