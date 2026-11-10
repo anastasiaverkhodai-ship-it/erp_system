@@ -1,6 +1,6 @@
 """Real PostgreSQL acceptance for the DB-bound D5 projection."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 from uuid import uuid4
 
 import pytest
@@ -136,6 +136,54 @@ async def test_real_postgresql_projection_and_rejections(
         )
         assert result["official_generation"] == "BLOCKED"
         assert result["official_rows_generated"] == 0
+
+        from app.services.payroll_d5_amendment_reconciliation import (
+            D5AmendmentEvidence,
+            review_persisted_d5_amendment_reconciliation,
+        )
+
+        amendment = D5AmendmentEvidence(
+            amendment_number=7,
+            effective_date=date(2017, 11, 30),
+            source_reference="PG-TEST-AMENDMENT-7",
+            source_sha256="7" * 64,
+            document_completeness="PARTIAL",
+            profession_list_completeness="PARTIAL",
+        )
+
+        reconciliation = (
+            await review_persisted_d5_amendment_reconciliation(
+                db,
+                company_id=company.id,
+                employment_event_id=event.id,
+                amendments=[amendment],
+                changes=[],
+            )
+        )
+
+        assert reconciliation["source_binding"] == (
+            "PERSISTED_POSTGRESQL_RECORDS_VERIFIED"
+        )
+        assert reconciliation[
+            "persisted_erp_evidence_sha256"
+        ] == result["persisted_erp_evidence_sha256"]
+        assert reconciliation["amendment_reconciliation"][
+            "internal_consistency"
+        ] == "REVIEW_BLOCKED"
+        assert reconciliation["official_generation"] == "BLOCKED"
+        assert reconciliation["official_rows_generated"] == 0
+
+        with pytest.raises(
+            D5DatabaseProjectionError,
+            match="not found",
+        ):
+            await review_persisted_d5_amendment_reconciliation(
+                db,
+                company_id=company.id + 100000000,
+                employment_event_id=event.id,
+                amendments=[amendment],
+                changes=[],
+            )
 
         from app.services.payroll_d5_database_field_projection import (
             review_persisted_d5_profession_history,
