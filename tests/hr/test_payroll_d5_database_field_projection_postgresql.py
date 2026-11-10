@@ -502,4 +502,53 @@ async def test_real_postgresql_reversed_event_is_blocked(
                 employment_event_id=event.id,
             )
 
+
+        from app.services.payroll_d5_correction_history import (
+            D5CorrectionHistoryError,
+            review_persisted_d5_correction_history,
+        )
+
+        correction = (
+            await review_persisted_d5_correction_history(
+                db,
+                company_id=company.id,
+                employment_event_id=event.id,
+            )
+        )
+
+        assert correction["reversal_count"] == 1
+        assert correction["event_review_state"] == (
+            "REVERSAL_RECORDED"
+        )
+        assert len(correction["direct_reversal_links"]) == 1
+        assert correction["full_correction_chain"] == (
+            "NOT_VERIFIED"
+        )
+        assert correction["official_generation"] == "BLOCKED"
+        assert correction["official_rows_generated"] == 0
+
+        repeat = (
+            await review_persisted_d5_correction_history(
+                db,
+                company_id=company.id,
+                employment_event_id=event.id,
+            )
+        )
+
+        assert repeat[
+            "persisted_correction_evidence_sha256"
+        ] == correction[
+            "persisted_correction_evidence_sha256"
+        ]
+
+        with pytest.raises(
+            D5CorrectionHistoryError,
+            match="not found",
+        ):
+            await review_persisted_d5_correction_history(
+                db,
+                company_id=company.id + 100000000,
+                employment_event_id=event.id,
+            )
+
         await db.rollback()
