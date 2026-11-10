@@ -137,6 +137,80 @@ async def test_real_postgresql_projection_and_rejections(
         assert result["official_generation"] == "BLOCKED"
         assert result["official_rows_generated"] == 0
 
+        from app.services.payroll_d5_database_field_projection import (
+            review_persisted_d5_profession_history,
+        )
+        from app.services.payroll_d5_profession_effective_history import (
+            D5ProfessionHistoryChange,
+        )
+
+        # Synthetic history tests the implementation;
+        # it does not certify this profession's legal history.
+        introduced = D5ProfessionHistoryChange(
+            profession_code=evidence.profession_code,
+            change_kind="introduced",
+            effective_date=event.effective_date - timedelta(days=1),
+            source_reference="PG-TEST-ONLY",
+            source_sha256="a" * 64,
+        )
+
+        verified = await review_persisted_d5_profession_history(
+            db,
+            company_id=company.id,
+            employment_event_id=event.id,
+            profession_changes=[introduced],
+        )
+
+        assert verified["profession_date_review"] == (
+            "CANDIDATE_REVIEW"
+        )
+        assert verified["persisted_erp_evidence_sha256"] == (
+            result["persisted_erp_evidence_sha256"]
+        )
+        assert verified["official_generation"] == "BLOCKED"
+
+        missing = await review_persisted_d5_profession_history(
+            db,
+            company_id=company.id,
+            employment_event_id=event.id,
+            profession_changes=[],
+        )
+
+        assert missing["profession_date_review"] == (
+            "REVIEW_BLOCKED"
+        )
+
+        removed = await review_persisted_d5_profession_history(
+            db,
+            company_id=company.id,
+            employment_event_id=event.id,
+            profession_changes=[
+                introduced,
+                D5ProfessionHistoryChange(
+                    profession_code=evidence.profession_code,
+                    change_kind="removed",
+                    effective_date=event.effective_date,
+                    source_reference="PG-REMOVAL-TEST",
+                    source_sha256="b" * 64,
+                ),
+            ],
+        )
+
+        assert removed["profession_history"][
+            "candidate_state"
+        ] == "CANDIDATE_INACTIVE"
+
+        with pytest.raises(
+            D5DatabaseProjectionError,
+            match="not found",
+        ):
+            await review_persisted_d5_profession_history(
+                db,
+                company_id=company.id + 100000000,
+                employment_event_id=event.id,
+                profession_changes=[introduced],
+            )
+
         # Positive/negative date-effective normative candidate
         # coverage is bound to a genuine PostgreSQL HR event.
         # Synthetic source metadata is NOT legal approval.

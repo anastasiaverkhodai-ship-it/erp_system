@@ -450,3 +450,73 @@ async def review_persisted_d5_event_period_sources(
         "official_generation": "BLOCKED",
         "official_rows_generated": 0,
     }
+
+
+async def review_persisted_d5_profession_history(
+    db,
+    *,
+    company_id,
+    employment_event_id,
+    profession_changes,
+):
+    """Bind persisted PostgreSQL HR evidence to candidate history."""
+    from app.services.payroll_d5_profession_effective_history import (
+        review_d5_profession_history,
+    )
+
+    persisted = await project_persisted_d5_event(
+        db,
+        company_id=company_id,
+        employment_event_id=employment_event_id,
+    )
+
+    if persisted.get("source_binding") != (
+        "PERSISTED_POSTGRESQL_RECORDS_VERIFIED"
+    ):
+        raise D5DatabaseProjectionError(
+            "Persisted HR source verification required"
+        )
+
+    if persisted.get("official_generation") != "BLOCKED":
+        raise D5DatabaseProjectionError(
+            "Official generation must remain blocked"
+        )
+
+    candidate = persisted["candidate"]
+    identity = candidate["identity"]
+
+    if (
+        identity.get("company_id") != company_id
+        or identity.get("employment_event_id")
+        != employment_event_id
+    ):
+        raise D5DatabaseProjectionError(
+            "Persisted HR identity mismatch"
+        )
+
+    history = review_d5_profession_history(
+        profession_code=candidate["fields"]["13"],
+        reporting_date=date.fromisoformat(
+            identity["effective_date"]
+        ),
+        changes=profession_changes,
+    )
+
+    return {
+        "company_id": company_id,
+        "employment_event_id": employment_event_id,
+        "persisted_erp_evidence_sha256": (
+            persisted["persisted_erp_evidence_sha256"]
+        ),
+        "candidate_sha256": candidate["candidate_sha256"],
+        "source_binding": persisted["source_binding"],
+        "profession_history": history,
+        "profession_date_review": (
+            "CANDIDATE_REVIEW"
+            if history["candidate_state"] == "CANDIDATE_ACTIVE"
+            else "REVIEW_BLOCKED"
+        ),
+        "normative_approval": "NOT_APPROVED",
+        "official_generation": "BLOCKED",
+        "official_rows_generated": 0,
+    }
