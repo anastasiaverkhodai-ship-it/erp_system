@@ -78,3 +78,22 @@ Recovered sources:
 
 The last source was read through the web tool; direct byte download returned 403.
 No local official HTML snapshot or hash is claimed for it.
+
+## Follow-up review — 2026-11-10
+
+The amendment 4 commencement discrepancy is resolved from clause 1 of the
+archived official Rada order: 2016-03-01. Its exact bytes and digest are retained
+in `normative_evidence/2026_11_06/sources.json`. The publisher annex's April date
+is retained as a discrepancy, not used as a second commencement date.
+
+Original Rada-linked Word attachments A and B/V were recovered from archived
+2018 responses. They are pinned in `normative_evidence/2026_11_09/base_sources.json`.
+Acquisition does not establish their edition or a complete effective-date history.
+Table extraction of A contains 8,742 rows, including six malformed codes; see
+`base_content_review.json`. No guessed corrections or current validity dates
+were imported. Full historical reconstruction and form mappings remain unapproved.
+
+The importer incorrectly grouped overlap checks by code alone. It now checks
+the code/name identity, allowing different professions in the same classification
+group while still rejecting overlapping versions of the same identity.
+Validation: 53 classifier/guard/normative-admission tests passed.

@@ -15,6 +15,9 @@ NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
 def audit():
     current = EVIDENCE / "2026_11_06"
+    order = (current / "amendment4_rada_archived_order.html").read_bytes()
+    if hashlib.sha256(order).hexdigest() != "c673f9a231bd57cbd349db47cdc8b170800f4abe23a27b1672a064205655e231":
+        raise ValueError("Archived official amendment 4 order changed")
     for source in json.loads((current / "sources.json").read_text()):
         if hashlib.sha256((current / source["file"]).read_bytes()).hexdigest() != source["sha256"]:
             raise ValueError(f"Source bytes changed: {source['file']}")
@@ -39,7 +42,7 @@ def audit():
     if indices[0] != indices[1] or any(n != 1 for n in indices[0].values()):
         raise ValueError("Appendices A/B disagree or contain duplicate pairs")
 
-    # Audit the complete amendment copy without resolving its conflicting dates.
+    # Audit the complete amendment copy; commencement is pinned to the official order above.
     word_ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
     with zipfile.ZipFile(current / "amendment4_publisher.docx") as archive:
         document = ET.fromstring(archive.read("word/document.xml"))
@@ -79,7 +82,8 @@ def audit():
         "amendment4_cancellations": len(tables[1]) - 1,
         "amendment4_replacements": (len(tables[2]) - 1) // 2,
         "amendment4_additions": len(tables[3]) - 1,
-        "amendment4_effective_date_status": "CONFLICT_UNRESOLVED",
+        "amendment4_effective_date_status": "VERIFIED_FROM_ARCHIVED_OFFICIAL_ORDER",
+        "amendment4_effective_date": "2016-03-01",
         "income_rows": len(raw["tables"]["income_codes"]),
         "income_unique_codes": len(periods),
         "income_overlaps_after_documented_resolutions": 0,

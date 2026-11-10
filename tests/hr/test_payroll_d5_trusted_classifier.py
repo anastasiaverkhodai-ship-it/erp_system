@@ -92,6 +92,35 @@ def test_overlapping_history_rejected(monkeypatch):
         import_approved_classifier(raw)
 
 
+def test_distinct_professions_can_share_code_and_dates(monkeypatch):
+    first = {
+        "profession_code": "1234",
+        "professional_name": "Synthetic Profession A",
+        "effective_from": "2026-01-01",
+        "effective_to": None,
+    }
+    raw = sample([first, {**first, "professional_name": "Synthetic Profession B"}])
+    approve_in_test(monkeypatch, raw)
+    assert len(import_approved_classifier(raw)) == 2
+
+
+def test_other_profession_cannot_hide_same_identity_overlap(monkeypatch):
+    first = {
+        "profession_code": "1234",
+        "professional_name": "Synthetic Profession A",
+        "effective_from": "2026-01-01",
+        "effective_to": "2026-12-31",
+    }
+    raw = sample([
+        first,
+        {**first, "professional_name": "Synthetic Profession B", "effective_from": "2026-02-01"},
+        {**first, "effective_from": "2026-03-01"},
+    ])
+    approve_in_test(monkeypatch, raw)
+    with pytest.raises(D5TrustedClassifierError, match="Overlapping"):
+        import_approved_classifier(raw)
+
+
 def test_invalid_code_rejected(monkeypatch):
     raw = sample([{
         "profession_code": "TEST",

@@ -142,7 +142,10 @@ def import_approved_classifier(
     # Reject overlapping validity for the same classification identity.
     by_identity = {}
     for entry in result:
-        by_identity.setdefault(entry.profession_code, []).append(entry)
+        # A classification group contains multiple simultaneous professions.
+        # Only versions of the same code/name pair can overlap ambiguously.
+        identity = (entry.profession_code, entry.professional_name)
+        by_identity.setdefault(identity, []).append(entry)
 
     for records in by_identity.values():
         records.sort(key=lambda value: value.effective_from)

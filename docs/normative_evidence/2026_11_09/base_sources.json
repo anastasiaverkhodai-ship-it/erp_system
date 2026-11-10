@@ -1,0 +1,20 @@
+[
+  {
+    "file": "classifier-original-A.doc",
+    "sha256": "5adbb09a44a5d5eb239c9350f4fdc7ac4b799467ef5550d9d00cc220630a22c4",
+    "bytes": 7918592,
+    "original_url": "https://zakon.rada.gov.ua/rada/file/text/63/f335720n20.doc",
+    "archive_url": "https://web.archive.org/web/20180921151443id_/http://zakon.rada.gov.ua:80/rada/file/text/63/f335720n20.doc",
+    "status": "ACQUIRED_CONTENT_REVIEW_PENDING",
+    "approved": false
+  },
+  {
+    "file": "classifier-original-BV.doc",
+    "sha256": "f4e786e84d15957a8381824ef539d7604e0da96b1201d62ed0ce7caf3052e46a",
+    "bytes": 7578624,
+    "original_url": "https://zakon.rada.gov.ua/rada/file/text/63/f335720n22.doc",
+    "archive_url": "https://web.archive.org/web/20180921192350id_/http://zakon.rada.gov.ua:80/rada/file/text/63/f335720n22.doc",
+    "status": "ACQUIRED_CONTENT_REVIEW_PENDING",
+    "approved": false
+  }
+]

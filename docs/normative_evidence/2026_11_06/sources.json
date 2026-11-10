@@ -43,5 +43,13 @@
     "sha256": "8eaf88f0ed6a6c9b2e8c76761092176d295147a5c9ebacab98b07fa40d6fc100",
     "review": "Secondary law text; commencement independently corroborated by official court publication",
     "production_classifier_approved": false
+  },
+  {
+    "file": "amendment4_rada_archived_order.html",
+    "url": "https://web.archive.org/web/20220312231601id_/https://zakon.rada.gov.ua/rada/show/v0394731-16",
+    "original_url": "https://zakon.rada.gov.ua/rada/show/v0394731-16",
+    "sha256": "c673f9a231bd57cbd349db47cdc8b170800f4abe23a27b1672a064205655e231",
+    "production_classifier_approved": false,
+    "review": "Primary official order in archival capture; clause 1 explicitly prescribes 2016-03-01"
   }
 ]

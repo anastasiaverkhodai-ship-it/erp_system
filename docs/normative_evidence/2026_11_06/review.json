@@ -73,7 +73,6 @@
   },
   "remaining_verification": [
     "Complete base and appendix V provenance/history",
-    "Amendment 4 order/annex commencement discrepancy: March 1 versus April 1, 2016",
     "Row-by-row integration and dated history of all applicable amendments",
     "Other annex dictionaries: semantic/legal verification beyond structural extraction"
   ],
@@ -81,7 +80,7 @@
   "amendment4_cancellations": 9,
   "amendment4_replacements": 5,
   "amendment4_additions": 12,
-  "amendment4_effective_date_status": "CONFLICT_UNRESOLVED",
+  "amendment4_effective_date_status": "VERIFIED_FROM_ARCHIVED_OFFICIAL_ORDER",
   "amendment4": {
     "source": "amendment4_publisher.docx",
     "full_tables_acquired": true,
@@ -91,6 +90,9 @@
     "appendices_agree": true,
     "effective_date_order": "2016-03-01",
     "effective_date_annex": "2016-04-01",
-    "effective_date_approved": false
+    "effective_date_approved": true,
+    "effective_date": "2016-03-01",
+    "effective_date_source": "amendment4_rada_archived_order.html",
+    "resolution": "Use express commencement in clause 1 of the official approval order. Preserve contrary date in publisher annex as a source discrepancy, not a second valid commencement."
   }
 }

@@ -1,0 +1,55 @@
+{
+  "review_date": "2026-11-10",
+  "source_file": "classifier-original-A.doc",
+  "source_sha256": "5adbb09a44a5d5eb239c9350f4fdc7ac4b799467ef5550d9d00cc220630a22c4",
+  "extraction": "LibreOffice Word-to-DOCX conversion; WordprocessingML table 4; whitespace normalized only",
+  "rows": 8742,
+  "invalid_code_rows": [
+    [
+      "2351,2",
+      "",
+      "",
+      "",
+      "Методист"
+    ],
+    [
+      "815'1",
+      "18606",
+      "",
+      "61",
+      "Змішувальник (виробництво олівців)"
+    ],
+    [
+      "8І59",
+      "10327",
+      "25",
+      "",
+      "Апаратник концентрування кислот"
+    ],
+    [
+      "82'65",
+      "14358",
+      "48",
+      "",
+      "Машиніст чесальних та мішальних машин"
+    ],
+    [
+      "8269 \"",
+      "12468",
+      "47",
+      "",
+      "Виробник гнотів"
+    ],
+    [
+      "83.32",
+      "13706",
+      "",
+      "64",
+      "Машиніст дренажної машини"
+    ]
+  ],
+  "automatic_code_repairs_applied": false,
+  "appendix_b_crosscheck": "Antiword extraction also shows name/code differences; full independent table reconciliation pending",
+  "production_approved": false,
+  "historical_intervals_verified": false
+}
