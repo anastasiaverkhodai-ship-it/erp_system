@@ -137,6 +137,27 @@ async def test_real_postgresql_projection_and_rejections(
         assert result["official_generation"] == "BLOCKED"
         assert result["official_rows_generated"] == 0
 
+        from app.services.payroll_d5_correction_reconciliation import (
+            review_persisted_d5_correction_reconciliation,
+        )
+
+        retained = (
+            await review_persisted_d5_correction_reconciliation(
+                db,
+                company_id=company.id,
+                employment_event_id=event.id,
+            )
+        )
+
+        assert retained["decision"] == "CANDIDATE_RETAINED"
+        assert retained["candidate_rows_retained"] == 1
+        assert retained["persisted_erp_evidence_sha256"] == (
+            result["persisted_erp_evidence_sha256"]
+        )
+        assert retained["official_generation"] == "BLOCKED"
+        assert retained["official_rows_generated"] == 0
+
+
         from app.services.payroll_d5_amendment_reconciliation import (
             D5AmendmentEvidence,
             review_persisted_d5_amendment_reconciliation,
@@ -601,5 +622,38 @@ async def test_real_postgresql_reversed_event_is_blocked(
                 company_id=company.id,
                 employment_event_id=chain["chain_event_ids"][1],
             )
+
+
+        from app.services.payroll_d5_correction_reconciliation import (
+            review_persisted_d5_correction_reconciliation,
+        )
+
+        suppressed = (
+            await review_persisted_d5_correction_reconciliation(
+                db,
+                company_id=company.id,
+                employment_event_id=event.id,
+            )
+        )
+
+        assert suppressed["decision"] == "CANDIDATE_SUPPRESSED"
+        assert suppressed["candidate_rows_retained"] == 0
+        assert suppressed["candidate_rows_suppressed"] == 1
+        assert suppressed["chain_event_ids"][0] == event.id
+        assert suppressed["normative_mapping"] == "NOT_APPROVED"
+        assert suppressed["official_generation"] == "BLOCKED"
+        assert suppressed["official_rows_generated"] == 0
+
+        repeat_suppressed = (
+            await review_persisted_d5_correction_reconciliation(
+                db,
+                company_id=company.id,
+                employment_event_id=event.id,
+            )
+        )
+
+        assert repeat_suppressed["reconciliation_sha256"] == (
+            suppressed["reconciliation_sha256"]
+        )
 
         await db.rollback()
