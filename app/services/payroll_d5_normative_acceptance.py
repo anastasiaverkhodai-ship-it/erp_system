@@ -272,3 +272,159 @@ def review_d5_sources_for_period(candidates, reporting_date):
         "official_generation": "BLOCKED",
         "official_rows_generated": 0,
     }
+
+def review_d5_annex_normative_bundle(
+    *,
+    source_root,
+    manifest_paths,
+    candidates,
+    reporting_date,
+):
+    """Cross-check annex bytes, amendment events and normative metadata.
+
+    A matching candidate digest is metadata consistency, not proof
+    of document authenticity or permission to generate a filing.
+    """
+    from hashlib import sha256
+    import json
+
+    from app.services.payroll_d5_annex_chain_review import (
+        review_d5_annex_chain,
+    )
+    from app.services.payroll_d5_annex_event_reconciliation import (
+        reconcile_d5_annex_events,
+    )
+
+    # Validate source-candidate structure and period coverage first.
+    period = review_d5_sources_for_period(
+        candidates,
+        reporting_date,
+    )
+
+    chain = review_d5_annex_chain(
+        source_root=source_root,
+        manifest_paths=manifest_paths,
+    )
+
+    events = reconcile_d5_annex_events(
+        source_root=source_root,
+        manifest_paths=manifest_paths,
+    )
+
+    if events["chain_sha256"] != chain["chain_sha256"]:
+        raise D5NormativeEvidenceError(
+            "D5 amendment chain digest mismatch"
+        )
+
+    amendment_candidates = [
+        item for item in candidates
+        if item.source_kind == "classifier_amendments"
+    ]
+
+    bindings = []
+    missing = []
+    ambiguous = []
+
+    for document in chain["documents"]:
+        effective = date.fromisoformat(
+            document["effective_date"]
+        )
+
+        matching = sorted(
+            (
+                item.document_id
+                for item in amendment_candidates
+                if (
+                    item.content_sha256
+                    == document["source_sha256"]
+                    and item.effective_from <= effective
+                    and (
+                        item.effective_to is None
+                        or effective <= item.effective_to
+                    )
+                )
+            )
+        )
+
+        if not matching:
+            status = "CANDIDATE_SOURCE_BINDING_MISSING"
+            missing.append(document["number"])
+        elif len(matching) > 1:
+            status = "CANDIDATE_SOURCE_BINDING_AMBIGUOUS"
+            ambiguous.append(document["number"])
+        else:
+            status = "CANDIDATE_METADATA_MATCH_ONLY"
+
+        bindings.append({
+            "amendment_number": document["number"],
+            "effective_date": document["effective_date"],
+            "source_sha256": document["source_sha256"],
+            "candidate_document_ids": tuple(matching),
+            "status": status,
+        })
+
+    blockers = list(dict.fromkeys(
+        list(chain["blockers"])
+        + list(events["blockers"])
+        + list(period["blockers"])
+    ))
+
+    if missing:
+        blockers.append(
+            "D5_AMENDMENT_SOURCE_CANDIDATE_BINDING_MISSING"
+        )
+
+    if ambiguous:
+        blockers.append(
+            "D5_AMENDMENT_SOURCE_CANDIDATE_BINDING_AMBIGUOUS"
+        )
+
+    payload = {
+        "schema": "D5_ANNEX_NORMATIVE_BUNDLE_V1",
+        "reporting_date": period["reporting_date"],
+        "chain_sha256": chain["chain_sha256"],
+        "event_reconciliation_sha256": (
+            events["reconciliation_sha256"]
+        ),
+        "bindings": bindings,
+        "missing_binding_amendments": missing,
+        "ambiguous_binding_amendments": ambiguous,
+        "period_missing_source_kinds": list(
+            period["missing_source_kinds"]
+        ),
+        "period_ambiguous_source_kinds": list(
+            period["ambiguous_source_kinds"]
+        ),
+    }
+
+    digest = sha256(
+        json.dumps(
+            payload,
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+    return {
+        **payload,
+        "bundle_sha256": digest,
+        "amendment_count": chain["amendment_count"],
+        "candidate_event_count": chain["candidate_event_count"],
+        "event_conflict_count": len(events["issues"]),
+        "missing_amendment_numbers": (
+            chain["missing_amendment_numbers"]
+        ),
+        "missing_binding_amendments": tuple(missing),
+        "ambiguous_binding_amendments": tuple(ambiguous),
+        "bindings": tuple(bindings),
+        "status": "REVIEW_REQUIRED",
+        "source_binding": "CANDIDATE_METADATA_ONLY",
+        "independent_authenticity": "NOT_VERIFIED",
+        "full_classifier_history": "NOT_VERIFIED",
+        "normative_mapping": "NOT_APPROVED",
+        "blockers": tuple(dict.fromkeys(blockers)),
+        "official_generation": "BLOCKED",
+        "official_rows_generated": 0,
+    }
