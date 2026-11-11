@@ -453,6 +453,11 @@ def review_d5_annex_normative_bundle(
             "D5_AMENDMENT_SOURCE_CANDIDATE_BINDING_AMBIGUOUS"
         )
 
+    if not unverified_numbers and (missing or ambiguous):
+        blockers.append(
+            "D5_VERIFIED_BYTES_WITHOUT_UNIQUE_SOURCE_BINDING"
+        )
+
     payload = {
         "schema": "D5_ANNEX_NORMATIVE_BUNDLE_V1",
         "reporting_date": period["reporting_date"],
@@ -498,8 +503,17 @@ def review_d5_annex_normative_bundle(
         "status": "REVIEW_REQUIRED",
         "source_binding": (
             "LOCAL_SOURCE_BYTES_MATCH_ONLY"
-            if not unverified_numbers
-            else "CANDIDATE_METADATA_ONLY"
+            if (
+                not unverified_numbers
+                and not missing
+                and not ambiguous
+                and len(bindings) == len(chain["documents"])
+            )
+            else (
+                "CANDIDATE_METADATA_ONLY"
+                if unverified_numbers
+                else "SOURCE_BYTES_VERIFIED_BINDING_INCOMPLETE"
+            )
         ),
         "independent_authenticity": "NOT_VERIFIED",
         "full_classifier_history": "NOT_VERIFIED",
