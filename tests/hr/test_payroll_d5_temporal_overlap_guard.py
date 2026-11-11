@@ -41,26 +41,26 @@ def load(monkeypatch, entries):
     return trusted.import_approved_classifier(raw)
 
 
-def test_cross_title_overlap_rejected(monkeypatch):
-    with pytest.raises(
-        trusted.D5TrustedClassifierError,
-        match="Overlapping classifier validity",
-    ):
-        load(monkeypatch, [
-            entry("2419.2", "Old", "2010-11-01", "2016-04-01"),
-            entry("2419.2", "New", "2016-03-01"),
-        ])
+
+def test_distinct_profession_names_can_overlap(monkeypatch):
+    # The classifier identity is (code, professional_name).
+    # Different names under the same code can coexist.
+    result = load(monkeypatch, [
+        entry("2419.2", "Old", "2010-11-01", "2016-04-01"),
+        entry("2419.2", "New", "2016-03-01"),
+    ])
+    assert len(result) == 2
 
 
-def test_same_day_overlap_rejected(monkeypatch):
-    with pytest.raises(
-        trusted.D5TrustedClassifierError,
-        match="Overlapping classifier validity",
-    ):
-        load(monkeypatch, [
-            entry("2419.2", "Old", "2010-11-01", "2016-03-01"),
-            entry("2419.2", "New", "2016-03-01"),
-        ])
+
+
+def test_distinct_profession_names_can_share_boundary(monkeypatch):
+    result = load(monkeypatch, [
+        entry("2419.2", "Old", "2010-11-01", "2016-03-01"),
+        entry("2419.2", "New", "2016-03-01"),
+    ])
+    assert len(result) == 2
+
 
 
 def test_nonoverlapping_titles_accepted(monkeypatch):
@@ -95,3 +95,44 @@ def test_unapproved_classifier_blocked(monkeypatch):
         match="independent approval",
     ):
         trusted.import_approved_classifier(raw)
+
+
+def test_same_identity_overlapping_intervals_rejected(monkeypatch):
+    with pytest.raises(
+        trusted.D5TrustedClassifierError,
+        match="Overlapping classifier validity",
+    ):
+        load(monkeypatch, [
+            entry("2419.2", "Same", "2016-01-01", "2016-06-30"),
+            entry("2419.2", "Same", "2016-06-01", "2016-12-31"),
+        ])
+
+
+def test_same_identity_shared_boundary_rejected(monkeypatch):
+    with pytest.raises(
+        trusted.D5TrustedClassifierError,
+        match="Overlapping classifier validity",
+    ):
+        load(monkeypatch, [
+            entry("2419.2", "Same", "2016-01-01", "2016-06-30"),
+            entry("2419.2", "Same", "2016-06-30"),
+        ])
+
+
+def test_same_identity_open_interval_rejected(monkeypatch):
+    with pytest.raises(
+        trusted.D5TrustedClassifierError,
+        match="Overlapping classifier validity",
+    ):
+        load(monkeypatch, [
+            entry("2419.2", "Same", "2016-01-01"),
+            entry("2419.2", "Same", "2017-01-01"),
+        ])
+
+
+def test_same_identity_adjacent_nonoverlap_accepted(monkeypatch):
+    result = load(monkeypatch, [
+        entry("2419.2", "Same", "2016-01-01", "2016-06-29"),
+        entry("2419.2", "Same", "2016-06-30"),
+    ])
+    assert len(result) == 2

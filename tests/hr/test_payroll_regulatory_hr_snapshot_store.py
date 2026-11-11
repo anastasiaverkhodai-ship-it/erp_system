@@ -40,6 +40,9 @@ def test_invalid_snapshot_rejected(payload):
 
 
 def _valid_test_payload():
+    from app.services.payroll_regulatory_d5_d6_source_control import (
+        SOURCE_TABLES,
+    )
     from app.services.payroll_regulatory_d5_d6_workflow import (
         assemble_hr_review,
     )
@@ -54,11 +57,7 @@ def _valid_test_payload():
         "dated_evidence_count": 0,
         "ambiguous_evidence_count": 0,
         "source_inventory": [],
-        "missing_source_tables": [
-            "hr_changes",
-            "employment_contracts",
-            "payroll_d5_professional_evidence",
-        ],
+        "missing_source_tables": sorted(SOURCE_TABLES),
     }
 
     return {
