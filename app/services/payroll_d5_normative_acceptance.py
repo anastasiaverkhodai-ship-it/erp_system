@@ -279,6 +279,7 @@ def review_d5_annex_normative_bundle(
     manifest_paths,
     candidates,
     reporting_date,
+    source_documents=None,
 ):
     """Cross-check annex bytes, amendment events and normative metadata.
 
@@ -321,6 +322,67 @@ def review_d5_annex_normative_bundle(
         if item.source_kind == "classifier_amendments"
     ]
 
+    # Verify actual source-document bytes, not just matching
+    # SHA-256 strings supplied by two separate manifests.
+    if source_documents is None:
+        source_documents = {}
+
+    if type(source_documents) is not dict:
+        raise D5NormativeEvidenceError(
+            "Source documents must be keyed by amendment number"
+        )
+
+    expected_numbers = {
+        document["number"] for document in chain["documents"]
+    }
+
+    if any(
+        type(number) is not int or number not in expected_numbers
+        for number in source_documents
+    ):
+        raise D5NormativeEvidenceError(
+            "Unknown source document amendment"
+        )
+
+    source_checks = []
+    verified_numbers = set()
+
+    for document in chain["documents"]:
+        number = document["number"]
+
+        if number not in source_documents:
+            source_checks.append({
+                "amendment_number": number,
+                "status": "SOURCE_BYTES_NOT_PROVIDED",
+            })
+            continue
+
+        actual_digest = _verify_d5_source_bytes(
+            source_root,
+            source_documents[number],
+        )
+
+        if actual_digest != document["source_sha256"]:
+            raise D5NormativeEvidenceError(
+                "D5 source document SHA256 mismatch"
+            )
+
+        verified_numbers.add(number)
+        source_checks.append({
+            "amendment_number": number,
+            "status": "LOCAL_SOURCE_BYTES_MATCH",
+            "content_sha256": actual_digest,
+        })
+
+    unverified_numbers = tuple(
+        sorted(expected_numbers - verified_numbers)
+    )
+
+    source_status_by_number = {
+        item["amendment_number"]: item["status"]
+        for item in source_checks
+    }
+
     bindings = []
     missing = []
     ambiguous = []
@@ -353,7 +415,11 @@ def review_d5_annex_normative_bundle(
             status = "CANDIDATE_SOURCE_BINDING_AMBIGUOUS"
             ambiguous.append(document["number"])
         else:
-            status = "CANDIDATE_METADATA_MATCH_ONLY"
+            status = (
+                "CANDIDATE_SOURCE_BYTES_MATCH_ONLY"
+                if document["number"] in verified_numbers
+                else "CANDIDATE_METADATA_MATCH_ONLY"
+            )
 
         bindings.append({
             "amendment_number": document["number"],
@@ -361,6 +427,9 @@ def review_d5_annex_normative_bundle(
             "source_sha256": document["source_sha256"],
             "candidate_document_ids": tuple(matching),
             "status": status,
+            "source_bytes_status": source_status_by_number[
+                document["number"]
+            ],
         })
 
     blockers = list(dict.fromkeys(
@@ -368,6 +437,11 @@ def review_d5_annex_normative_bundle(
         + list(events["blockers"])
         + list(period["blockers"])
     ))
+
+    if unverified_numbers:
+        blockers.append(
+            "D5_ORIGINAL_SOURCE_BYTES_NOT_VERIFIED"
+        )
 
     if missing:
         blockers.append(
@@ -387,6 +461,8 @@ def review_d5_annex_normative_bundle(
             events["reconciliation_sha256"]
         ),
         "bindings": bindings,
+        "source_document_checks": source_checks,
+        "unverified_source_amendments": list(unverified_numbers),
         "missing_binding_amendments": missing,
         "ambiguous_binding_amendments": ambiguous,
         "period_missing_source_kinds": list(
@@ -420,7 +496,11 @@ def review_d5_annex_normative_bundle(
         "ambiguous_binding_amendments": tuple(ambiguous),
         "bindings": tuple(bindings),
         "status": "REVIEW_REQUIRED",
-        "source_binding": "CANDIDATE_METADATA_ONLY",
+        "source_binding": (
+            "LOCAL_SOURCE_BYTES_MATCH_ONLY"
+            if not unverified_numbers
+            else "CANDIDATE_METADATA_ONLY"
+        ),
         "independent_authenticity": "NOT_VERIFIED",
         "full_classifier_history": "NOT_VERIFIED",
         "normative_mapping": "NOT_APPROVED",
@@ -428,3 +508,94 @@ def review_d5_annex_normative_bundle(
         "official_generation": "BLOCKED",
         "official_rows_generated": 0,
     }
+
+
+
+def _verify_d5_source_bytes(root, relative_path):
+    """Read a bounded local original without allowing path escape."""
+    import os
+    import stat
+    from pathlib import Path
+    from hashlib import sha256
+
+    if type(relative_path) is not str or not relative_path:
+        raise D5NormativeEvidenceError(
+            "Invalid original source document path"
+        )
+
+    relative = Path(relative_path)
+
+    if (
+        relative.is_absolute()
+        or ".." in relative.parts
+        or not relative.parts
+    ):
+        raise D5NormativeEvidenceError(
+            "Original source must remain inside evidence root"
+        )
+
+    try:
+        root = Path(root).resolve(strict=True)
+        current = root
+
+        for component in relative.parts:
+            current = current / component
+
+            if current.is_symlink():
+                raise D5NormativeEvidenceError(
+                    "Symlinked original evidence is forbidden"
+                )
+
+        resolved = current.resolve(strict=True)
+
+        if not resolved.is_relative_to(root):
+            raise D5NormativeEvidenceError(
+                "Original source escaped evidence root"
+            )
+
+        flags = os.O_RDONLY
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+
+        descriptor = os.open(resolved, flags)
+
+        try:
+            info = os.fstat(descriptor)
+
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_size < 1
+                or info.st_size > 25 * 1024 * 1024
+            ):
+                raise D5NormativeEvidenceError(
+                    "Invalid original source file size or type"
+                )
+
+            digest = sha256()
+            total = 0
+
+            while True:
+                chunk = os.read(descriptor, 1024 * 1024)
+
+                if not chunk:
+                    break
+
+                total += len(chunk)
+
+                if total > 25 * 1024 * 1024:
+                    raise D5NormativeEvidenceError(
+                        "Original source exceeds byte limit"
+                    )
+
+                digest.update(chunk)
+
+            return digest.hexdigest()
+        finally:
+            os.close(descriptor)
+
+    except (OSError, ValueError) as exc:
+        if isinstance(exc, D5NormativeEvidenceError):
+            raise
+
+        raise D5NormativeEvidenceError(
+            "Original source file cannot be verified"
+        ) from exc
