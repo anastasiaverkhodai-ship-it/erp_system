@@ -181,3 +181,12 @@ async def test_invalid_payroll_blockers_rejected(monkeypatch):
 
     with pytest.raises(PayrollRegulatoryReportError):
         await run()
+
+
+@pytest.mark.asyncio
+async def test_pre_2026_report_rejected_before_source_or_database_access(monkeypatch):
+    def forbidden(**kwargs):
+        raise AssertionError('Unsupported date must not inspect sources')
+    monkeypatch.setattr(service, 'review_d5_annex_normative_bundle', forbidden)
+    with pytest.raises(PayrollRegulatoryReportError, match='before 2026-01-01'):
+        await run(reporting_date=date(2025, 12, 31))

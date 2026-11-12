@@ -1,0 +1,97 @@
+{
+  "baseline": "docs/normative_evidence/2026_11_11/classifier_ministry_2023_appendix_a.json",
+  "files": [
+    {
+      "path": "docs/normative_evidence/2026_11_11/classifier_ministry_2023.xls",
+      "sha256": "98ea91b2155568b8a945631a0f6c5f66ea178d51a21e4bcd0d8d9fc2e07d361e"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_11/classifier_ministry_2023_appendix_a.json",
+      "sha256": "ac384ad50d34314a4b8c0be857deb3f84c2df28a46658d16a3859488edd434f9"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_11.pdf",
+      "sha256": "20a3f14d137c5faeb5e10a12dd578c6d3c99ade56c46830419d2bbeda89d01eb"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_11_operations.json",
+      "sha256": "1248196e95e92285e15b5da1deb060c63fd831a512c479767138c07f068321af"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_11_tables.json",
+      "sha256": "a4bf73050b921561375c317317cba3688b12a2a1a373cad7288039678ec2e49a"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_12.pdf",
+      "sha256": "ad80cb261b25ee0d1ac7f7d22023ddbb9385a58b25103e33c56d16ce945c982c"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_12_operations.json",
+      "sha256": "6b4a2f6be8b049023ae94e503500ef4714a2f90f551eabd65d2ea952b92d564a"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_12_tables.json",
+      "sha256": "57f3a7b3d94217bdd528b095083753999081a463ba7b8e63cd460454e4078146"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_13.pdf",
+      "sha256": "974ce9d450c9e1f3a635b5cfa2f3fee84fe3f300ea426b44f37c9e8b163cbb00"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_13_operations.json",
+      "sha256": "bba6bf2f232339be091c7a0b57002093c94dd4f10682ed98df69418cebedc3b9"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_13_tables.json",
+      "sha256": "7b4691540575cbdcad97d989f63e839284d5e614153582d6f5fb29a8dec0ba49"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_14.pdf",
+      "sha256": "9f02a56c1ff779fec931f7911965a300d3ab14628e92f3ff36efcf3162820059"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_14_operations.json",
+      "sha256": "42b539029f4c971807850338a7359506003681cb6cda1dff8c0ad61faf8a4ebe"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_14_tables.json",
+      "sha256": "bcd4ff842852fe77d46179cfb90569b4f8d78d6506bc20011783dee1f5896486"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_15.pdf",
+      "sha256": "0ebe577414c87c9c16176864ffb3b41da2de74e9b23638471e3829f66e7f2715"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_16.pdf",
+      "sha256": "bdc55848815ab935694192cc90eacca884b91d56937317aa6cdf3aa03c69cd40"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_16_operations.json",
+      "sha256": "bb8b58813c4ee711615c997a0ca90b441d20ff439bdc84b54f32915272eb4f33"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_16_tables.json",
+      "sha256": "15b38f1552535662a6425def41d044d43514efcaf93c0655182532034c2b4aa0"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_17.pdf",
+      "sha256": "5217473cba88c3f6aa95b49260a045fe924d480a27383f152f763e6239ff9a80"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_17_operations.json",
+      "sha256": "d5b03b6dd2b95f648f00c6d81dd7d3b88b025c8a003ff8bc52acc8b66c7c0dc0"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/amendment_17_tables.json",
+      "sha256": "a4274d0a9823305af3aa8e3153bf3bbe8a59b525e62c29a5e3bcbcc75cefec14"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/order_3073.pdf",
+      "sha256": "7a224ec2cb1e1b71ab74a94d09ec996d1c2d9d1e03b83dde86a6b29119efe17b"
+    },
+    {
+      "path": "docs/normative_evidence/2026_11_12/order_4946.pdf",
+      "sha256": "14e68401cfea32088d8e271385084db3366c56697bb2b0141340d3cd0ec85a5a"
+    }
+  ]
+}

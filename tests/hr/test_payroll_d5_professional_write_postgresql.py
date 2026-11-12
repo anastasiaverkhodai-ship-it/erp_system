@@ -10,7 +10,7 @@ import hashlib
 import json
 
 from dataclasses import replace
-from datetime import timedelta
+from datetime import date, timedelta
 from uuid import uuid4
 
 import pytest
@@ -135,7 +135,8 @@ async def test_d5_verified_write_idempotency_and_negative_e2e(
             await seed(db)
         )
         token = uuid4().hex
-        day = contract.start_date + timedelta(days=2)
+        # D5 supports events from 2026; the shared payroll seed starts earlier.
+        day = max(date(2026, 1, 2), contract.start_date + timedelta(days=2))
 
         position = Position(
             company_id=company.id,

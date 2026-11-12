@@ -1,0 +1,33 @@
+{
+  "source_url": "https://me.gov.ua/Content/ProfessionClassifier_1676449284%2028.03.2023.xls",
+  "discovery_url": "https://me.gov.ua/Profession/List?id=d4162ef8-2771-4ac5-99ef-1d4b6f5336af&isSpecial=true&lang=uk-UA&tag=KlasifikatorProfesii-Poshuk",
+  "file": "classifier_ministry_2023.xls",
+  "sha256": "98ea91b2155568b8a945631a0f6c5f66ea178d51a21e4bcd0d8d9fc2e07d361e",
+  "retrieved_on": "2026-11-11",
+  "rows_per_appendix": [
+    9119,
+    9119
+  ],
+  "a_only": [
+    [
+      "2144.1",
+      "Науковий співробітник-консультант (електроніка, електронні комунікації)"
+    ]
+  ],
+  "b_only": [
+    [
+      "2144.1",
+      "Науковий співробітникконсультант (електроніка, електронні комунікації)"
+    ]
+  ],
+  "discrepancy_resolution": {
+    "correct_name": "Науковий співробітник-консультант (електроніка, електронні комунікації)",
+    "code": "2144.1",
+    "evidence": "Official amendment 11 PDF page 14, replacement row; retain hyphen",
+    "source_path": "docs/reference_sources/dk003_2010/dk003_amendment_11_2022.pdf"
+  },
+  "edition_fully_verified": true,
+  "approved_2026_baseline": false,
+  "remaining": "Civil content fully reconciled through amendment 17; see ../2026_11_12/REVIEW.md for unresolved normative commencement and production authorization.",
+  "verification_report": "../2026_11_12/REVIEW.md"
+}

@@ -1,6 +1,6 @@
 """Real PostgreSQL source-history binding and write E2E."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 import hashlib
 import json
 from uuid import uuid4
@@ -57,7 +57,8 @@ async def test_real_pg_source_bound_insert_and_negative_paths(
         ) = await seed(db)
 
         token = uuid4().hex
-        day = contract.start_date + timedelta(days=2)
+        # D5 supports events from 2026; the shared payroll seed starts earlier.
+        day = max(date(2026, 1, 2), contract.start_date + timedelta(days=2))
         code = "2419.2"
         title = "Synthetic source-bound profession"
 

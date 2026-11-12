@@ -129,3 +129,18 @@ def test_invalid_profession_code_shapes_rejected(bad_code):
             event_date=date(2026, 8, 1),
             entries=(entry,),
         )
+
+
+def test_pre_2026_event_rejected_even_with_matching_reviewed_evidence():
+    history, entry = sample()
+    history = replace(history, effective_from=date(2025, 1, 1), documented_on=date(2025, 1, 1))
+    entry = replace(entry, effective_from=date(2025, 1, 1))
+    with pytest.raises(D5ClassifierError, match="before 2026-01-01"):
+        verify_d5_classifier(history=history, event_date=date(2025, 12, 31), entries=(entry,))
+
+
+def test_2026_boundary_accepts_older_still_effective_source():
+    history, entry = sample()
+    entry = replace(entry, effective_from=date(2010, 11, 1))
+    result = verify_d5_classifier(history=history, event_date=date(2026, 1, 1), entries=(entry,))
+    assert result.profession_code == "1234"

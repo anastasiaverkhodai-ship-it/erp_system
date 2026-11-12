@@ -1,0 +1,65 @@
+[
+  {
+    "id": "11",
+    "file": "amendment_11.pdf",
+    "url": "https://me.gov.ua/download/47cf18f0-8b94-4436-83c9-8076f6398aba/file.pdf",
+    "sha256": "20a3f14d137c5faeb5e10a12dd578c6d3c99ade56c46830419d2bbeda89d01eb",
+    "retrieved_on": "2026-11-12"
+  },
+  {
+    "id": "12",
+    "file": "amendment_12.pdf",
+    "url": "https://me.gov.ua/download/4bd826c8-a2e6-481c-bdf9-3ea889d8f63e/file.pdf",
+    "sha256": "ad80cb261b25ee0d1ac7f7d22023ddbb9385a58b25103e33c56d16ce945c982c",
+    "retrieved_on": "2026-11-12"
+  },
+  {
+    "id": "13",
+    "file": "amendment_13.pdf",
+    "url": "https://me.gov.ua/download/3ee96f87-ee81-45e8-9c71-510afdc610ee/file.pdf",
+    "sha256": "974ce9d450c9e1f3a635b5cfa2f3fee84fe3f300ea426b44f37c9e8b163cbb00",
+    "retrieved_on": "2026-11-12"
+  },
+  {
+    "id": "14",
+    "file": "amendment_14.pdf",
+    "url": "https://me.gov.ua/download/074d6e7f-41e2-4bfc-8e77-31d110cacc90/file.pdf",
+    "sha256": "9f02a56c1ff779fec931f7911965a300d3ab14628e92f3ff36efcf3162820059",
+    "retrieved_on": "2026-11-12"
+  },
+  {
+    "id": "15",
+    "file": "amendment_15.pdf",
+    "url": "https://me.gov.ua/download/b3119074-f80b-4195-b10e-40aaab563d2b/file.pdf",
+    "sha256": "0ebe577414c87c9c16176864ffb3b41da2de74e9b23638471e3829f66e7f2715",
+    "retrieved_on": "2026-11-12"
+  },
+  {
+    "id": "16",
+    "file": "amendment_16.pdf",
+    "url": "https://me.gov.ua/download/331cb32f-6fe0-4d37-8ff5-a584bf5bdb0a/file.pdf",
+    "sha256": "bdc55848815ab935694192cc90eacca884b91d56937317aa6cdf3aa03c69cd40",
+    "retrieved_on": "2026-11-12"
+  },
+  {
+    "id": "17",
+    "file": "amendment_17.pdf",
+    "url": "https://me.gov.ua/download/26517981-207f-4d5a-8bd7-a8372288873c/file.pdf",
+    "sha256": "5217473cba88c3f6aa95b49260a045fe924d480a27383f152f763e6239ff9a80",
+    "retrieved_on": "2026-11-12"
+  },
+  {
+    "id": "order_3073",
+    "file": "order_3073.pdf",
+    "url": "https://me.gov.ua/download/a2f07a9f-29c7-4121-a077-3872174bb74a/file.pdf",
+    "sha256": "7a224ec2cb1e1b71ab74a94d09ec996d1c2d9d1e03b83dde86a6b29119efe17b",
+    "retrieved_on": "2026-11-12"
+  },
+  {
+    "id": "order_4946",
+    "file": "order_4946.pdf",
+    "url": "https://me.gov.ua/download/f9bb84e1-0f94-426f-a354-83c5b4387d73/file.pdf",
+    "sha256": "14e68401cfea32088d8e271385084db3366c56697bb2b0141340d3cd0ec85a5a",
+    "retrieved_on": "2026-11-12"
+  }
+]

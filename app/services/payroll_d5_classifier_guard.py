@@ -14,6 +14,9 @@ from app.services.payroll_d5_professional_history import (
 )
 
 
+D5_SUPPORTED_FROM = date(2026, 1, 1)
+
+
 class D5ClassifierError(ValueError):
     pass
 
@@ -55,6 +58,11 @@ def verify_d5_classifier(
 
     if type(event_date) is not date:
         raise D5ClassifierError("Valid event date required")
+
+    if event_date < D5_SUPPORTED_FROM:
+        raise D5ClassifierError(
+            "Profession verification before 2026-01-01 is not supported"
+        )
 
     if not isinstance(entries, (tuple, list)):
         raise D5ClassifierError("Explicit reviewed registry required")

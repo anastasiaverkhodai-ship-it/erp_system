@@ -6,6 +6,8 @@ Never authorizes statutory filing, changes payroll, or writes rows.
 
 from datetime import date
 
+from app.services.payroll_d5_classifier_guard import D5_SUPPORTED_FROM
+
 from app.services.payroll_regulatory_readiness_service import (
     payroll_regulatory_readiness,
 )
@@ -35,6 +37,11 @@ async def payroll_d5_source_bound_readiness(
     if type(reporting_date) is not date:
         raise PayrollRegulatoryReportError(
             "Exact D5 reporting date required"
+        )
+
+    if reporting_date < D5_SUPPORTED_FROM:
+        raise PayrollRegulatoryReportError(
+            "Profession verification before 2026-01-01 is not supported"
         )
 
     bundle = review_d5_annex_normative_bundle(
