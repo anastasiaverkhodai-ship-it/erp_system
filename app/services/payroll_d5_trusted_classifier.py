@@ -29,7 +29,15 @@ class ApprovedClassifierSource:
 
 # Populate only through separately reviewed source-control changes.
 # Never derive approval from the imported file itself.
-APPROVED_SOURCES: tuple[ApprovedClassifierSource, ...] = ()
+# Review: docs/normative_evidence/2026_11_13/APPROVAL.md.
+# Only civil profession identities/intervals are approved, not D5 filing fields.
+APPROVED_SOURCES: tuple[ApprovedClassifierSource, ...] = (
+    ApprovedClassifierSource(
+        sha256="5c08794bcd7212cf8baaee5bbdb6f9642b5654868b0e261bdfa438f0b30f4a1c",
+        source_reference="DK003:2010 civil sections 1-9; Ministry consolidated XLS 2023 and amendments 12-17",
+        source_version="civil-2026-a17-20261112",
+    ),
+)
 
 
 def import_approved_classifier(

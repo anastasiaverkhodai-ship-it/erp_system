@@ -231,7 +231,7 @@ async def test_d5_verified_write_idempotency_and_negative_e2e(
         )
 
         # Trust anchor exists exclusively in this isolated test.
-        assert trusted_registry.APPROVED_SOURCES == ()
+        assert all(item.source_version != "TEST" for item in trusted_registry.APPROVED_SOURCES)
         monkeypatch.setattr(
             trusted_registry,
             "APPROVED_SOURCES",

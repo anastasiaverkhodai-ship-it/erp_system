@@ -1,5 +1,9 @@
 # D5 civil-profession reconciliation — 12 November 2026
 
+**Subsequent decision (13 November):** the commencement review and production
+registry admission are recorded in [APPROVAL.md](../2026_11_13/APPROVAL.md).
+The NOT APPROVED section below records the earlier state, retained for audit.
+
 Scope agreed by the user: event/report dates from 2026-01-01; earlier dates
 explicitly unsupported. Private-enterprise payroll uses civil sections 1–9.
 Military section 0 is outside this delivery. The start of supported coverage

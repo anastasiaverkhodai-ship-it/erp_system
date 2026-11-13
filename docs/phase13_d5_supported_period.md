@@ -23,3 +23,8 @@ with an older effective source. This is not normative dataset approval.
 sources are in `normative_evidence/2026_11_12/REVIEW.md`. The full D5 test selection
 passes (475 tests, including 27 PostgreSQL cases on an isolated cluster).
 Normative dated approval remains explicitly separate and is not yet granted.
+
+2026-11-13: civil identity/period registry admitted after the documented
+multi-source commencement review in `normative_evidence/2026_11_13/APPROVAL.md`.
+Production lookup and source-bound persistence use the pinned registry.
+Statutory form mappings and official generation remain separate approvals.

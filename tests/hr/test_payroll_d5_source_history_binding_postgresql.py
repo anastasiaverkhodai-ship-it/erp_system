@@ -145,7 +145,7 @@ async def test_real_pg_source_bound_insert_and_negative_paths(
             }],
         }, sort_keys=True).encode("utf-8")
 
-        assert trusted.APPROVED_SOURCES == ()
+        assert all(item.source_version != "TEST" for item in trusted.APPROVED_SOURCES)
 
         monkeypatch.setattr(
             trusted,

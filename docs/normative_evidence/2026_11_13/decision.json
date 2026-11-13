@@ -1,0 +1,44 @@
+{
+  "reviewed_on": "2026-11-13",
+  "scope": "civil profession identities and supported validity periods from 2026-01-01",
+  "amendment_17_effective_from": "2026-04-14",
+  "date_basis": "Primary signed order date corroborated by independent legal/payroll publications; not an explicit filled date in the annex",
+  "primary_sources": [
+    {
+      "id": "17",
+      "file": "amendment_17.pdf",
+      "url": "https://me.gov.ua/download/26517981-207f-4d5a-8bd7-a8372288873c/file.pdf",
+      "sha256": "5217473cba88c3f6aa95b49260a045fe924d480a27383f152f763e6239ff9a80",
+      "retrieved_on": "2026-11-12"
+    },
+    {
+      "id": "order_4946",
+      "file": "order_4946.pdf",
+      "url": "https://me.gov.ua/download/f9bb84e1-0f94-426f-a354-83c5b4387d73/file.pdf",
+      "sha256": "14e68401cfea32088d8e271385084db3366c56697bb2b0141340d3cd0ec85a5a",
+      "retrieved_on": "2026-11-12"
+    }
+  ],
+  "corroborating_sources": [
+    {
+      "url": "https://profpressa.com/reference-works/zmini-v-zakonodavstvi-2026",
+      "kind": "secondary",
+      "finding": "Explicit effective date 14.04.2026 in the April Ministry table"
+    },
+    {
+      "url": "https://planeta-inform.com.ua/news/the-ministry-of-economy-has-made-changes-to-the-classification-of-occupations/",
+      "kind": "secondary",
+      "finding": "Commencement on issue date, distinct from web publication on 27 April"
+    },
+    {
+      "url": "https://ips.ligazakon.net/document/FIN5940J",
+      "kind": "secondary_indexed_metadata",
+      "finding": "Current edition 14.04.2026; supplementary corroboration only"
+    }
+  ],
+  "source_content_review": "../2026_11_12/REVIEW.md",
+  "decision_review": "APPROVAL.md",
+  "approved_dataset_sha256": "5c08794bcd7212cf8baaee5bbdb6f9642b5654868b0e261bdfa438f0b30f4a1c",
+  "profession_registry_admitted": true,
+  "statutory_form_generation_authorized": false
+}

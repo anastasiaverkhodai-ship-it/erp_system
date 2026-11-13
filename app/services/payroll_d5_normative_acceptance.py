@@ -22,6 +22,10 @@ REQUIRED_SOURCE_KINDS = frozenset({
     "d5_correction_rules",
 })
 
+# Full statutory source-chain approvals (including form fields/corrections).
+# The separate civil classifier trust anchor is populated in
+# payroll_d5_trusted_classifier.APPROVED_SOURCES; its admission does not
+# authorize the missing statutory mappings handled by this review module.
 APPROVED_SOURCE_DOCUMENTS = ()
 
 BLOCKER = "D5_NORMATIVE_SOURCE_CHAIN_NOT_APPROVED"
