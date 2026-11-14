@@ -8,6 +8,10 @@ All transactions are rolled back. No production DB is accessed.
 
 import json
 import os
+from pathlib import Path
+
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 import pytest
 
@@ -206,7 +210,11 @@ async def test_real_postgresql_writer_full_lifecycle():
                 )
             ).scalar_one()
 
-            assert revision == "p13d6grant261105"
+            config = Config()
+            config.set_main_option(
+                "script_location", str(Path(__file__).resolve().parents[2] / "alembic")
+            )
+            assert revision == ScriptDirectory.from_config(config).get_current_head()
 
             # Reuse actual tenant/period/employee identities
             # from the disposable copy. No sample payroll amounts

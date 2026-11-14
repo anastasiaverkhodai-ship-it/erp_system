@@ -66,7 +66,7 @@ def test_candidate_cannot_authorize_generation(kind):
 
     assert status["official_generation"] == "BLOCKED"
     assert status["field_mapping_approved"] == 0
-    assert status["document_artifacts_verified"] == 0
+    assert status["document_artifacts_verified"] == 3
     assert not status["complete_form_schema_verified"]
     assert not status["effective_date_coverage_verified"]
 
@@ -136,3 +136,16 @@ def test_all_candidates_are_unapproved():
         row.status == "CANDIDATE"
         for row in FIELD_CANDIDATES
     )
+
+
+def test_changed_field_contract_reports_unavailable_without_authorizing(monkeypatch):
+    from app.services import payroll_regulatory_form_fields as fields
+
+    monkeypatch.setattr(fields, "CONTRACT_SHA256", "0" * 64)
+    status = field_review_status(
+        period_start=date(2026, 10, 1), period_end=date(2026, 10, 31),
+    )
+    for form in status["forms"].values():
+        assert form["verified_field_locations"] == 0
+        assert form["field_location_source"] == "UNAVAILABLE_OR_CHANGED"
+        assert form["official_generation"] == "BLOCKED"

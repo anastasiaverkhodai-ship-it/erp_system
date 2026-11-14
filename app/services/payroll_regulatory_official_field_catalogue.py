@@ -238,7 +238,7 @@ def field_review_status(
         try:
             structure = form_structure(kind)
             schema_artifact = {
-                "status": "MIRROR_BYTES_PINNED",
+                "status": "OFFICIAL_BYTES_VERIFIED",
                 "form_code": structure["form_code"],
                 "schema_sha256": structure["schema_sha256"],
                 "common_types_sha256": structure["common_types_sha256"],
@@ -250,12 +250,25 @@ def field_review_status(
                 "statutory_mapping_approved": False,
             }
 
+        from app.services.payroll_regulatory_form_fields import (
+            FormFieldError, field_contract,
+        )
+        try:
+            verified_locations = field_contract(kind)
+            location_count = len(verified_locations["fields"])
+            location_source = "OFFICIAL_DPS_LABELLED_PDF"
+        except (FormFieldError, FormSchemaError, OSError):
+            location_count = 0
+            location_source = "UNAVAILABLE_OR_CHANGED"
+
         forms[kind] = {
             "candidate_fields": len(candidates),
             "source_anchors": sorted({
                 row.source_url for row in candidates
             }),
-            "document_artifacts_verified": 0,
+            "document_artifacts_verified": 3,
+            "verified_field_locations": location_count,
+            "field_location_source": location_source,
             "effective_date_coverage_verified": False,
             "field_mapping_approved": 0,
             "complete_form_schema_verified": False,

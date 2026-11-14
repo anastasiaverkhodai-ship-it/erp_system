@@ -123,7 +123,7 @@ async def test_real_pg_correction_chain_and_scope(
         )
         assert review["replacement_candidate"][
             "fields"
-        ]["13"] == new_evidence.profession_code
+        ]["14"] == new_evidence.profession_code
         assert review["official_generation"] == "BLOCKED"
         assert review["official_rows_generated"] == 0
         assert len(review["correction_chain_sha256"]) == 64

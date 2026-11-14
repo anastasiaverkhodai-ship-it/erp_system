@@ -495,7 +495,7 @@ async def review_persisted_d5_profession_history(
         )
 
     history = review_d5_profession_history(
-        profession_code=candidate["fields"]["13"],
+        profession_code=candidate["fields"]["14"],
         reporting_date=date.fromisoformat(
             identity["effective_date"]
         ),

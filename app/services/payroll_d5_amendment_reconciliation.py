@@ -336,7 +336,7 @@ async def review_persisted_d5_amendment_reconciliation(
         )
 
     result = reconcile_d5_amendments(
-        profession_code=candidate["fields"]["13"],
+        profession_code=candidate["fields"]["14"],
         reporting_date=date.fromisoformat(
             identity["effective_date"]
         ),

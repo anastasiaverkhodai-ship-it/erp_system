@@ -1,0 +1,43 @@
+{
+  "retrieved_on": "2026-11-13",
+  "registry_url": "https://www.tax.gov.ua/data/material/000/006/58768/Forms_deklar.htm",
+  "archive_url": "https://tax.gov.ua/data/material/000/357/453385/j0500111.arj",
+  "archive_sha256": "5eb42c6cf2f8f84c122c7ee2c471ebd06c9916db9c425f43b0b0b451ba45316f",
+  "method": "Browser download from official DPS registry; local 7-Zip 26.06 extraction",
+  "archive_trailing_bytes": 8198,
+  "trailing_bytes_preserved": true,
+  "cryptographic_signature_verified": false,
+  "files": [
+    {
+      "code": "J0500111",
+      "pdf_sha256": "4613e5f53c81d075dd0bd950404857ff0402e39681c7ea9df5801454ba0e42e1",
+      "xsd_sha256": "df02ee1e3d1a696036e3008322073d1ae43119596edd5105d48fc54d6c56d846",
+      "xsd_matches_official_archive": true
+    },
+    {
+      "code": "J0510111",
+      "pdf_sha256": "bb993691e510516aac289f28c2c24cf02b9e7936c1cbac47cb64c2254d5084c7",
+      "xsd_sha256": "567d002432ea80527f62c488861a7bfc6901fbd177e01f080fb0b83bbd3f3aec",
+      "xsd_matches_official_archive": true
+    },
+    {
+      "code": "J0510411",
+      "pdf_sha256": "2088a7ebb08f4e09510d391c703920420f004ede4d8f9af1256d4f1023a3d776",
+      "xsd_sha256": "fd4c7305bfd1fe1e5f5848f84be17a9bbb93d677c2f287b44133f30b28adcf27",
+      "xsd_matches_official_archive": true
+    },
+    {
+      "code": "J0510511",
+      "pdf_sha256": "327b319820bd9b8064ec7a29a9b1f17bc62c5b7e436d9e264a22127635cbcb36",
+      "xsd_sha256": "8e624643d369d75d44d7b64c95a0771a0e2cd40be0c3d36e4744937bf7e18400",
+      "xsd_matches_official_archive": true
+    },
+    {
+      "code": "J0510611",
+      "pdf_sha256": "f8353f09f7ee9b93f97b413335b7a85f156910c4c6171ad62b2556ff9758abed",
+      "xsd_sha256": "a37449eda57ca8a69d5740f521e820b7e652e7268323c321f61fb0595fab48f3",
+      "xsd_matches_official_archive": true
+    }
+  ],
+  "statutory_mapping_approved": false
+}

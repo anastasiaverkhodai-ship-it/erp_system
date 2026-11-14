@@ -330,8 +330,8 @@ async def project_persisted_d5_category_transition(
         person_category=CATEGORY[new_kind],
         confirmed_identity=identity,
         full_name=name,
-        profession_code=new_fields["13"],
-        profession_name=new_fields["14"],
+        profession_code=new_fields["14"],
+        profession_name=new_fields["13"],
         position_title=new_fields["15"],
         order_reference=event.order_number,
         source_sha256=current[

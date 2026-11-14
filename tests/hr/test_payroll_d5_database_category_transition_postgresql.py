@@ -137,8 +137,8 @@ async def test_real_postgresql_two_row_category_transition(
 
         assert rows[0]["fields"]["10"]["end"] == expected_date
         assert rows[1]["fields"]["10"]["start"] == expected_date
-        assert rows[0]["fields"]["13"] == old.profession_code
-        assert rows[1]["fields"]["13"] == current.profession_code
+        assert rows[0]["fields"]["14"] == old.profession_code
+        assert rows[1]["fields"]["14"] == current.profession_code
         assert result["official_generation"] == "BLOCKED"
         assert result["official_rows_generated"] == 0
 

@@ -1,0 +1,34 @@
+[
+  {
+    "kind": "d1",
+    "file": "d1.xlsx",
+    "sha256": "4e28ed28ef08ba02ccb61c055ac7e7f07b828b3bb91767f7d852082f47bb596c",
+    "url": "https://mof.gov.ua/storage/files/1_1_2_%20%D0%AE%D0%9E_%D0%941%20%D0%9C%D0%A4%D0%A3(1).xlsx",
+    "acquired": "2026-11-13",
+    "method": "official index browser download"
+  },
+  {
+    "kind": "4df",
+    "file": "4df.xlsx",
+    "sha256": "776a04a466143ef34c5e07dd37a7cdf19d6f3c994ad826b0b9b55cf04aee36ca",
+    "url": "https://mof.gov.ua/storage/files/1_1_5_%20%20%D0%AE%D0%9E_4%D0%94%D0%A4_%D0%9C%D0%A4%D0%A3(1).xlsx",
+    "acquired": "2026-11-13",
+    "method": "official index browser download"
+  },
+  {
+    "kind": "d5",
+    "file": "d5.xlsx",
+    "sha256": "4beac22fe3c5da87483c142486883f3ad20c10562b88c0c0aaa81925e8ef04d7",
+    "url": "https://mof.gov.ua/storage/files/1_1_6_%20%D0%AE%D0%9E_%D0%945_%D0%9C%D0%A4%D0%A3(1).xlsx",
+    "acquired": "2026-11-13",
+    "method": "official index browser download"
+  },
+  {
+    "kind": "d6",
+    "file": "d6.xlsx",
+    "sha256": "473208f89f4458c0252617489daea0deb79eb5a6e33655a5111c87e7bd74faaf",
+    "url": "https://mof.gov.ua/storage/files/1_1_7_%20%D0%AE%D0%9E_%D0%946_%D0%9C%D0%A4%D0%A3(1).xlsx",
+    "acquired": "2026-11-13",
+    "method": "official index browser download"
+  }
+]

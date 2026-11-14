@@ -1,0 +1,1673 @@
+{
+  "version": "2026-11-13",
+  "scope": "legal_entity_payroll",
+  "first_reporting_month": "2026-07",
+  "field_locations_status": "VERIFIED_OFFICIAL_DPS_PDF",
+  "statutory_mapping_approved": false,
+  "forms": {
+    "d1": {
+      "form_code": "J0510111",
+      "official_pdf_sha256": "bb993691e510516aac289f28c2c24cf02b9e7936c1cbac47cb64c2254d5084c7",
+      "fields": [
+        {
+          "xml_tag": "HZ",
+          "column": "011",
+          "key": "report_original",
+          "label": "Звітний",
+          "rule": "report_type",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZN",
+          "column": "012",
+          "key": "report_new",
+          "label": "Звітний новий",
+          "rule": "report_type",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZU",
+          "column": "013",
+          "key": "report_correction",
+          "label": "Уточнюючий",
+          "rule": "report_type",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZY",
+          "column": "02.year",
+          "key": "report_year",
+          "label": "Звітний рік",
+          "rule": "year",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZM",
+          "column": "02.month",
+          "key": "report_month",
+          "label": "Звітний місяць",
+          "rule": "month",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HNAME",
+          "column": "03",
+          "key": "company_name",
+          "label": "Повне найменування",
+          "rule": "text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HTIN",
+          "column": "031",
+          "key": "company_tax_number",
+          "label": "ЄДРПОУ платника",
+          "rule": "edrpou",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HTIN1",
+          "column": "032",
+          "key": "predecessor_tax_number",
+          "label": "ЄДРПОУ ліквідованого платника",
+          "rule": "conditional_edrpou",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HDDGV",
+          "column": "03.date",
+          "key": "agreement_date",
+          "label": "Дата договору (угоди)",
+          "rule": "optional_date",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HNDGV",
+          "column": "03.number",
+          "key": "agreement_number",
+          "label": "Номер договору (угоди)",
+          "rule": "optional_text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HFIL",
+          "column": "033",
+          "key": "branch_code",
+          "label": "Код філії",
+          "rule": "optional_text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HFILL",
+          "column": "signature.date",
+          "key": "filing_date",
+          "label": "Дата подання",
+          "rule": "date",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HKBOS",
+          "column": "signature.director_id",
+          "key": "director_identity",
+          "label": "Ідентифікатор керівника",
+          "rule": "taxpayer_identity",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HBOS",
+          "column": "signature.director_name",
+          "key": "director_name",
+          "label": "Ім’я та прізвище керівника",
+          "rule": "text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HKBUH",
+          "column": "signature.accountant_id",
+          "key": "accountant_identity",
+          "label": "Ідентифікатор бухгалтера",
+          "rule": "conditional_identity",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HBUH",
+          "column": "signature.accountant_name",
+          "key": "accountant_name",
+          "label": "Ім’я та прізвище бухгалтера",
+          "rule": "conditional_text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "T1RXXXXG5",
+          "column": "05",
+          "key": "citizenship",
+          "label": "Громадянство",
+          "rule": "binary",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG6",
+          "column": "06",
+          "key": "gender",
+          "label": "Стать",
+          "rule": "gender",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG7S",
+          "column": "07",
+          "key": "insured_identity",
+          "label": "Ідентифікатор застрахованої особи",
+          "rule": "insured_identity",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG8",
+          "column": "08",
+          "key": "insured_category",
+          "label": "Код категорії застрахованої особи",
+          "rule": "insured_category",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG9",
+          "column": "09",
+          "key": "accrual_type",
+          "label": "Код типу нарахувань",
+          "rule": "accrual_type",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG101",
+          "column": "10.month",
+          "key": "income_month",
+          "label": "Місяць нарахування",
+          "rule": "month",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG102",
+          "column": "10.year",
+          "key": "income_year",
+          "label": "Рік нарахування",
+          "rule": "year",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG111S",
+          "column": "11.surname",
+          "key": "last_name",
+          "label": "Прізвище",
+          "rule": "optional_text",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG112S",
+          "column": "11.name",
+          "key": "first_name",
+          "label": "Ім’я",
+          "rule": "text",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG113S",
+          "column": "11.patronymic",
+          "key": "middle_name",
+          "label": "По батькові",
+          "rule": "optional_text",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG12",
+          "column": "12",
+          "key": "sick_days",
+          "label": "Дні тимчасової непрацездатності",
+          "rule": "optional_days",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG13",
+          "column": "13",
+          "key": "unpaid_leave_days",
+          "label": "Дні без збереження зарплати",
+          "rule": "optional_days",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG14",
+          "column": "14",
+          "key": "employment_days",
+          "label": "Дні трудових / цивільно-правових відносин",
+          "rule": "optional_days",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG15",
+          "column": "15",
+          "key": "maternity_days",
+          "label": "Дні відпустки у зв’язку з вагітністю та пологами",
+          "rule": "optional_days",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG16",
+          "column": "16",
+          "key": "gross_accrued",
+          "label": "Загальна сума нарахованого доходу",
+          "rule": "optional_money",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG17",
+          "column": "17",
+          "key": "usc_base",
+          "label": "База ЄСВ у межах максимальної величини",
+          "rule": "optional_money",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG18",
+          "column": "18",
+          "key": "minimum_base_difference",
+          "label": "Різниця до мінімальної бази",
+          "rule": "optional_money",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG19",
+          "column": "19",
+          "key": "usc_withheld",
+          "label": "Утриманий ЄСВ",
+          "rule": "historical_only",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG20",
+          "column": "20",
+          "key": "usc_accrued",
+          "label": "Нарахований ЄСВ",
+          "rule": "optional_money",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG21",
+          "column": "21",
+          "key": "primary_employment",
+          "label": "Основне місце роботи",
+          "rule": "binary",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG22",
+          "column": "22",
+          "key": "part_time",
+          "label": "Неповний робочий час",
+          "rule": "binary",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG23",
+          "column": "23",
+          "key": "special_service",
+          "label": "Наявність спецстажу",
+          "rule": "binary",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG24",
+          "column": "24",
+          "key": "new_workplace",
+          "label": "Нове робоче місце",
+          "rule": "binary",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG25",
+          "column": "25",
+          "key": "correction_marker",
+          "label": "Введення / виключення рядка",
+          "rule": "correction",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG26",
+          "column": "26",
+          "key": "nonfixed_work_time",
+          "label": "Договір з нефіксованим робочим часом",
+          "rule": "binary",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "R01G16",
+          "column": "total.16",
+          "key": "gross_accrued",
+          "label": "Підсумок графи 16",
+          "rule": "sum_rows",
+          "section": "totals"
+        },
+        {
+          "xml_tag": "R01G17",
+          "column": "total.17",
+          "key": "usc_base",
+          "label": "Підсумок графи 17",
+          "rule": "sum_rows",
+          "section": "totals"
+        },
+        {
+          "xml_tag": "R01G18",
+          "column": "total.18",
+          "key": "minimum_base_difference",
+          "label": "Підсумок графи 18",
+          "rule": "sum_rows",
+          "section": "totals"
+        },
+        {
+          "xml_tag": "R01G19",
+          "column": "total.19",
+          "key": "usc_withheld",
+          "label": "Підсумок графи 19",
+          "rule": "sum_rows",
+          "section": "totals"
+        },
+        {
+          "xml_tag": "R01G20",
+          "column": "total.20",
+          "key": "usc_accrued",
+          "label": "Підсумок графи 20",
+          "rule": "sum_rows",
+          "section": "totals"
+        }
+      ]
+    },
+    "4df": {
+      "form_code": "J0510411",
+      "official_pdf_sha256": "2088a7ebb08f4e09510d391c703920420f004ede4d8f9af1256d4f1023a3d776",
+      "fields": [
+        {
+          "xml_tag": "HZ",
+          "column": "011",
+          "key": "report_original",
+          "label": "Звітний",
+          "rule": "report_type",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZN",
+          "column": "012",
+          "key": "report_new",
+          "label": "Звітний новий",
+          "rule": "report_type",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZU",
+          "column": "013",
+          "key": "report_correction",
+          "label": "Уточнюючий",
+          "rule": "report_type",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZY",
+          "column": "02.year",
+          "key": "report_year",
+          "label": "Звітний рік",
+          "rule": "year",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZM",
+          "column": "02.month",
+          "key": "report_month",
+          "label": "Звітний місяць",
+          "rule": "month",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HNAME",
+          "column": "03",
+          "key": "company_name",
+          "label": "Повне найменування",
+          "rule": "text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HTIN",
+          "column": "031",
+          "key": "company_tax_number",
+          "label": "ЄДРПОУ платника",
+          "rule": "edrpou",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HFILL",
+          "column": "signature.date",
+          "key": "filing_date",
+          "label": "Дата подання",
+          "rule": "date",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HKBOS",
+          "column": "signature.director_id",
+          "key": "director_identity",
+          "label": "Ідентифікатор керівника",
+          "rule": "taxpayer_identity",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HBOS",
+          "column": "signature.director_name",
+          "key": "director_name",
+          "label": "Ім’я та прізвище керівника",
+          "rule": "text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HKBUH",
+          "column": "signature.accountant_id",
+          "key": "accountant_identity",
+          "label": "Ідентифікатор бухгалтера",
+          "rule": "conditional_identity",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HBUH",
+          "column": "signature.accountant_name",
+          "key": "accountant_name",
+          "label": "Ім’я та прізвище бухгалтера",
+          "rule": "conditional_text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HNUM",
+          "column": "02.number",
+          "key": "report_number",
+          "label": "Номер розрахунку",
+          "rule": "positive_integer",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HKATOTTG",
+          "column": "032",
+          "key": "territorial_code",
+          "label": "Код територіальної громади",
+          "rule": "text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "R00G01I",
+          "column": "04",
+          "key": "employment_count",
+          "label": "Працювало за трудовими договорами",
+          "rule": "nonnegative_integer",
+          "section": "header"
+        },
+        {
+          "xml_tag": "R00G02I",
+          "column": "05",
+          "key": "civil_contract_count",
+          "label": "Працювало за ЦПД",
+          "rule": "nonnegative_integer",
+          "section": "header"
+        },
+        {
+          "xml_tag": "T1RXXXXG02",
+          "column": "I.2",
+          "key": "taxpayer_identity",
+          "label": "РНОКПП або паспортні дані",
+          "rule": "taxpayer_identity",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG03A",
+          "column": "I.3a",
+          "key": "gross_accrued",
+          "label": "Нарахований дохід",
+          "rule": "money",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG03",
+          "column": "I.3",
+          "key": "gross_paid",
+          "label": "Виплачений дохід до утримань",
+          "rule": "money",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG04A",
+          "column": "I.4a",
+          "key": "pit_accrued",
+          "label": "Нарахований ПДФО",
+          "rule": "money",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG04",
+          "column": "I.4",
+          "key": "pit_remitted",
+          "label": "Перерахований ПДФО",
+          "rule": "money",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG5A",
+          "column": "I.5a",
+          "key": "levy_accrued",
+          "label": "Нарахований військовий збір",
+          "rule": "money",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG5",
+          "column": "I.5",
+          "key": "levy_remitted",
+          "label": "Перерахований військовий збір",
+          "rule": "money",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG05",
+          "column": "I.6",
+          "key": "income_code",
+          "label": "Ознака доходу",
+          "rule": "income_code",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG06D",
+          "column": "I.7",
+          "key": "hire_date",
+          "label": "Дата прийняття",
+          "rule": "optional_date",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG07D",
+          "column": "I.8",
+          "key": "termination_date",
+          "label": "Дата звільнення",
+          "rule": "optional_date",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG08",
+          "column": "I.9",
+          "key": "tax_relief_code",
+          "label": "Ознака податкової соціальної пільги",
+          "rule": "tax_relief_code",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG09",
+          "column": "I.10",
+          "key": "correction_marker",
+          "label": "Введення / виключення рядка",
+          "rule": "correction",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "R01G03A",
+          "column": "I.total.03A",
+          "key": "gross_accrued",
+          "label": "Підсумок gross_accrued",
+          "rule": "sum_rows",
+          "section": "totals"
+        },
+        {
+          "xml_tag": "R0201G03A",
+          "column": "II.1.03A",
+          "key": "gross_accrued",
+          "label": "Проценти",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0202G03A",
+          "column": "II.2.03A",
+          "key": "gross_accrued",
+          "label": "Проценти — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0203G03A",
+          "column": "II.3.03A",
+          "key": "gross_accrued",
+          "label": "Лотерея",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0204G03A",
+          "column": "II.4.03A",
+          "key": "gross_accrued",
+          "label": "Лотерея — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0205G03A",
+          "column": "II.5.03A",
+          "key": "gross_accrued",
+          "label": "Винагорода військовополоненим",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0206G03A",
+          "column": "II.6.03A",
+          "key": "gross_accrued",
+          "label": "Винагорода військовополоненим — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0207G03A",
+          "column": "II.7.03A",
+          "key": "gross_accrued",
+          "label": "Військовий збір до 2021",
+          "rule": "historical_only",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0208G03A",
+          "column": "II.8.03A",
+          "key": "gross_accrued",
+          "label": "Військовий збір до 2021 — виключення",
+          "rule": "historical_only",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R01G03",
+          "column": "I.total.03",
+          "key": "gross_paid",
+          "label": "Підсумок gross_paid",
+          "rule": "sum_rows",
+          "section": "totals"
+        },
+        {
+          "xml_tag": "R0203G03",
+          "column": "II.3.03",
+          "key": "gross_paid",
+          "label": "Лотерея",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0204G03",
+          "column": "II.4.03",
+          "key": "gross_paid",
+          "label": "Лотерея — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0205G03",
+          "column": "II.5.03",
+          "key": "gross_paid",
+          "label": "Винагорода військовополоненим",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0206G03",
+          "column": "II.6.03",
+          "key": "gross_paid",
+          "label": "Винагорода військовополоненим — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0207G03",
+          "column": "II.7.03",
+          "key": "gross_paid",
+          "label": "Військовий збір до 2021",
+          "rule": "historical_only",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0208G03",
+          "column": "II.8.03",
+          "key": "gross_paid",
+          "label": "Військовий збір до 2021 — виключення",
+          "rule": "historical_only",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R01G04A",
+          "column": "I.total.04A",
+          "key": "pit_accrued",
+          "label": "Підсумок pit_accrued",
+          "rule": "sum_rows",
+          "section": "totals"
+        },
+        {
+          "xml_tag": "R0201G04A",
+          "column": "II.1.04A",
+          "key": "pit_accrued",
+          "label": "Проценти",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0202G04A",
+          "column": "II.2.04A",
+          "key": "pit_accrued",
+          "label": "Проценти — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0203G04A",
+          "column": "II.3.04A",
+          "key": "pit_accrued",
+          "label": "Лотерея",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0204G04A",
+          "column": "II.4.04A",
+          "key": "pit_accrued",
+          "label": "Лотерея — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0205G04A",
+          "column": "II.5.04A",
+          "key": "pit_accrued",
+          "label": "Винагорода військовополоненим",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0206G04A",
+          "column": "II.6.04A",
+          "key": "pit_accrued",
+          "label": "Винагорода військовополоненим — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0207G04A",
+          "column": "II.7.04A",
+          "key": "pit_accrued",
+          "label": "Військовий збір до 2021",
+          "rule": "historical_only",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0208G04A",
+          "column": "II.8.04A",
+          "key": "pit_accrued",
+          "label": "Військовий збір до 2021 — виключення",
+          "rule": "historical_only",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R01G04",
+          "column": "I.total.04",
+          "key": "pit_remitted",
+          "label": "Підсумок pit_remitted",
+          "rule": "sum_rows",
+          "section": "totals"
+        },
+        {
+          "xml_tag": "R0201G04",
+          "column": "II.1.04",
+          "key": "pit_remitted",
+          "label": "Проценти",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0202G04",
+          "column": "II.2.04",
+          "key": "pit_remitted",
+          "label": "Проценти — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0203G04",
+          "column": "II.3.04",
+          "key": "pit_remitted",
+          "label": "Лотерея",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0204G04",
+          "column": "II.4.04",
+          "key": "pit_remitted",
+          "label": "Лотерея — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0205G04",
+          "column": "II.5.04",
+          "key": "pit_remitted",
+          "label": "Винагорода військовополоненим",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0206G04",
+          "column": "II.6.04",
+          "key": "pit_remitted",
+          "label": "Винагорода військовополоненим — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0207G04",
+          "column": "II.7.04",
+          "key": "pit_remitted",
+          "label": "Військовий збір до 2021",
+          "rule": "historical_only",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0208G04",
+          "column": "II.8.04",
+          "key": "pit_remitted",
+          "label": "Військовий збір до 2021 — виключення",
+          "rule": "historical_only",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R01G5A",
+          "column": "I.total.5A",
+          "key": "levy_accrued",
+          "label": "Підсумок levy_accrued",
+          "rule": "sum_rows",
+          "section": "totals"
+        },
+        {
+          "xml_tag": "R0201G5A",
+          "column": "II.1.5A",
+          "key": "levy_accrued",
+          "label": "Проценти",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0202G5A",
+          "column": "II.2.5A",
+          "key": "levy_accrued",
+          "label": "Проценти — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0203G5A",
+          "column": "II.3.5A",
+          "key": "levy_accrued",
+          "label": "Лотерея",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0204G5A",
+          "column": "II.4.5A",
+          "key": "levy_accrued",
+          "label": "Лотерея — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0205G5A",
+          "column": "II.5.5A",
+          "key": "levy_accrued",
+          "label": "Винагорода військовополоненим",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0206G5A",
+          "column": "II.6.5A",
+          "key": "levy_accrued",
+          "label": "Винагорода військовополоненим — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0207G5A",
+          "column": "II.7.5A",
+          "key": "levy_accrued",
+          "label": "Військовий збір до 2021",
+          "rule": "historical_only",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0208G5A",
+          "column": "II.8.5A",
+          "key": "levy_accrued",
+          "label": "Військовий збір до 2021 — виключення",
+          "rule": "historical_only",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R01G5",
+          "column": "I.total.5",
+          "key": "levy_remitted",
+          "label": "Підсумок levy_remitted",
+          "rule": "sum_rows",
+          "section": "totals"
+        },
+        {
+          "xml_tag": "R0201G5",
+          "column": "II.1.5",
+          "key": "levy_remitted",
+          "label": "Проценти",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0202G5",
+          "column": "II.2.5",
+          "key": "levy_remitted",
+          "label": "Проценти — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0203G5",
+          "column": "II.3.5",
+          "key": "levy_remitted",
+          "label": "Лотерея",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0204G5",
+          "column": "II.4.5",
+          "key": "levy_remitted",
+          "label": "Лотерея — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0205G5",
+          "column": "II.5.5",
+          "key": "levy_remitted",
+          "label": "Винагорода військовополоненим",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0206G5",
+          "column": "II.6.5",
+          "key": "levy_remitted",
+          "label": "Винагорода військовополоненим — виключення",
+          "rule": "non_payroll_activity",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0207G5",
+          "column": "II.7.5",
+          "key": "levy_remitted",
+          "label": "Військовий збір до 2021",
+          "rule": "historical_only",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "R0208G5",
+          "column": "II.8.5",
+          "key": "levy_remitted",
+          "label": "Військовий збір до 2021 — виключення",
+          "rule": "historical_only",
+          "section": "section_ii"
+        },
+        {
+          "xml_tag": "T3RXXXXG02S",
+          "column": "III.2",
+          "key": "taxpayer_identity",
+          "label": "Бюджетний грант: taxpayer_identity",
+          "rule": "non_payroll_activity",
+          "section": "section_iii"
+        },
+        {
+          "xml_tag": "T3RXXXXG03S",
+          "column": "III.3",
+          "key": "agreement_number",
+          "label": "Бюджетний грант: agreement_number",
+          "rule": "non_payroll_activity",
+          "section": "section_iii"
+        },
+        {
+          "xml_tag": "T3RXXXXG04D",
+          "column": "III.4",
+          "key": "agreement_date",
+          "label": "Бюджетний грант: agreement_date",
+          "rule": "non_payroll_activity",
+          "section": "section_iii"
+        },
+        {
+          "xml_tag": "T3RXXXXG05D",
+          "column": "III.5",
+          "key": "deadline",
+          "label": "Бюджетний грант: deadline",
+          "rule": "non_payroll_activity",
+          "section": "section_iii"
+        },
+        {
+          "xml_tag": "T3RXXXXG06S",
+          "column": "III.6",
+          "key": "purpose",
+          "label": "Бюджетний грант: purpose",
+          "rule": "non_payroll_activity",
+          "section": "section_iii"
+        },
+        {
+          "xml_tag": "T3RXXXXG07D",
+          "column": "III.7",
+          "key": "performed_on",
+          "label": "Бюджетний грант: performed_on",
+          "rule": "non_payroll_activity",
+          "section": "section_iii"
+        },
+        {
+          "xml_tag": "T3RXXXXG08A",
+          "column": "III.8a",
+          "key": "contract_amount",
+          "label": "Бюджетний грант: contract_amount",
+          "rule": "non_payroll_activity",
+          "section": "section_iii"
+        },
+        {
+          "xml_tag": "T3RXXXXG08",
+          "column": "III.8",
+          "key": "paid_amount",
+          "label": "Бюджетний грант: paid_amount",
+          "rule": "non_payroll_activity",
+          "section": "section_iii"
+        },
+        {
+          "xml_tag": "T3RXXXXG09A",
+          "column": "III.9a",
+          "key": "used_as_intended",
+          "label": "Бюджетний грант: used_as_intended",
+          "rule": "non_payroll_activity",
+          "section": "section_iii"
+        },
+        {
+          "xml_tag": "T3RXXXXG09",
+          "column": "III.9",
+          "key": "used_otherwise",
+          "label": "Бюджетний грант: used_otherwise",
+          "rule": "non_payroll_activity",
+          "section": "section_iii"
+        },
+        {
+          "xml_tag": "T3RXXXXG10A",
+          "column": "III.10a",
+          "key": "returned_total",
+          "label": "Бюджетний грант: returned_total",
+          "rule": "non_payroll_activity",
+          "section": "section_iii"
+        },
+        {
+          "xml_tag": "T3RXXXXG10",
+          "column": "III.10",
+          "key": "returned_misused",
+          "label": "Бюджетний грант: returned_misused",
+          "rule": "non_payroll_activity",
+          "section": "section_iii"
+        },
+        {
+          "xml_tag": "T3RXXXXG11",
+          "column": "III.11",
+          "key": "correction_marker",
+          "label": "Бюджетний грант: correction_marker",
+          "rule": "non_payroll_activity",
+          "section": "section_iii"
+        }
+      ]
+    },
+    "d5": {
+      "form_code": "J0510511",
+      "official_pdf_sha256": "327b319820bd9b8064ec7a29a9b1f17bc62c5b7e436d9e264a22127635cbcb36",
+      "fields": [
+        {
+          "xml_tag": "HZ",
+          "column": "011",
+          "key": "report_original",
+          "label": "Звітний",
+          "rule": "report_type",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZN",
+          "column": "012",
+          "key": "report_new",
+          "label": "Звітний новий",
+          "rule": "report_type",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZU",
+          "column": "013",
+          "key": "report_correction",
+          "label": "Уточнюючий",
+          "rule": "report_type",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZY",
+          "column": "02.year",
+          "key": "report_year",
+          "label": "Звітний рік",
+          "rule": "year",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZM",
+          "column": "02.month",
+          "key": "report_month",
+          "label": "Звітний місяць",
+          "rule": "month",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HNAME",
+          "column": "03",
+          "key": "company_name",
+          "label": "Повне найменування",
+          "rule": "text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HTIN",
+          "column": "031",
+          "key": "company_tax_number",
+          "label": "ЄДРПОУ платника",
+          "rule": "edrpou",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HTIN1",
+          "column": "032",
+          "key": "predecessor_tax_number",
+          "label": "ЄДРПОУ ліквідованого платника",
+          "rule": "conditional_edrpou",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HDDGV",
+          "column": "03.date",
+          "key": "agreement_date",
+          "label": "Дата договору (угоди)",
+          "rule": "optional_date",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HNDGV",
+          "column": "03.number",
+          "key": "agreement_number",
+          "label": "Номер договору (угоди)",
+          "rule": "optional_text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HFIL",
+          "column": "033",
+          "key": "branch_code",
+          "label": "Код філії",
+          "rule": "optional_text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HFILL",
+          "column": "signature.date",
+          "key": "filing_date",
+          "label": "Дата подання",
+          "rule": "date",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HKBOS",
+          "column": "signature.director_id",
+          "key": "director_identity",
+          "label": "Ідентифікатор керівника",
+          "rule": "taxpayer_identity",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HBOS",
+          "column": "signature.director_name",
+          "key": "director_name",
+          "label": "Ім’я та прізвище керівника",
+          "rule": "text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HKBUH",
+          "column": "signature.accountant_id",
+          "key": "accountant_identity",
+          "label": "Ідентифікатор бухгалтера",
+          "rule": "conditional_identity",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HBUH",
+          "column": "signature.accountant_name",
+          "key": "accountant_name",
+          "label": "Ім’я та прізвище бухгалтера",
+          "rule": "conditional_text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "T1RXXXXG5",
+          "column": "05",
+          "key": "citizenship",
+          "label": "Громадянство",
+          "rule": "binary",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG6",
+          "column": "06",
+          "key": "civil_contract_with_employee",
+          "label": "ЦПД з одночасним працевлаштуванням",
+          "rule": "conditional_binary",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG7",
+          "column": "07",
+          "key": "person_category",
+          "label": "Категорія особи",
+          "rule": "person_category",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG8S",
+          "column": "08",
+          "key": "insured_identity",
+          "label": "Ідентифікатор застрахованої особи",
+          "rule": "insured_identity",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG91S",
+          "column": "09.surname",
+          "key": "last_name",
+          "label": "Прізвище",
+          "rule": "optional_text",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG92S",
+          "column": "09.name",
+          "key": "first_name",
+          "label": "Ім’я",
+          "rule": "text",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG93S",
+          "column": "09.patronymic",
+          "key": "middle_name",
+          "label": "По батькові",
+          "rule": "optional_text",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG101D",
+          "column": "10.start",
+          "key": "event_start",
+          "label": "Дата початку",
+          "rule": "optional_date",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG102D",
+          "column": "10.end",
+          "key": "event_end",
+          "label": "Дата закінчення",
+          "rule": "optional_date",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG11",
+          "column": "11",
+          "key": "internal_secondary",
+          "label": "Внутрішній сумісник",
+          "rule": "conditional_binary",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG12",
+          "column": "12",
+          "key": "transfer",
+          "label": "Переведення / переміщення",
+          "rule": "binary",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG13S",
+          "column": "13",
+          "key": "professional_name",
+          "label": "Професійна назва роботи",
+          "rule": "conditional_text",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG14S",
+          "column": "14",
+          "key": "profession_code",
+          "label": "Код класифікатора професій",
+          "rule": "conditional_text",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG15S",
+          "column": "15",
+          "key": "position_name",
+          "label": "Посада",
+          "rule": "conditional_text",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG16S",
+          "column": "16",
+          "key": "event_document",
+          "label": "Документ-підстава",
+          "rule": "text",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG17S",
+          "column": "17",
+          "key": "termination_ground",
+          "label": "Підстава припинення відносин",
+          "rule": "conditional_text",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG18D",
+          "column": "18",
+          "key": "workplace_created_on",
+          "label": "Дата створення нового робочого місця",
+          "rule": "optional_date",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG19S",
+          "column": "19",
+          "key": "military_rank",
+          "label": "Військове звання",
+          "rule": "military_only",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG20",
+          "column": "20",
+          "key": "correction_marker",
+          "label": "Введення / виключення рядка",
+          "rule": "correction",
+          "section": "rows"
+        }
+      ]
+    },
+    "d6": {
+      "form_code": "J0510611",
+      "official_pdf_sha256": "f8353f09f7ee9b93f97b413335b7a85f156910c4c6171ad62b2556ff9758abed",
+      "fields": [
+        {
+          "xml_tag": "HZ",
+          "column": "011",
+          "key": "report_original",
+          "label": "Звітний",
+          "rule": "report_type",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZN",
+          "column": "012",
+          "key": "report_new",
+          "label": "Звітний новий",
+          "rule": "report_type",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZU",
+          "column": "013",
+          "key": "report_correction",
+          "label": "Уточнюючий",
+          "rule": "report_type",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZY",
+          "column": "02.year",
+          "key": "report_year",
+          "label": "Звітний рік",
+          "rule": "year",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HZM",
+          "column": "02.month",
+          "key": "report_month",
+          "label": "Звітний місяць",
+          "rule": "month",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HNAME",
+          "column": "03",
+          "key": "company_name",
+          "label": "Повне найменування",
+          "rule": "text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HTIN",
+          "column": "031",
+          "key": "company_tax_number",
+          "label": "ЄДРПОУ платника",
+          "rule": "edrpou",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HTIN1",
+          "column": "032",
+          "key": "predecessor_tax_number",
+          "label": "ЄДРПОУ ліквідованого платника",
+          "rule": "conditional_edrpou",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HFILL",
+          "column": "signature.date",
+          "key": "filing_date",
+          "label": "Дата подання",
+          "rule": "date",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HKBOS",
+          "column": "signature.director_id",
+          "key": "director_identity",
+          "label": "Ідентифікатор керівника",
+          "rule": "taxpayer_identity",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HBOS",
+          "column": "signature.director_name",
+          "key": "director_name",
+          "label": "Ім’я та прізвище керівника",
+          "rule": "text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HKBUH",
+          "column": "signature.accountant_id",
+          "key": "accountant_identity",
+          "label": "Ідентифікатор бухгалтера",
+          "rule": "conditional_identity",
+          "section": "header"
+        },
+        {
+          "xml_tag": "HBUH",
+          "column": "signature.accountant_name",
+          "key": "accountant_name",
+          "label": "Ім’я та прізвище бухгалтера",
+          "rule": "conditional_text",
+          "section": "header"
+        },
+        {
+          "xml_tag": "T1RXXXXG5",
+          "column": "05",
+          "key": "citizenship",
+          "label": "Громадянство",
+          "rule": "binary",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG6S",
+          "column": "06",
+          "key": "insured_identity",
+          "label": "Ідентифікатор застрахованої особи",
+          "rule": "insured_identity",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG7S",
+          "column": "07",
+          "key": "special_service_code",
+          "label": "Код підстави спецстажу",
+          "rule": "special_service_code",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG81S",
+          "column": "08.surname",
+          "key": "last_name",
+          "label": "Прізвище",
+          "rule": "optional_text",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG82S",
+          "column": "08.name",
+          "key": "first_name",
+          "label": "Ім’я",
+          "rule": "text",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG83S",
+          "column": "08.patronymic",
+          "key": "middle_name",
+          "label": "По батькові",
+          "rule": "optional_text",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG9",
+          "column": "09",
+          "key": "start_day",
+          "label": "Початок періоду",
+          "rule": "day",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG10",
+          "column": "10",
+          "key": "end_day",
+          "label": "Кінець періоду",
+          "rule": "day",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG11",
+          "column": "11",
+          "key": "service_days",
+          "label": "Фактичні дні спецстажу",
+          "rule": "conditional_integer",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG121",
+          "column": "12.hours",
+          "key": "service_hours",
+          "label": "Фактичні години спецстажу",
+          "rule": "conditional_integer",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG122",
+          "column": "12.minutes",
+          "key": "service_minutes",
+          "label": "Фактичні хвилини спецстажу",
+          "rule": "conditional_minutes",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG131",
+          "column": "13.days",
+          "key": "normal_days",
+          "label": "Норма днів спецстажу",
+          "rule": "conditional_integer",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG132",
+          "column": "13.hours",
+          "key": "normal_hours",
+          "label": "Норма годин спецстажу",
+          "rule": "conditional_integer",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG133",
+          "column": "13.minutes",
+          "key": "normal_minutes",
+          "label": "Норма хвилин спецстажу",
+          "rule": "conditional_minutes",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG14S",
+          "column": "14",
+          "key": "attestation_order_number",
+          "label": "Номер наказу про атестацію",
+          "rule": "conditional_text",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG15D",
+          "column": "15",
+          "key": "attestation_order_date",
+          "label": "Дата наказу про атестацію",
+          "rule": "optional_date",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG16",
+          "column": "16",
+          "key": "seasonal",
+          "label": "Сезонний характер праці",
+          "rule": "conditional_binary",
+          "section": "rows"
+        },
+        {
+          "xml_tag": "T1RXXXXG17",
+          "column": "17",
+          "key": "correction_marker",
+          "label": "Введення / виключення рядка",
+          "rule": "correction",
+          "section": "rows"
+        }
+      ]
+    }
+  }
+}

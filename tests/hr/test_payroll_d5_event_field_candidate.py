@@ -46,6 +46,8 @@ def test_hire_candidate_fields():
     assert result["fields"]["10"]["start"] == "15102026"
     assert result["fields"]["10"]["end"] is None
     assert result["fields"]["12"] == 0
+    assert result["fields"]["13"] == "Test Profession"
+    assert result["fields"]["14"] == "2419.2"
     assert result["official_row"] is False
     assert result["official_generation"] == "BLOCKED"
 

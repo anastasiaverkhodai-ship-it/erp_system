@@ -109,6 +109,6 @@ def test_readiness_reports_recovered_bytes_separately_from_approval():
     status = field_review_status(period_start=date(2026, 10, 1), period_end=date(2026, 10, 31))
     for kind in contract.FORMS:
         item = status["forms"][kind]
-        assert item["electronic_schema_artifact"]["status"] == "MIRROR_BYTES_PINNED"
+        assert item["electronic_schema_artifact"]["status"] == "OFFICIAL_BYTES_VERIFIED"
         assert item["field_mapping_approved"] == 0
         assert item["official_generation"] == "BLOCKED"

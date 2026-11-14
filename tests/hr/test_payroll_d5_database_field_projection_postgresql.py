@@ -127,7 +127,7 @@ async def test_real_postgresql_projection_and_rejections(
         assert fields["10"]["start"] == (
             event.effective_date.strftime("%d%m%Y")
         )
-        assert fields["13"] == evidence.profession_code
+        assert fields["14"] == evidence.profession_code
         assert fields["15"] == evidence.position_name
         assert fields["16"] == event.order_number
 

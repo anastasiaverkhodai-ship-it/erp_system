@@ -1,6 +1,7 @@
 """Pinned electronic form structure, separate from statutory approval.
 
-The schemas were recovered from public EDZV distribution mirrors. Passing
+The schemas initially recovered from EDZV mirrors were byte-verified against
+the official DPS archive on 2026-11-13. Passing
 XSD validation proves structure only, not legal applicability, source
 allocation, classifier validity, arithmetic or permission to file.
 """

@@ -5,44 +5,62 @@
     {
       "file": "J0500111.xsd",
       "sha256": "df02ee1e3d1a696036e3008322073d1ae43119596edd5105d48fc54d6c56d846",
-      "archive_url": "https://opz.org.ua/uploads/files/public/edzv-1.34.9.0-upd-setup.exe",
-      "source_status": "PUBLIC_DISTRIBUTION_MIRROR",
-      "statutory_mapping_approved": false
+      "archive_url": "https://tax.gov.ua/data/material/000/357/453385/j0500111.arj",
+      "source_status": "OFFICIAL_BYTES_VERIFIED",
+      "statutory_mapping_approved": false,
+      "original_mirror_url": "https://opz.org.ua/uploads/files/public/edzv-1.34.9.0-upd-setup.exe",
+      "official_verified_on": "2026-11-13",
+      "official_archive_sha256": "5eb42c6cf2f8f84c122c7ee2c471ebd06c9916db9c425f43b0b0b451ba45316f"
     },
     {
       "file": "J0510111.xsd",
       "sha256": "567d002432ea80527f62c488861a7bfc6901fbd177e01f080fb0b83bbd3f3aec",
-      "archive_url": "https://opz.org.ua/uploads/files/public/edzv-1.34.9.0-upd-setup.exe",
-      "source_status": "PUBLIC_DISTRIBUTION_MIRROR",
-      "statutory_mapping_approved": false
+      "archive_url": "https://tax.gov.ua/data/material/000/357/453385/j0500111.arj",
+      "source_status": "OFFICIAL_BYTES_VERIFIED",
+      "statutory_mapping_approved": false,
+      "original_mirror_url": "https://opz.org.ua/uploads/files/public/edzv-1.34.9.0-upd-setup.exe",
+      "official_verified_on": "2026-11-13",
+      "official_archive_sha256": "5eb42c6cf2f8f84c122c7ee2c471ebd06c9916db9c425f43b0b0b451ba45316f"
     },
     {
       "file": "J0510411.xsd",
       "sha256": "fd4c7305bfd1fe1e5f5848f84be17a9bbb93d677c2f287b44133f30b28adcf27",
-      "archive_url": "https://opz.org.ua/uploads/files/public/edzv-1.34.9.0-upd-setup.exe",
-      "source_status": "PUBLIC_DISTRIBUTION_MIRROR",
-      "statutory_mapping_approved": false
+      "archive_url": "https://tax.gov.ua/data/material/000/357/453385/j0500111.arj",
+      "source_status": "OFFICIAL_BYTES_VERIFIED",
+      "statutory_mapping_approved": false,
+      "original_mirror_url": "https://opz.org.ua/uploads/files/public/edzv-1.34.9.0-upd-setup.exe",
+      "official_verified_on": "2026-11-13",
+      "official_archive_sha256": "5eb42c6cf2f8f84c122c7ee2c471ebd06c9916db9c425f43b0b0b451ba45316f"
     },
     {
       "file": "J0510511.xsd",
       "sha256": "8e624643d369d75d44d7b64c95a0771a0e2cd40be0c3d36e4744937bf7e18400",
-      "archive_url": "https://opz.org.ua/uploads/files/public/edzv-1.34.9.0-upd-setup.exe",
-      "source_status": "PUBLIC_DISTRIBUTION_MIRROR",
-      "statutory_mapping_approved": false
+      "archive_url": "https://tax.gov.ua/data/material/000/357/453385/j0500111.arj",
+      "source_status": "OFFICIAL_BYTES_VERIFIED",
+      "statutory_mapping_approved": false,
+      "original_mirror_url": "https://opz.org.ua/uploads/files/public/edzv-1.34.9.0-upd-setup.exe",
+      "official_verified_on": "2026-11-13",
+      "official_archive_sha256": "5eb42c6cf2f8f84c122c7ee2c471ebd06c9916db9c425f43b0b0b451ba45316f"
     },
     {
       "file": "J0510611.xsd",
       "sha256": "a37449eda57ca8a69d5740f521e820b7e652e7268323c321f61fb0595fab48f3",
-      "archive_url": "https://opz.org.ua/uploads/files/public/edzv-1.34.9.0-upd-setup.exe",
-      "source_status": "PUBLIC_DISTRIBUTION_MIRROR",
-      "statutory_mapping_approved": false
+      "archive_url": "https://tax.gov.ua/data/material/000/357/453385/j0500111.arj",
+      "source_status": "OFFICIAL_BYTES_VERIFIED",
+      "statutory_mapping_approved": false,
+      "original_mirror_url": "https://opz.org.ua/uploads/files/public/edzv-1.34.9.0-upd-setup.exe",
+      "official_verified_on": "2026-11-13",
+      "official_archive_sha256": "5eb42c6cf2f8f84c122c7ee2c471ebd06c9916db9c425f43b0b0b451ba45316f"
     },
     {
       "file": "common_types.xsd",
       "sha256": "f53226747bda74c793f2fd9e9b55d55e5073219f866b2cd29c10e60ba340fef1",
-      "archive_url": "https://opz.org.ua/uploads/files/public/edzv-1.33.11.0-upd-setup.exe",
-      "source_status": "PUBLIC_DISTRIBUTION_MIRROR",
-      "statutory_mapping_approved": false
+      "archive_url": "https://tax.gov.ua/data/material/000/357/453385/common_types.xsd",
+      "source_status": "OFFICIAL_BYTES_VERIFIED",
+      "statutory_mapping_approved": false,
+      "original_mirror_url": "https://opz.org.ua/uploads/files/public/edzv-1.33.11.0-upd-setup.exe",
+      "official_verified_on": "2026-11-13"
     }
-  ]
+  ],
+  "official_verification": "All six packaged schemas byte-identical to official DPS downloads; form semantics remain a separate review."
 }

@@ -1,0 +1,657 @@
+[
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CJ1",
+    "text": "Додаток 4 ДФ                                                                                 \nдо  Податкового розрахунку сум доходу, нарахованого (сплаченого) на користь платників податків – фізичних осіб, і сум утриманого з них податку, а також сум нарахованого єдиного внеску для податкових агентів, крім фізичних осіб – підприємців та/або осіб, які провадять незалежну професійну діяльність   \n(пункт 4 підрозділу 3  розділу ІІ )"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B2",
+    "text": "Відмітка про отримання (штамп контролюючого  органу)"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B3",
+    "text": "01"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F3",
+    "text": "Відомості про суми нарахованого доходу, утриманого та сплаченого податку на доходи фізичних осіб та військового збору"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "DA3",
+    "text": "011"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "DC3",
+    "text": "Звітний"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "DA4",
+    "text": "012"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "DC4",
+    "text": "Звітний новий "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "DA5",
+    "text": "013"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "DC5",
+    "text": "Уточнюючий "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B7",
+    "text": "02"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F7",
+    "text": "Звітний (податковий) період"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BD8",
+    "text": "(рік)"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BM8",
+    "text": "(місяць)"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "DA8",
+    "text": "(номер Розрахунку)"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B9",
+    "text": "03"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F9",
+    "text": "Платник"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B11",
+    "text": "(повне найменування юридичної особи) "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B12",
+    "text": "031"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F12",
+    "text": "Податковий номер 1"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B14",
+    "text": "032"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "Y14",
+    "text": "Код адміністративно-територіальної одиниці за місцезнаходженням податкового агента або відокремленого підрозділу, якщо Розрахунок подається за відокремлений підрозділ, за кодифікатором адміністративно територіальних одиниць та територій територіальних громад, затвердженим наказом Міністерства розвитку громад та територій України "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B16",
+    "text": "04"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F16",
+    "text": "Працювало за трудовими договорами (контрактами) (ознака 101)"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B17",
+    "text": "05"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F17",
+    "text": "Працювало за цивільно-правовими договорами (ознака 102) "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "DJ18",
+    "text": "грн, коп."
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B19",
+    "text": "06"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F19",
+    "text": "Розділ І. Персоніфіковані дані про суми нарахованого (виплаченого) на користь фізичних осіб доходу та нарахованих (перерахованих) до бюджету податку на доходи фізичних осіб та військового збору"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F20",
+    "text": "№ з/п"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "P20",
+    "text": "Реєстраційний номер облікової картки\nплатника податків (за наявності) або серія (за наявності)\nта номер паспорта 2\n"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "AJ20",
+    "text": " Сума доходу                                                                                         \n"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BE20",
+    "text": "Сума податку на доходи фізичних осіб"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BV20",
+    "text": "Сума військового збору "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BZ20",
+    "text": "Ознака доходу"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CF20",
+    "text": "Дата"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CV20",
+    "text": "Ознака податкової соціальної  пільги"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "DG20",
+    "text": "Ознака\n(0,1)"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "AJ21",
+    "text": "нарахованого"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "AT21",
+    "text": "виплаченого"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BE21",
+    "text": "нарахованого"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BN21",
+    "text": "перерахованого"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BV21",
+    "text": "нарахованого "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BX21",
+    "text": "перерахованого"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CF21",
+    "text": "прийняття на роботу (дд.мм.рррр)"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CN21",
+    "text": "звільнення з роботи (дд.мм.рррр)"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "AJ22",
+    "text": "3а"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "AT22",
+    "text": "3"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BE22",
+    "text": "4а"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BN22",
+    "text": "4"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BV22",
+    "text": "5а"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BX22",
+    "text": "5"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BZ22",
+    "text": "6"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CF22",
+    "text": "7"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CN22",
+    "text": "8"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CV22",
+    "text": "9"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "DG22",
+    "text": "10"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F24",
+    "text": "Всього "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "P24",
+    "text": "х"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BZ24",
+    "text": "х"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CF24",
+    "text": "х"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CN24",
+    "text": "х"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CV24",
+    "text": "х"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "DG24",
+    "text": "х"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B25",
+    "text": "07"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F25",
+    "text": "Розділ ІІ. Зведені дані про оподаткування процентів, виграшів (призів)  у лотерею, винагороди за працю військовополоненим"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BX25",
+    "text": "грн, коп."
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F26",
+    "text": "Показник"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "AJ26",
+    "text": "Загальна сума доходу                                                                                         \n"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BE26",
+    "text": "Загальна сума податку на доходи              фізичних осіб "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BV26",
+    "text": "Загальна сума військового збору"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "AJ27",
+    "text": "нарахованого"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "AT27",
+    "text": "виплаченого"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BE27",
+    "text": "нарахованого"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BN27",
+    "text": "   перерахованого"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BV27",
+    "text": "нарахованого"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BX27",
+    "text": "перерахованого"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F28",
+    "text": "Оподаткування процентів"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "AT28",
+    "text": "Х"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F29",
+    "text": "Оподаткування процентів - виключення3"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "AT29",
+    "text": "Х"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F30",
+    "text": "Оподаткування виграшів (призів) у лотерею"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F31",
+    "text": "Оподаткування виграшів (призів) у лотерею - виключення4"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F32",
+    "text": "Оподаткування доходів у вигляді винагороди за працю військовополоненим"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F33",
+    "text": "Оподаткування доходів у вигляді винагороди за працю військовополоненим-виключення5 "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F34",
+    "text": "Військовий збір6"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F35",
+    "text": "Військовий збір-виключення7"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B37",
+    "text": "08"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F37",
+    "text": "Розділ ІІІ. Розгорнута інформація про бюджетні гранти"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "F38",
+    "text": "№ з/п"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "P38",
+    "text": "Реєстраційний номер облікової картки\nплатника податків (за наявності)  або серія (за наявності)\nта номер паспорта 2\n"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "AJ38",
+    "text": "Відомості про укладені договори з надання бюджетних грантів"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BW38",
+    "text": "Сума гранту (грн коп.)\n "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CD38",
+    "text": "Використання сум гранту "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CT38",
+    "text": "Повернуто коштів"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "DI38",
+    "text": "Ознака\n(0,1)"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "AJ39",
+    "text": "номер договору"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "AR39",
+    "text": "дата складання"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BA39",
+    "text": "граничний термін виконання"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BJ39",
+    "text": "цільове призначення гранту"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BV39",
+    "text": "дата виконання "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BW39",
+    "text": "згідно договору"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BY39",
+    "text": "фактично надано"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CD39",
+    "text": "за цільовим призначенням    (грн, коп.)"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CL39",
+    "text": "не за цільовим призначенням  (грн, коп.)"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CT39",
+    "text": "всього"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "DB39",
+    "text": "в тому числі у зв’язку з нецільовим використанням"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BW40",
+    "text": "8а"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CD40",
+    "text": "9а"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CT40",
+    "text": "10а"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B44",
+    "text": "Дата подання"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "O44",
+    "text": "."
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "U44",
+    "text": "."
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "CP44",
+    "text": "Наведена інформація є повною і достовірною"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B48",
+    "text": "Керівник (уповноважена особа)"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "AN49",
+    "text": "Реєстраційний номер облікової картки платника податків (за наявності) або серія (за наявності) та номер паспорта²"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BJ49",
+    "text": "(підпис) "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BV49",
+    "text": "(власне ім’я та прізвище) "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B51",
+    "text": "                                                                                                                                                                                                                 "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B53",
+    "text": "Головний бухгалтер (особа, відповідальна за ведення бухгалтерського обліку)"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "AN54",
+    "text": "Реєстраційний номер облікової картки платника податків (за наявності) або серія (за наявності) та номер паспорта²"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BJ54",
+    "text": "              (підпис) "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "BV54",
+    "text": "(власне ім’я та прізвище) "
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "B55",
+    "text": "_____________________________________________________"
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "C56",
+    "text": " 1 Зазначається код згідно з ЄДРПОУ платника податку."
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "C57",
+    "text": "2 Серію (за наявності) та номер паспорта зазначають фізичні особи, які через свої релігійні переконання відмовляються від прийняття реєстраційного номера облікової картки платника податків та офіційно повідомили про це відповідний контролюючий орган і мають відмітку у паспорті."
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "C58",
+    "text": "3 Виключення інформації щодо оподаткування процентів при проведенні коригувань."
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "C59",
+    "text": "4 Виключення інформації щодо оподаткування виграшів (призів) у лотерею при проведенні коригувань."
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "C60",
+    "text": "5 Виключення інформації щодо оподаткування доходів у вигляді винагороди за працю військовополоненим при проведенні коригувань."
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "C61",
+    "text": "6 Заповнюється виключно для проведення коригування податкових розрахунків за минулі періоди до 01 січня  2021 року."
+  },
+  {
+    "sheet": "xl/worksheets/sheet1.xml",
+    "cell": "C62",
+    "text": "7 Заповнюється виключно для проведення коригування податкових розрахунків за минулі періоди до 01 січня  2021 року."
+  }
+]

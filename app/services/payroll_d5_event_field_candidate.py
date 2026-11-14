@@ -190,8 +190,8 @@ def _candidate(facts, start, end, transfer_flag):
             ),
         },
         "12": 1 if transfer_flag else 0,
-        "13": facts.profession_code.strip(),
-        "14": facts.profession_name.strip(),
+        "13": facts.profession_name.strip(),
+        "14": facts.profession_code.strip(),
         "15": facts.position_title.strip(),
         "16": facts.order_reference.strip(),
         "17": (
