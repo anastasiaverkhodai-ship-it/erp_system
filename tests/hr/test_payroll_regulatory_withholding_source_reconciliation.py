@@ -46,6 +46,30 @@ def test_partial_payments_reconcile():
     assert result["posted_payment_count"] == 2
     assert result["payment_specific_withholding"] == "NOT_VERIFIED"
     assert result["gross_paid_attribution"] == "NOT_APPROVED"
+    assert result["automatic_settlement"]["gross_covered_by_all_payments"] is None
+
+
+def test_complete_settlement_derives_gross_from_source_totals_not_budget_remittances():
+    data = args()
+    data['posted_payments'][1]['amount'] = '440.00'
+    result = reconcile_sources(**data)
+    settlement = result['automatic_settlement']
+    assert settlement['status'] == 'FULL_NET_SETTLEMENT'
+    assert settlement['gross_covered_by_all_payments'] == '1000.00'
+    assert settlement['payment_ids'] == [10, 11]
+    assert settlement['calendar_payment_months'] == ['2026-09']
+    assert settlement['statutory_reporting_month'] is None
+    assert not settlement['manual_override_allowed']
+    assert result['payment_specific_withholding'] == 'NOT_VERIFIED'
+
+
+def test_settlement_spanning_months_does_not_invent_a_gross_split():
+    data = args()
+    data['posted_payments'][1].update(amount='440.00', payment_date=date(2026, 10, 1))
+    settlement = reconcile_sources(**data)['automatic_settlement']
+    assert settlement['gross_covered_by_all_payments'] == '1000.00'
+    assert settlement['calendar_payment_months'] == ['2026-09', '2026-10']
+    assert settlement['payment_specific_allocation'] == 'NOT_DERIVABLE_FROM_AGGREGATE'
 
 
 def test_no_pit_inferred_from_non_tax_withholding():

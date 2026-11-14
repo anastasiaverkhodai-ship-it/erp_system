@@ -180,6 +180,22 @@ def reconcile_sources(
 
     remaining = net - total_paid - other_withheld
 
+    # Reconstruct only an exact aggregate. A fully settled calculation
+    # determines the total gross covered by its payments, but not the gross
+    # attributable to each partial payout or its statutory reporting month.
+    # Never divide accrued PIT/levy proportionally to manufacture that data.
+    fully_settled = bool(rows) and remaining == 0
+    payment_months = sorted({day[:7] for day in dates})
+    automatic_settlement = {
+        "status": "FULL_NET_SETTLEMENT" if fully_settled else "INCOMPLETE_NET_SETTLEMENT",
+        "gross_covered_by_all_payments": str(gross) if fully_settled else None,
+        "payment_ids": sorted(ids),
+        "calendar_payment_months": payment_months,
+        "payment_specific_allocation": "NOT_DERIVABLE_FROM_AGGREGATE",
+        "statutory_reporting_month": None,
+        "manual_override_allowed": False,
+    }
+
     return {
         "gross_accrued": str(gross),
         "statutory_net": str(net),
@@ -193,6 +209,7 @@ def reconcile_sources(
         "posted_payment_count": len(rows),
         "posted_payment_dates": sorted(dates),
         "payments": rows,
+        "automatic_settlement": automatic_settlement,
         "statutory_accrual_reconciliation": "PASS",
         "payment_specific_withholding":
             "NOT_VERIFIED",
