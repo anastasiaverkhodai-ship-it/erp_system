@@ -118,6 +118,25 @@ def test_d5_transfer_does_not_require_termination_ground():
     assert fields['T1RXXXXG102D']=='15102026'
 
 
+def test_d5_row_uses_approved_dated_profession_instead_of_caller_assertion():
+    result = project('d5')
+    evidence = result['verified_dependencies']['DATED_D5_PROFESSION']
+    assert evidence[0]['event_date'] == '2026-10-01'
+    assert len(evidence[0]['source_sha256']) == 64
+    assert 'D5_HR_EVENT_SOURCE' in result['unresolved_dependencies']
+    assert 'DATED_D5_PROFESSION_AND_HR_EVENT' not in result['unresolved_dependencies']
+
+
+@pytest.mark.parametrize('patch', [
+    {'profession_code': '9999'},
+    {'professional_name': 'Вигадана професія'},
+    {'profession_code': '3433', 'professional_name': 'Керівник апарату'},
+])
+def test_d5_unknown_or_mismatched_profession_cannot_reach_xml(patch):
+    with pytest.raises(f.FormFieldError, match='profession is not verified'):
+        project('d5', {**row('d5'), **patch})
+
+
 @pytest.mark.parametrize('patch', [
     {'service_hours': 8, 'service_minutes':0}, {'normal_days':None},
     {'service_days':32}, {'start_day':31,'end_day':1},
@@ -151,3 +170,52 @@ def test_no_silent_version_backdating(month):
 def test_unknown_semantic_input_is_not_silently_ignored():
     with pytest.raises(f.FormFieldError,match='Unknown'):
         project('4df',{**row('4df'),'net_paid':7700})
+
+
+@pytest.mark.parametrize('accrual_type', [2, 3])
+def test_d1_monetary_amendment_maps_direction_without_row_marker(accrual_type):
+    result = project('d1', {**row('d1'), 'accrual_type': accrual_type},
+                     report_type='correction', correction_kind='amounts')
+    assert result['xml_fields']['T1RXXXXG9'] == str(accrual_type)
+    assert 'D1_CORRECTION_DELTA_SOURCE' in result['unresolved_dependencies']
+    assert result['official_generation'] == 'BLOCKED'
+
+
+@pytest.mark.parametrize('patch', [
+    {'accrual_type': 2, 'correction_marker': 0},
+    {'accrual_type': 3, 'correction_marker': 1},
+    {'accrual_type': 10}, {'accrual_type': 2, 'usc_accrued': None},
+    {'accrual_type': 3, 'usc_accrued': '-22.00'},
+    {'accrual_type': 2, 'minimum_base_difference': '-100.00'},
+])
+def test_d1_monetary_amendment_rejects_mixed_mechanisms_and_signed_delta(patch):
+    with pytest.raises(f.FormFieldError):
+        project('d1', {**row('d1'), **patch},
+                report_type='correction', correction_kind='amounts')
+
+
+def test_d1_details_amendment_requires_marker_and_preserves_prior_accrual_type():
+    with pytest.raises(f.FormFieldError, match='row marker'):
+        project('d1', report_type='correction', correction_kind='details')
+    result = project('d1', {**row('d1'), 'accrual_type': 2, 'correction_marker': 1},
+                     report_type='correction', correction_kind='details')
+    assert result['xml_fields']['T1RXXXXG9'] == '2'
+    assert 'D1_ACCEPTED_ROW_AND_UNCHANGED_AMOUNTS' in result['unresolved_dependencies']
+
+
+def test_d1_amendment_cannot_infer_mechanism_from_an_ambiguous_row():
+    with pytest.raises(f.FormFieldError, match='explicit'):
+        project('d1', report_type='correction')
+    with pytest.raises(f.FormFieldError, match='only applies'):
+        project('4df', correction_kind='amounts')
+
+
+def test_d5_exclusion_preserves_erroneous_profession_without_approving_it():
+    data = {**row('d5'), 'professional_name': 'Помилкова назва', 'correction_marker': 1}
+    result = project('d5', data, report_type='correction')
+    assert 'Помилкова назва' in result['xml_fields'].values()
+    assert 'DATED_D5_PROFESSION' not in result['verified_dependencies']
+    assert 'D5_ACCEPTED_ROW_FOR_EXCLUSION' in result['unresolved_dependencies']
+    assert result['official_generation'] == 'BLOCKED'
+    with pytest.raises(f.FormFieldError, match='profession is not verified'):
+        project('d5', {**data, 'correction_marker': 0}, report_type='correction')

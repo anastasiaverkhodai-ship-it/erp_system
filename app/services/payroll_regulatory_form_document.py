@@ -130,6 +130,10 @@ def build_original_form_preview(kind, *, reporting_month, header, rows, tax_offi
         **validation, 'status': 'INTERNAL_PREVIEW_NOT_FOR_FILING', 'xml': document,
         'row_count': len(mapped), 'totals': totals,
         'field_contract_sha256': mapped[0]['field_contract_sha256'],
+        'verified_row_dependencies': {
+            str(index): row['verified_dependencies']
+            for index, row in enumerate(mapped, 1) if row['verified_dependencies']
+        },
         'unresolved_dependencies': sorted(dependencies),
         'document_sha256': sha256(document).hexdigest(),
     }

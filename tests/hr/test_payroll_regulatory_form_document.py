@@ -85,6 +85,14 @@ def test_preview_is_deterministic_and_independent_of_subsequent_input_mutation()
     assert result['totals']['gross_paid'] == '10000.00'
 
 
+def test_d5_document_preserves_per_row_dated_classifier_provenance():
+    result = build('d5')
+    verified = result['verified_row_dependencies']['1']['DATED_D5_PROFESSION'][0]
+    assert verified['event_date'] == '2026-10-01'
+    assert len(verified['source_sha256']) == 64
+    assert result['official_generation'] == 'BLOCKED'
+
+
 @pytest.mark.parametrize('kwargs', [{'rows': []}, {'tax_office_code': '2601X'},
                                   {'reporting_month': '2026-06'}, {'document_number': True}])
 def test_invalid_scope_or_transport_rejected(kwargs):

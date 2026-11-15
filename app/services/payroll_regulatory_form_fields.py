@@ -70,7 +70,8 @@ def _integer(value, field, lower, upper):
     return str(value)
 
 
-def map_review_row(kind, values, *, reporting_month, report_type='original'):
+def map_review_row(kind, values, *, reporting_month, report_type='original',
+                   correction_kind=None):
     """Map semantic row fields to official XML tags without writing a report.
 
     Returns unresolved normative dependencies explicitly. A caller-supplied
@@ -82,11 +83,17 @@ def map_review_row(kind, values, *, reporting_month, report_type='original'):
         raise FormFieldError('Version 11 requires a reporting month from July 2026')
     if type(report_type) is not str or report_type not in {'original', 'new', 'correction'}:
         raise FormFieldError('Invalid report type')
+    if kind == 'd1' and report_type == 'correction':
+        if type(correction_kind) is not str or correction_kind not in {'details', 'amounts'}:
+            raise FormFieldError('D1 correction requires an explicit details or amounts mechanism')
+    elif correction_kind is not None:
+        raise FormFieldError('Correction mechanism only applies to an amended D1')
     fields = [f for f in field_contract(kind)['fields'] if f['section'] == 'rows']
     allowed = {f['key'] for f in fields}
     if type(values) is not dict or set(values) - allowed:
         raise FormFieldError('Unknown semantic row fields')
     normalized = {}
+    verified_dependencies = {}
     dependencies = {'ERP_SOURCE_BINDING', 'REPORT_RECONCILIATION'}
     days = monthrange(first.year, first.month)[1]
     optional = {'optional_text', 'conditional_text', 'optional_date', 'optional_money',
@@ -172,7 +179,22 @@ def map_review_row(kind, values, *, reporting_month, report_type='original'):
         if report_type == 'new' and marker is None:
             raise FormFieldError('New D1 report requires a correction marker')
         if report_type == 'correction':
-            dependencies.add('D1_MONETARY_VERSUS_NONMONETARY_CORRECTION')
+            # DPS, 28 September 2026: monetary amendments use types 2/3;
+            # exclusion/insertion markers are for corrections of details.
+            # https://zp.tax.gov.ua/media-ark/news-ark/1053958.html
+            if correction_kind == 'amounts':
+                if marker is not None or values.get('accrual_type') not in {2, 3}:
+                    raise FormFieldError('D1 monetary amendment requires type 2/3 and no row marker')
+                if values.get('usc_accrued') is None:
+                    raise FormFieldError('D1 monetary amendment requires the USC difference')
+                if any(values.get(key) is not None and Decimal(_money(values[key], key)) < 0
+                       for key in ('gross_accrued', 'usc_base', 'minimum_base_difference', 'usc_accrued')):
+                    raise FormFieldError('D1 monetary amendment direction is encoded by type 2/3')
+                dependencies.add('D1_CORRECTION_DELTA_SOURCE')
+            else:
+                if marker is None:
+                    raise FormFieldError('D1 details correction requires a row marker')
+                dependencies.add('D1_ACCEPTED_ROW_AND_UNCHANGED_AMOUNTS')
         dependencies.add('D1_BASE_CAP_MINIMUM_AND_CATEGORY_RECONCILIATION')
     elif kind == 'd5':
         category = values['person_category']
@@ -188,7 +210,31 @@ def map_review_row(kind, values, *, reporting_month, report_type='original'):
         if category in {1, 2}:
             if any(not values.get(k) for k in ('professional_name', 'profession_code', 'position_name')):
                 raise FormFieldError('D5 employment requires profession and position')
-            dependencies.add('DATED_D5_PROFESSION_AND_HR_EVENT')
+            from app.services.payroll_d5_approved_registry import approved_profession_history
+            from app.services.payroll_d5_classifier_guard import D5ClassifierError
+            histories = []
+            try:
+                # An exclusion must reproduce the accepted erroneous row.
+                # Never replace its profession with a current, corrected one.
+                for event_date in sorted(set(dates)) if marker != 1 else []:
+                    period = approved_profession_history(
+                        profession_code=values['profession_code'],
+                        professional_name=values['professional_name'],
+                        event_date=event_date,
+                    ).periods[0]
+                    histories.append({
+                        'event_date': event_date.isoformat(),
+                        'effective_from': period.valid_from.isoformat(),
+                        'effective_to': period.valid_to.isoformat() if period.valid_to else None,
+                        'source_sha256': period.source_sha256,
+                    })
+            except (D5ClassifierError, OSError) as exc:
+                raise FormFieldError('D5 profession is not verified for the event date') from exc
+            if histories:
+                verified_dependencies['DATED_D5_PROFESSION'] = histories
+            else:
+                dependencies.add('D5_ACCEPTED_ROW_FOR_EXCLUSION')
+            dependencies.add('D5_HR_EVENT_SOURCE')
         if category in {1, 2, 3, 9} and values.get('event_end') and not values.get('termination_ground') and values.get('transfer') != 1:
             raise FormFieldError('D5 termination requires a documented legal ground')
     elif kind == 'd6':
@@ -222,5 +268,6 @@ def map_review_row(kind, values, *, reporting_month, report_type='original'):
                     raise FormFieldError('4DF employment date outside reporting month')
     return {'form_code': FORMS[kind], 'xml_fields': normalized,
             'field_contract_sha256': CONTRACT_SHA256,
+            'verified_dependencies': verified_dependencies,
             'unresolved_dependencies': sorted(dependencies),
             'statutory_mapping_approved': False, 'official_generation': 'BLOCKED'}
