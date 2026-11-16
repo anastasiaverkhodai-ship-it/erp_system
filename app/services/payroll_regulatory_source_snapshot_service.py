@@ -159,7 +159,7 @@ async def persist_regulatory_source_snapshot(
             PayrollRegulatoryReport.id
                 == payroll_regulatory_report_id,
         )
-        .with_for_update()
+        .with_for_update().execution_options(populate_existing=True)
     )
 
     if report is None:
@@ -179,6 +179,19 @@ async def persist_regulatory_source_snapshot(
         report_kind=report.report_kind,
     )
 
+    # Re-query persisted sources before accepting a projection or its digest.
+    # Structural reconciliation alone cannot establish source provenance.
+    from app.services.payroll_regulatory_persisted_source_verifier import (
+        verify_persisted_payroll_sources, PersistedSourceIntegrityError,
+    )
+    try:
+        await verify_persisted_payroll_sources(
+            db, company_id=company_id,
+            payroll_period_id=report.payroll_period_id, readiness=readiness,
+        )
+    except PersistedSourceIntegrityError as exc:
+        raise PayrollRegulatoryReportError(str(exc)) from exc
+
     prepared = prepare_source_snapshot(
         readiness,
         report=report,
@@ -194,6 +207,7 @@ async def persist_regulatory_source_snapshot(
                     == report.id,
             )
             .order_by(PayrollRegulatoryReportRow.row_no)
+            .execution_options(populate_existing=True)
         )
     ).all()
 
@@ -238,5 +252,6 @@ async def persist_regulatory_source_snapshot(
                     == report.id,
             )
             .order_by(PayrollRegulatoryReportRow.row_no)
+            .execution_options(populate_existing=True)
         )
     ).all())

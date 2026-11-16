@@ -205,6 +205,13 @@ async def test_real_form_writer_two_slices_and_idempotency(
             fake_payment_verifier,
         )
 
+        # Persistence-only fixture uses synthetic readiness. Actual source verification
+        # is exercised by test_payroll_statutory_provenance_postgresql and real payment E2E.
+        from app.services import payroll_regulatory_persisted_source_verifier as provenance
+        async def synthetic_provenance(*args, **kwargs):
+            return {"verified": True, "statutory_approved": False}
+        monkeypatch.setattr(provenance, "verify_persisted_payroll_sources", synthetic_provenance)
+
         allocations = []
 
         for number, gross, pit, levy in (

@@ -376,7 +376,7 @@ async def persist_reviewed_form_rows(
             PayrollRegulatoryReport.company_id == company_id,
             PayrollRegulatoryReport.id
                 == payroll_regulatory_report_id,
-        ).with_for_update()
+        ).with_for_update().execution_options(populate_existing=True)
     )
 
     if report is None:
@@ -415,6 +415,19 @@ async def persist_reviewed_form_rows(
         payroll_period_id=report.payroll_period_id,
         report_kind=report.report_kind,
     )
+
+    # Re-query persisted sources before accepting a projection or its digest.
+    # Structural reconciliation alone cannot establish source provenance.
+    from app.services.payroll_regulatory_persisted_source_verifier import (
+        verify_persisted_payroll_sources, PersistedSourceIntegrityError,
+    )
+    try:
+        await verify_persisted_payroll_sources(
+            db, company_id=company_id,
+            payroll_period_id=report.payroll_period_id, readiness=readiness,
+        )
+    except PersistedSourceIntegrityError as exc:
+        raise PayrollRegulatoryReportError(str(exc)) from exc
 
     if report.report_kind == "4df":
         from copy import deepcopy
@@ -515,6 +528,7 @@ async def persist_reviewed_form_rows(
                 PayrollRegulatoryReportRow
                     .payroll_regulatory_report_id == report.id,
             ).order_by(PayrollRegulatoryReportRow.row_no)
+            .execution_options(populate_existing=True)
         )
     ).all())
 
@@ -559,5 +573,6 @@ async def persist_reviewed_form_rows(
                 PayrollRegulatoryReportRow
                     .payroll_regulatory_report_id == report.id,
             ).order_by(PayrollRegulatoryReportRow.row_no)
+            .execution_options(populate_existing=True)
         )
     ).all())

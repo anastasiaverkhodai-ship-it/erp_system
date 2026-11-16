@@ -137,6 +137,7 @@ async def verify_persisted_payroll_sources(
                 current_calculation_filter(),
             )
             .order_by(PayrollCalculation.id)
+            .execution_options(populate_existing=True)
         )
     ).all()
 
@@ -177,6 +178,7 @@ async def verify_persisted_payroll_sources(
                 PayrollStatutoryResultLine.payroll_statutory_result_id,
                 PayrollStatutoryResultLine.line_no,
             )
+            .execution_options(populate_existing=True)
         )
     ).all()
 
