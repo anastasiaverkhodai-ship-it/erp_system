@@ -711,6 +711,13 @@ async def generate_and_post_payroll_disbursement_journal(
             cash_desk_id=disbursement.cash_desk_id,
             as_of_date=disbursement.payment_date,
         )
+    from app.services.payroll_paid_income_service import freeze_paid_income
+    from app.services.payroll_paid_income_calculation import PaidIncomeError
+    from app.services.payroll_advance_tax_source_proof import AdvanceTaxSourceProofError
+    try:
+        await freeze_paid_income(db, company_id=company_id, payment=disbursement, journal=posted_journal)
+    except (PaidIncomeError, AdvanceTaxSourceProofError) as exc:
+        raise PayrollDisbursementSourceStateError(str(exc)) from exc
     return posted_journal
 
 

@@ -114,3 +114,20 @@ def test_inconsistent_snapshot_is_blocked(change):
 
     with pytest.raises(AdvanceTaxSourceProofError):
         verify_automatic_advance_tax_source(advance)
+
+
+def test_enforcement_deduction_preserves_advance_gross_and_tax_source():
+    advance, _ = fixture()
+    advance.paid_amount = Decimal('670')
+    advance.withheld_amount = Decimal('100')
+    proof = verify_automatic_advance_tax_source(advance)
+    assert proof.gross_amount == Decimal('1000')
+    assert proof.withholding_amount == Decimal('230')
+    assert proof.net_amount == Decimal('770')
+
+
+def test_non_tax_withholding_cannot_be_added_on_top_of_original_net():
+    advance, _ = fixture()
+    advance.withheld_amount = Decimal('100')
+    with pytest.raises(AdvanceTaxSourceProofError):
+        verify_automatic_advance_tax_source(advance)

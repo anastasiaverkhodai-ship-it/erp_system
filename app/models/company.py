@@ -3,6 +3,7 @@ from enum import Enum
 
 from sqlalchemy import (
     Boolean,
+    Integer,
     CheckConstraint,
     DateTime,
     Enum as SQLEnum,
@@ -28,6 +29,7 @@ class Company(Base):
     __tablename__ = "companies"
 
     __table_args__ = (
+        CheckConstraint("salary_payment_day BETWEEN 1 AND 7", name="ck_company_salary_payment_day"),
         CheckConstraint(
             (
                 "chart_of_accounts_template IN ("
@@ -43,6 +45,8 @@ class Company(Base):
         primary_key=True,
         index=True,
     )
+
+    salary_payment_day: Mapped[int] = mapped_column(Integer, nullable=False, default=7, server_default="7")
 
     vat_policy_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
 

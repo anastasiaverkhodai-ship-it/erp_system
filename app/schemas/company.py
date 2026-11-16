@@ -8,6 +8,7 @@ from app.services.chart_of_accounts_template_types import (
 
 
 class CompanyCreate(BaseModel):
+    salary_payment_day: int = Field(default=7, ge=1, le=7, strict=True)
     name: str = Field(min_length=1, max_length=255)
     edrpou: str | None = Field(
         default=None,
@@ -28,6 +29,7 @@ class CompanyCreate(BaseModel):
 
 
 class CompanyUpdate(BaseModel):
+    salary_payment_day: int = Field(default=7, ge=1, le=7, strict=True)
     name: str | None = Field(
         default=None,
         min_length=1,
@@ -55,6 +57,7 @@ class CompanyUpdate(BaseModel):
 
 
 class CompanyResponse(BaseModel):
+    salary_payment_day: int = 7
     vat_policy_enabled: bool = False
     id: int
     name: str

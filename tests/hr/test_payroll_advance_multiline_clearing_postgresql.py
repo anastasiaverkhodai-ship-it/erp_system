@@ -965,5 +965,29 @@ async def test_real_posted_clearing_rejects_multiline_statutory_taxes(employee_e
                 duplicate_component,
             )
 
+        # End-to-end paid income: the verified advance is consumed exactly once.
+        from app.services.payroll_disbursement_service import create_payroll_disbursement, generate_and_post_payroll_disbursement_journal
+        from app.services.payroll_paid_income_service import read_paid_income
+        from app.models.employee import Employee
+        employee=await db.get(Employee,f['employee'])
+        employee.payment_iban='UA213223130000026007233566001'
+        await db.flush()
+        for index, net in [(1,Decimal('100.00')),(2,None)]:
+            payment=await create_payroll_disbursement(db,company_id=f['company'],
+                payroll_calculation_id=monthly_calculation.id,bank_account_id=bank.id,
+                payment_date=date(2026,9,30),created_by=f['actor'],amount=net,
+                request_key=f'advance-paid-income-{index}')
+            await generate_and_post_payroll_disbursement_journal(db,company_id=f['company'],
+                payroll_disbursement_id=payment.id,created_by=f['actor'])
+        paid_review=await read_paid_income(db,company_id=f['company'],payroll_calculation_id=monthly_calculation.id)
+        assert paid_review['status']=='COMPLETE'
+        assert paid_review['gross_paid_by_month']=={'2026-09':format(monthly_statutory.gross_amount,'.2f')}
+        assert len([r for r in paid_review['rows'] if r['source']=='advance'])==1
+        assert len([r for r in paid_review['rows'] if r['source']=='payment'])==2
+        from app.services.payroll_paid_income_service import project_paid_income_month
+        monthly_review=await project_paid_income_month(db,company_id=f['company'],reporting_month='2026-09')
+        assert monthly_review['status']=='COMPLETE'
+        assert monthly_review['verified_gross_paid_total']==format(monthly_statutory.gross_amount,'.2f')
+        assert len([r for r in monthly_review['rows'] if r['source']=='advance'])==1
         await db.rollback()
         print("B3-C2 TEST TRANSACTION ROLLBACK = PASS")

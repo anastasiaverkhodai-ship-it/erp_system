@@ -211,3 +211,35 @@ async def download_4df_financial_review(
                 str(document.calculation_count),
         },
     )
+
+
+@router.get('/payroll-calculations/{payroll_calculation_id}/paid-income')
+async def paid_income_review(
+    company_id: int,
+    payroll_calculation_id: int,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_company_permission('employees.manage')),
+):
+    from app.services.payroll_paid_income_service import read_paid_income
+    from app.services.payroll_paid_income_calculation import PaidIncomeError
+    from app.services.payroll_regulatory_withholding_source_reconciliation import WithholdingReconciliationError
+    from app.services.payroll_advance_tax_source_proof import AdvanceTaxSourceProofError
+    try:
+        return await read_paid_income(db,company_id=company_id,payroll_calculation_id=payroll_calculation_id)
+    except (PaidIncomeError,WithholdingReconciliationError,AdvanceTaxSourceProofError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@router.get('/payroll-regulatory/4df/paid-income/{reporting_month}')
+async def monthly_paid_income_review(
+    company_id: int,
+    reporting_month: str,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_company_permission('employees.manage')),
+):
+    from app.services.payroll_paid_income_service import project_paid_income_month
+    from app.services.payroll_paid_income_calculation import PaidIncomeError
+    try:
+        return await project_paid_income_month(db,company_id=company_id,reporting_month=reporting_month)
+    except PaidIncomeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc

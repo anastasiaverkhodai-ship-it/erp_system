@@ -275,3 +275,5 @@ from app.models.payroll_income_dates import PayrollIncomeDateRequest, PayrollInc
 from app.models.payroll_taxpayer_identity_review import PayrollTaxpayerIdentityReview
 
 from app.models.payroll_d6_evidence import PayrollD6Evidence, PayrollD6EvidenceReview
+
+from app.models.payroll_paid_income import PayrollPaidIncome

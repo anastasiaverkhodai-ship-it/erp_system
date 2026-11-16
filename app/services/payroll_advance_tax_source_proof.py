@@ -108,6 +108,7 @@ def verify_automatic_advance_tax_source(advance):
     minimum_net = _decimal(snapshot.get("minimum_net_amount"))
     paid = _decimal(advance.paid_amount)
     calculated = _decimal(advance.calculated_amount)
+    non_tax_withheld = _decimal(getattr(advance, "withheld_amount", 0))
 
     _require(
         gross > 0
@@ -115,7 +116,9 @@ def verify_automatic_advance_tax_source(advance):
         and withheld >= 0
         and net > 0
         and _money(gross - withheld) == net
-        and paid == net
+        and paid >= 0
+        and non_tax_withheld >= 0
+        and paid + non_tax_withheld == net
         and minimum_net >= 0
         and net >= minimum_net,
         "Advance gross, withholding and payment do not reconcile",
