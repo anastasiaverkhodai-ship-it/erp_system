@@ -50,6 +50,32 @@ def include_object(obj, name, type_, reflected, compare_to):
     }
     if type_ == 'column' and reflected and compare_to is None:
         return (obj.table.name, name) not in managed
+
+    # BEGIN PHASE13 MIGRATION-ONLY TABLES
+    # Explicit migration-owned protected tables.
+    # Their independent schema/security contract
+    # must be tested in isolated PostgreSQL E2E.
+    migration_only = frozenset({
+        "payroll_payment_tax_allocation_candidates",
+        "payroll_payment_tax_allocation_candidate_events",
+        "payroll_payment_tax_allocation_corrections",
+        "payroll_payment_tax_evidence",
+        "payroll_payment_tax_document_integrity",
+        "payroll_payment_tax_document_reviews",
+        "payroll_payment_tax_secure_custody",
+        "payroll_external_receipt_registry",
+    })
+
+    if (
+        type_ == "table"
+        and reflected
+        and compare_to is None
+        and name in migration_only
+        and getattr(obj, "schema", None) in (None, "public")
+    ):
+        return False
+    # END PHASE13 MIGRATION-ONLY TABLES
+
     return True
 
 

@@ -42,6 +42,11 @@ def allocation_from_record(record):
             cash=body['cash'], non_tax_withheld=body['non_tax_withheld'])
         if part != expected:
             raise ValueError
+        if body.get('component_evidence') is not None:
+            from app.services.payroll_paid_income_components import verify_component_evidence
+            components = verify_component_evidence(body['component_evidence'])
+            if money(components['gross']) != money(part['gross']):
+                raise ValueError
         date.fromisoformat(body['payment_date'])
         date.fromisoformat(body['accrual_month'] + '-01')
         return body
@@ -100,11 +105,12 @@ async def freeze_paid_income(db, *, company_id, payment, journal):
               for k,component in [('pit','personal_income_tax'),('levy','military_levy')]}
     if money(result.gross_amount) != money(result.net_amount)+totals['pit']+totals['levy']:
         raise PaidIncomeError('Monthly statutory source does not reconcile')
-    previous, sources = [], []
+    previous, sources, component_previous = [], [], []
+    component_issue = None
     prior = list((await db.scalars(select(PayrollDisbursement).where(
         PayrollDisbursement.company_id==company_id,
         PayrollDisbursement.payroll_calculation_id==calculation.id,
-        PayrollDisbursement.id!=payment.id))).all())
+        PayrollDisbursement.id!=payment.id).order_by(PayrollDisbursement.id))).all())
     for old in prior:
         if old.cancelled_at or old.reversed_on or not await db.scalar(active_posted_journal_query(
                 company_id=company_id,payroll_disbursement_id=old.id)):
@@ -117,6 +123,11 @@ async def freeze_paid_income(db, *, company_id, payment, journal):
         if money(body['allocation']['net']) != money(old.amount)+money(old.withheld_amount):
             raise PaidIncomeError('Prior payment allocation no longer matches payment')
         previous.append(body['allocation']); sources.append({'payment_id':old.id,'snapshot_id':record.id})
+        if body.get('component_evidence'):
+            component_previous.append(dict(settlement_id=f'payment:{old.id}',
+                slices=body['component_evidence']['body']['slices']))
+        else:
+            component_issue = 'Prior payment has no verified component allocation'
     advances = list((await db.scalars(select(PayrollAdvance).where(
         PayrollAdvance.company_id==company_id,PayrollAdvance.payroll_period_id==calculation.payroll_period_id,
         PayrollAdvance.employment_contract_id==calculation.employment_contract_id))).all())
@@ -135,6 +146,27 @@ async def freeze_paid_income(db, *, company_id, payment, journal):
     allocation = allocate_remaining_net(gross=result.gross_amount,pit=totals['pit'],levy=totals['levy'],
         previous=previous,cash=payment.amount,non_tax_withheld=payment.withheld_amount)
     period = await db.scalar(select(PayrollPeriod).where(PayrollPeriod.company_id==company_id,PayrollPeriod.id==calculation.payroll_period_id))
+    from app.models.employment_contract import EmploymentContract
+    contract = await db.get(EmploymentContract, calculation.employment_contract_id)
+    if contract is None or contract.company_id != company_id or contract.employee_id != payment.employee_id:
+        raise PaidIncomeError('Payment employee differs from payroll source')
+    from app.services.payroll_paid_income_components import load_component_sources, component_evidence, allocate_components
+    components = None
+    try:
+        component_sources = await load_component_sources(db, company_id=company_id, calculation=calculation, period=period)
+        # Advances consume salary components once; no sick/vacation balance is
+        # silently reclassified as an advance.
+        for previous_source, previous_amount in zip(sources, previous):
+            if 'advance_id' in previous_source:
+                slices = allocate_components(sources=component_sources, previous=component_previous,
+                    gross=previous_amount['gross'], salary_only=True)
+                component_previous.append(dict(settlement_id=f"advance:{previous_source['advance_id']}", slices=slices))
+        if component_issue is None:
+            components = component_evidence(sources=component_sources, previous=component_previous, gross=allocation['gross'])
+    except ValueError as exc:
+        # Existing financial posting remains available for legacy sources;
+        # missing dated evidence is explicit and cannot authorize form output.
+        component_issue = str(exc)
     company = await db.get(Company,company_id)
     month = period.start_date.strftime('%Y-%m')
     following = date(period.start_date.year+(period.start_date.month==12),period.start_date.month%12+1,1)
@@ -151,7 +183,8 @@ async def freeze_paid_income(db, *, company_id, payment, journal):
         monthly_source=dict(gross=str(result.gross_amount),pit=str(totals['pit']),levy=str(totals['levy'])),
         cash=str(payment.amount),non_tax_withheld=str(payment.withheld_amount),payment_date=payment.payment_date.isoformat(),accrual_month=month,
         nominal_salary_due_date=nominal_due.isoformat(),salary_deadline=deadline,income_line_types=types,
-        policy='PROSPECTIVE_REMAINING_NET_SHARE_V1',tax_remittance_inferred=False)
+        policy='PROSPECTIVE_REMAINING_NET_SHARE_V1',tax_remittance_inferred=False,
+        component_evidence=components,component_issue=component_issue)
     record = PayrollPaidIncome(company_id=company_id,payroll_disbursement_id=payment.id,journal_entry_id=journal.id,
         snapshot_json=canonical({'body':body,'sha256':sha256(canonical(body).encode()).hexdigest()}))
     db.add(record)
@@ -206,13 +239,19 @@ async def read_paid_income(db, *, company_id, payroll_calculation_id):
         body = allocation_from_record(record)
         if body['calculation_id']!=calculation.id or body['payment_date']!=payment['payment_date'] or money(body['allocation']['net'])!=money(payment['net_disbursed'])+money(payment['non_tax_withheld']):
             raise PaidIncomeError('Persisted paid-income source mismatch')
+        await validate_live_paid_income(db, company_id=company_id, calculation=calculation,
+            period=period, record=record, body=body)
         known_net += money(body['allocation']['net']);known_gross += money(body['allocation']['gross'])
         try:
             attributed_month=report_month_for_record(body)
         except PaidIncomeError as exc:
             attributed_month=None;issues.append(dict(payment_id=payment['payment_id'],reason=str(exc)))
         rows.append(dict(source='payment',source_ids=[payment['payment_id']],payment_date=body['payment_date'],
-            reporting_month=attributed_month,gross_paid=body['allocation']['gross'],snapshot_id=record.id))
+            reporting_month=attributed_month,gross_paid=body['allocation']['gross'],snapshot_id=record.id,
+            accrual_month=month,actual_payment_month=body['payment_date'][:7],tax_remittance_period=None,
+            component_evidence=body.get('component_evidence'),component_issue=body.get('component_issue'),
+            status='REVIEW_ONLY',official_generation='BLOCKED',
+            classification_reason='Official income classification and form mapping require independent verification'))
     advances=list((await db.scalars(select(PayrollAdvance).where(PayrollAdvance.company_id==company_id,
         PayrollAdvance.payroll_period_id==calculation.payroll_period_id,
         PayrollAdvance.employment_contract_id==calculation.employment_contract_id))).all())
@@ -338,4 +377,43 @@ async def project_paid_income_month(db, *, company_id, reporting_month):
     return dict(company_id=company_id,reporting_month=reporting_month,rows=rows,
         verified_gross_paid_total=format(total,'.2f'),
         status='INCOMPLETE_SOURCE_DATA' if issues else 'COMPLETE',issues=issues,
-        official_form_approved=False, tax_remittances_included_in_gross=False)
+        official_form_approved=False, tax_remittances_included_in_gross=False,
+        review_status='REVIEW_ONLY',official_generation='BLOCKED',
+        allocation_digest=sha256(canonical(rows).encode()).hexdigest())
+
+
+async def validate_live_paid_income(db, *, company_id, calculation, period, record, body):
+    """A self-consistent hash is not proof of accounting source identity."""
+    from app.models.employment_contract import EmploymentContract
+    payment = await db.get(PayrollDisbursement, record.payroll_disbursement_id)
+    contract = await db.get(EmploymentContract, calculation.employment_contract_id)
+    result = await db.scalar(select(PayrollStatutoryResult).where(
+        PayrollStatutoryResult.company_id == company_id,
+        PayrollStatutoryResult.payroll_calculation_id == calculation.id))
+    if (payment is None or contract is None or result is None
+            or payment.company_id != company_id or contract.company_id != company_id
+            or payment.employee_id != contract.employee_id
+            or payment.payroll_calculation_id != calculation.id
+            or body['statutory_result_id'] != result.id
+            or body['accrual_month'] != period.start_date.strftime('%Y-%m')
+            or money(body['cash']) != money(payment.amount)
+            or money(body['non_tax_withheld']) != money(payment.withheld_amount)):
+        raise PaidIncomeError('Persisted paid-income identity differs from live source')
+    lines = list((await db.scalars(select(PayrollStatutoryResultLine).where(
+        PayrollStatutoryResultLine.company_id == company_id,
+        PayrollStatutoryResultLine.payroll_statutory_result_id == result.id))).all())
+    expected = dict(gross=money(result.gross_amount),
+        pit=sum((money(x.amount) for x in lines if x.component == 'personal_income_tax'), Decimal('0.00')),
+        levy=sum((money(x.amount) for x in lines if x.component == 'military_levy'), Decimal('0.00')))
+    if (sorted(x.id for x in lines) != body['statutory_line_ids']
+            or any(money(body['monthly_source'][k]) != v for k, v in expected.items())):
+        raise PaidIncomeError('Persisted paid-income amounts differ from live statutory source')
+    journal = await db.scalar(active_posted_journal_query(company_id=company_id,
+        journal_entry_id=record.journal_entry_id))
+    if not journal:
+        raise PaidIncomeError('Paid-income posted journal is missing or reversed')
+    if body.get('component_evidence'):
+        from app.services.payroll_paid_income_components import load_component_sources
+        live = await load_component_sources(db, company_id=company_id, calculation=calculation, period=period)
+        if live != body['component_evidence']['body']['sources']:
+            raise PaidIncomeError('Persisted paid-income components differ from live source')
