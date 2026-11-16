@@ -277,3 +277,4 @@ from app.models.payroll_taxpayer_identity_review import PayrollTaxpayerIdentityR
 from app.models.payroll_d6_evidence import PayrollD6Evidence, PayrollD6EvidenceReview
 
 from app.models.payroll_paid_income import PayrollPaidIncome
+from app.models.payroll_bank_batch import PayrollBankBatch, PayrollBankBatchAllocation

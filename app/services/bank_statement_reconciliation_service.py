@@ -465,6 +465,7 @@ async def reverse_bank_statement_reconciliation(
         payment_id=original.payment_id,
         payroll_disbursement_id=original.payroll_disbursement_id,
         payroll_advance_id=original.payroll_advance_id,
+        payroll_bank_batch_id=original.payroll_bank_batch_id,
         matched_amount=original.matched_amount,
         currency_code=original.currency_code,
         created_by=reversed_by,

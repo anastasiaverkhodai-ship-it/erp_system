@@ -42,6 +42,10 @@ async def _reconcile_payroll_payment(db, *, company_id, payout_id, is_advance,
             "Cash payroll disbursement cannot be bank reconciled"
         )
 
+    if not is_advance:
+        from app.services.payroll_bank_batch_service import active_batch_for_payout
+        if await active_batch_for_payout(db, company_id, payout.id) is not None:
+            raise BankStatementReconciliationError('Payroll disbursement already reconciled in batch')
     posted = await db.scalar(select(JournalEntry.id).where(
         JournalEntry.company_id == company_id,
         journal_source == payout.id,

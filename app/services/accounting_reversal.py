@@ -484,7 +484,8 @@ async def reverse_journal_entry(
             BankStatementReconciliationActiveLink.company_id == company_id,
             BankStatementReconciliationActiveLink.payroll_disbursement_id == original_entry.payroll_disbursement_id,
         ).limit(1))
-        if matched is not None:
+        from app.services.payroll_bank_batch_service import active_batch_for_payout
+        if matched is not None or await active_batch_for_payout(db, company_id, original_entry.payroll_disbursement_id) is not None:
             raise AccountingReversalError('Unmatch the bank statement before reversing payroll disbursement')
 
     if original_entry.payroll_advance_id is not None:

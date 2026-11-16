@@ -439,6 +439,95 @@ async def test_real_cross_calculation_posting_and_rollback():
                     )
                 assert await _counts(db, company.id) == after
 
+                # Real bank source: one outgoing statement line
+                # corresponds to two previously posted payroll payouts.
+                from app.services.payroll_bank_batch_validation import (
+                    validate_payroll_bank_batch,
+                    PayrollBankBatchValidationError,
+                )
+
+                statement = base.BankStatement(
+                    **base._required_values(
+                        base.BankStatement,
+                        {
+                            "company_id": company.id,
+                            "bank_account_id": bank.id,
+                            "external_id": "CROSSCALC-BATCH-REAL-E2E",
+                            "created_by": user.id,
+                        },
+                    )
+                )
+                db.add(statement)
+                await db.flush()
+
+                bank_line = base.BankStatementLine(
+                    **base._required_values(
+                        base.BankStatementLine,
+                        {
+                            "company_id": company.id,
+                            "bank_account_id": bank.id,
+                            "bank_statement_id": statement.id,
+                            "external_line_id": "CROSSCALC-BATCH-LINE",
+                            "amount": Decimal("-3000.00"),
+                            "currency_code": "UAH",
+                        },
+                    )
+                )
+                db.add(bank_line)
+                await db.flush()
+
+                bank_review = await validate_payroll_bank_batch(
+                    db,
+                    company_id=company.id,
+                    employee_id=employee.id,
+                    bank_statement_line_id=bank_line.id,
+                    payroll_disbursement_ids=disbursement_ids,
+                )
+                assert bank_review["amount"] == "3000.00"
+                assert bank_review["member_count"] == 2
+                assert bank_review["new_journals_created"] == 0
+                assert bank_review["reconciliation_posted"] is False
+                assert await _counts(db, company.id) == after
+
+                with pytest.raises(
+                    PayrollBankBatchValidationError,
+                    match="duplicate",
+                ):
+                    await validate_payroll_bank_batch(
+                        db,
+                        company_id=company.id,
+                        employee_id=employee.id,
+                        bank_statement_line_id=bank_line.id,
+                        payroll_disbursement_ids=[
+                            disbursement_ids[0],
+                            disbursement_ids[0],
+                        ],
+                    )
+
+                with pytest.raises(
+                    PayrollBankBatchValidationError,
+                    match="does not equal",
+                ):
+                    async with db.begin_nested() as mismatch_savepoint:
+                        bank_line.amount = Decimal("-3001.00")
+                        await db.flush()
+                        try:
+                            await validate_payroll_bank_batch(
+                                db,
+                                company_id=company.id,
+                                employee_id=employee.id,
+                                bank_statement_line_id=bank_line.id,
+                                payroll_disbursement_ids=disbursement_ids,
+                            )
+                        finally:
+                            await mismatch_savepoint.rollback()
+                            db.expire(bank_line)
+
+                assert await _counts(db, company.id) == after
+                print("REAL BANK BATCH SOURCE VALIDATION = PASS")
+                print("BANK LINE TO TWO PAYOUTS = VERIFIED")
+                print("RECONCILIATION JOURNAL DUPLICATES = 0")
+
                 # Verify that the existing paid-income reader
                 # can still resolve both payroll calculations.
                 for calculation_id in ids:
