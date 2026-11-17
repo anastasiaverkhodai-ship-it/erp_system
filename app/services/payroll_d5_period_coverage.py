@@ -85,7 +85,7 @@ async def _load_period(db, company_id, period_id):
         select(PayrollPeriod).where(
             PayrollPeriod.id == period_id,
             PayrollPeriod.company_id == company_id,
-        )
+        ).execution_options(populate_existing=True)
     )
 
     if period is None:
@@ -114,7 +114,7 @@ async def build_d5_period_coverage_review(
     _positive(payroll_period_id, "payroll_period_id")
 
     try:
-        normalized = _targets(targets)
+        normalized = [] if isinstance(targets, (list, tuple)) and not targets else _targets(targets)
     except Exception as exc:
         raise D5PeriodCoverageError(
             "Invalid D5 review targets"
@@ -138,16 +138,34 @@ async def build_d5_period_coverage_review(
             "Active PostgreSQL event inventory rejected"
         ) from exc
 
-    if not sources:
-        # The existing snapshot interface requires targets.
-        # Empty-period review needs its own approved contract.
-        raise D5PeriodCoverageError(
-            "Empty-period coverage is not yet supported"
-        )
+    active_ids = _compare_coverage(sources, normalized)
 
-    active_ids = _compare_coverage(
-        sources, normalized
-    )
+    if not active_ids:
+        # Absence is independently re-read from the scoped database inventory.
+        # It does not establish legal non-applicability or approve a D5 form.
+        body = {
+            "schema": "D5_EMPTY_PERIOD_COVERAGE_REVIEW_V1",
+            "company_id": company_id,
+            "payroll_period_id": payroll_period_id,
+            "period_start": period.start_date.isoformat(),
+            "period_end": period.end_date.isoformat(),
+            "active_event_ids": [],
+            "active_event_count": 0,
+            "candidate_target_count": 0,
+            "inventory_event_types": ["hire", "transfer", "termination"],
+            "inventory_scope": "active_non_reversed_hr_events",
+            "legal_non_applicability_confirmed": False,
+            "bridge_sha256": None,
+            "review_only": True,
+            "normative_approval": False,
+            "official_generation": "BLOCKED",
+            "official_rows_generated": 0,
+        }
+        return {
+            "body": body,
+            "coverage_sha256": _canonical_digest(body),
+            "bridge": None,
+        }
 
     # The bridge independently verifies persisted professional
     # evidence, category transitions and correction chains.
@@ -220,6 +238,24 @@ async def verify_d5_period_coverage_review(db, review):
         raise D5PeriodCoverageError(
             "Coverage integrity mismatch"
         )
+
+    if body.get("schema") == "D5_EMPTY_PERIOD_COVERAGE_REVIEW_V1":
+        try:
+            rebuilt = await build_d5_period_coverage_review(
+                db,
+                company_id=body["company_id"],
+                payroll_period_id=body["payroll_period_id"],
+                targets=[],
+            )
+        except Exception as exc:
+            raise D5PeriodCoverageError(
+                "Live empty period coverage verification failed"
+            ) from exc
+        if rebuilt != review or rebuilt["coverage_sha256"] != review["coverage_sha256"]:
+            raise D5PeriodCoverageError(
+                "Empty coverage no longer matches PostgreSQL"
+            )
+        return True
 
     if (
         body.get("schema") != "D5_PERIOD_COVERAGE_REVIEW_V1"

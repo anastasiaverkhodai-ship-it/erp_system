@@ -72,6 +72,7 @@ async def collect_d5_event_sources(
             EmploymentEvent.effective_date <= date_to,
             ~reversal_exists,
         )
+        .execution_options(populate_existing=True)
         .order_by(
             EmploymentEvent.effective_date,
             EmploymentEvent.id,

@@ -30,7 +30,11 @@ This proves completeness of the supported active HR
 event inventory, not completeness of every legally
 reportable D5 event class.
 
-Empty-period review is currently blocked.
+Empty-period internal inventory review is supported by
+`D5_EMPTY_PERIOD_COVERAGE_REVIEW_V1`; see
+`phase13_d5_empty_period_acceptance.md`. It independently rechecks
+absence of active supported HR events. It does not confirm legal
+non-applicability or create a D5/D6 review bridge or official rows.
 
 Historical event applicability, official correction
 markers, taxpayer identity verification and source
