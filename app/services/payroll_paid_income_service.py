@@ -225,7 +225,14 @@ async def read_paid_income(db, *, company_id, payroll_calculation_id):
     review = source['reconciliation']
     calculation = await db.scalar(select(PayrollCalculation).where(PayrollCalculation.company_id==company_id,
         PayrollCalculation.id==payroll_calculation_id))
-    period = await db.get(PayrollPeriod,calculation.payroll_period_id)
+    # Provenance must use the persisted period even when this session already
+    # holds it. Tenant scoping also rejects a period moved to another company.
+    period = await db.scalar(select(PayrollPeriod).where(
+        PayrollPeriod.company_id == company_id,
+        PayrollPeriod.id == calculation.payroll_period_id,
+    ).execution_options(populate_existing=True))
+    if period is None:
+        raise PaidIncomeError('Persisted paid-income identity differs from live source')
     month = period.start_date.strftime('%Y-%m')
     rows, issues, unknown = [], [], []
     known_net = Decimal('0.00')

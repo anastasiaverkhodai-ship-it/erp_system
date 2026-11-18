@@ -1,0 +1,119 @@
+{
+  "checked_on": "2026-11-18",
+  "approved_mappings": 0,
+  "official_generation": "BLOCKED",
+  "sources": [
+    {
+      "id": "order4_current",
+      "url": "https://zakon.rada.gov.ua/laws/show/z0111-15",
+      "checked_on": "2026-11-18",
+      "approved": false,
+      "exit_code": 28,
+      "status": "FETCH_UNAVAILABLE"
+    },
+    {
+      "id": "order4_dated",
+      "url": "https://zakon.rada.gov.ua/laws/show/z0111-15/ed20260717",
+      "checked_on": "2026-11-18",
+      "approved": false,
+      "exit_code": 28,
+      "status": "FETCH_UNAVAILABLE"
+    },
+    {
+      "id": "order243",
+      "url": "https://zakon.rada.gov.ua/laws/show/z0751-26",
+      "checked_on": "2026-11-18",
+      "approved": false,
+      "exit_code": 28,
+      "status": "FETCH_UNAVAILABLE"
+    },
+    {
+      "id": "order284",
+      "url": "https://zakon.rada.gov.ua/laws/show/z0780-26",
+      "checked_on": "2026-11-18",
+      "approved": false,
+      "exit_code": 28,
+      "status": "FETCH_UNAVAILABLE"
+    },
+    {
+      "id": "code",
+      "url": "https://zakon.rada.gov.ua/laws/show/2755-17",
+      "checked_on": "2026-11-18",
+      "approved": false,
+      "exit_code": 28,
+      "status": "FETCH_UNAVAILABLE"
+    },
+    {
+      "id": "instruction5",
+      "url": "https://zakon.rada.gov.ua/laws/show/z0114-04",
+      "checked_on": "2026-11-18",
+      "approved": false,
+      "exit_code": 28,
+      "status": "FETCH_UNAVAILABLE"
+    },
+    {
+      "id": "salary",
+      "url": "https://zir.tax.gov.ua/main/bz/view/?id=44723&src=ques",
+      "checked_on": "2026-11-18",
+      "approved": false,
+      "exit_code": 56,
+      "status": "FETCH_UNAVAILABLE"
+    },
+    {
+      "id": "periods",
+      "url": "https://zir.tax.gov.ua/main/bz/view/?id=44664&src=ques",
+      "checked_on": "2026-11-18",
+      "approved": false,
+      "exit_code": 56,
+      "status": "FETCH_UNAVAILABLE"
+    },
+    {
+      "id": "sick",
+      "url": "https://svp.tax.gov.ua/media-ark/news-ark/print-1040423.html",
+      "checked_on": "2026-11-18",
+      "approved": false,
+      "exit_code": 56,
+      "status": "FETCH_UNAVAILABLE"
+    },
+    {
+      "id": "severance",
+      "url": "https://zir.tax.gov.ua/main/bz/view/?id=44727&src=ques",
+      "checked_on": "2026-11-18",
+      "approved": false,
+      "exit_code": 56,
+      "status": "FETCH_UNAVAILABLE"
+    },
+    {
+      "id": "post_termination",
+      "url": "https://zak.tax.gov.ua/media-ark/news-ark/1053206.html",
+      "checked_on": "2026-11-18",
+      "approved": false,
+      "exit_code": 56,
+      "status": "FETCH_UNAVAILABLE"
+    },
+    {
+      "id": "form_effective",
+      "url": "https://ck.tax.gov.ua/media-ark/news-ark/print-1040327.html",
+      "checked_on": "2026-11-18",
+      "approved": false,
+      "exit_code": 56,
+      "status": "FETCH_UNAVAILABLE"
+    },
+    {
+      "id": "correction_effective",
+      "url": "https://zir.tax.gov.ua/main/bz/view/?id=44686&src=ques",
+      "checked_on": "2026-11-18",
+      "approved": false,
+      "exit_code": 56,
+      "status": "FETCH_UNAVAILABLE"
+    },
+    {
+      "id": "vacation_historical",
+      "url": "https://rv.tax.gov.ua/baner/podatkovi-konsultatsii/konsultatsii-dlya-fizichnih-osib/70545.html",
+      "checked_on": "2026-11-18",
+      "approved": false,
+      "exit_code": 56,
+      "status": "FETCH_UNAVAILABLE"
+    }
+  ]
+}

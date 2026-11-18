@@ -244,6 +244,11 @@ def review_revision_chain(
         "correction_count": len(corrections),
         "active_calculation_ids": active,
         "historical_calculation_ids": historical,
+        "immediate_predecessors": [
+            {"replacement_calculation_id": identifier,
+             "original_calculation_id": incoming[identifier]}
+            for identifier in active if identifier in incoming
+        ],
         "missing_active_statutory_ids": missing_active,
         "duplicate_statutory_ids": duplicates,
         "correction_financial_reconciliation": (

@@ -1,0 +1,276 @@
+SOURCE ALEMBIC REVISION = p13d6grant261105
+POSTGRESQL FULL DUMP START
+POSTGRESQL FULL DUMP = PASS
+ISOLATED DATABASE CREATED = erp_r3_copy_2bf461d89ec24a97
+POSTGRESQL FULL RESTORE = PASS
+POSTGRESQL TRIGGER CONTRACT = PASS
+PYTEST DATABASE ISOLATION = PASS
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade p13d6grant261105 -> p13wtalloc261107, Persist review-only payroll payment tax allocation candidates.
+INFO  [alembic.runtime.migration] Running upgrade p13wtalloc261107 -> p13wtrev261107, Append-only review and revocation events for payment-tax drafts.
+INFO  [alembic.runtime.migration] Running upgrade p13wtrev261107 -> p13wtcorr261107, Source-bound, append-only draft allocation corrections.
+INFO  [alembic.runtime.migration] Running upgrade p13wtcorr261107 -> p13wtevid261107, Persist immutable, unverified payment tax evidence references.
+INFO  [alembic.runtime.migration] Running upgrade p13wtevid261107 -> p13wtint261107, Immutable document-hash verification and independent review history.
+INFO  [alembic.runtime.migration] Running upgrade p13wtint261107 -> p13wtcust261107, Encrypted immutable payroll tax evidence custody.
+INFO  [alembic.runtime.migration] Running upgrade p13wtcust261107 -> p13custrole261108, Protect encrypted payroll tax custody with independent ownership.
+INFO  [alembic.runtime.migration] Running upgrade p13custrole261108 -> p13receipt261108, Append-only globally unique external payroll receipt registry.
+INFO  [alembic.runtime.migration] Running upgrade p13receipt261108 -> p13receiptbind261108, Bind external receipts to effective payroll evidence at insertion.
+INFO  [alembic.runtime.migration] Running upgrade p13receiptbind261108 -> p13receiptlife261109, Derive review-only external receipt lifecycle status.
+INFO  [alembic.runtime.migration] Running upgrade p13receiptlife261109 -> p13receiptacl261109, Restrict application receipt reads to the RETURNING id column.
+INFO  [alembic.runtime.migration] Running upgrade p13receiptacl261109 -> p13receiptlock261109, Allow protected receipt validation to lock source rows.
+INFO  [alembic.runtime.migration] Running upgrade p13receiptlock261109 -> p13receiptread261109, Review-only tenant receipt reader under an isolated DB role.
+INFO  [alembic.runtime.migration] Running upgrade p13receiptread261109 -> p13paidincome261115, Persist prospective payroll paid-income attribution without changing legacy data.
+INFO  [alembic.runtime.migration] Running upgrade p13paidincome261115 -> p13paidacl261116, Grant application access to immutable paid-income snapshots.
+INFO  [alembic.runtime.migration] Running upgrade p13paidacl261116 -> p13bankbatch261116, Persistent payroll bank batches and immutable allocations.
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.plugins] setting up autogenerate plugin alembic.autogenerate.schemas
+INFO  [alembic.runtime.plugins] setting up autogenerate plugin alembic.autogenerate.tables
+INFO  [alembic.runtime.plugins] setting up autogenerate plugin alembic.autogenerate.types
+INFO  [alembic.runtime.plugins] setting up autogenerate plugin alembic.autogenerate.constraints
+INFO  [alembic.runtime.plugins] setting up autogenerate plugin alembic.autogenerate.defaults
+INFO  [alembic.runtime.plugins] setting up autogenerate plugin alembic.autogenerate.comments
+INFO  [alembic.runtime.plugins] setting up autogenerate plugin alembic.autogenerate.checkconstraint_byname
+/Users/anastasia/Projects/erp_system/alembic/env.py:106: SAWarning: Did not recognize type 'xid8' of column 'history_creation_xid'
+  context.run_migrations()
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_payment_tax_secure_custody_id_seq' as owned by integer column 'payroll_payment_tax_secure_custody(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_payment_tax_allocation_candidate_events_id_seq' as owned by integer column 'payroll_payment_tax_allocation_candidate_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_payment_tax_document_reviews_id_seq' as owned by integer column 'payroll_payment_tax_document_reviews(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_payment_tax_document_integrity_id_seq' as owned by integer column 'payroll_payment_tax_document_integrity(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_payment_tax_evidence_id_seq' as owned by integer column 'payroll_payment_tax_evidence(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_payment_tax_allocation_candidates_id_seq' as owned by integer column 'payroll_payment_tax_allocation_candidates(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_payment_tax_allocation_corrections_id_seq' as owned by integer column 'payroll_payment_tax_allocation_corrections(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_advance_tax_remittances_id_seq' as owned by integer column 'payroll_advance_tax_remittances(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'counterparties_id_seq' as owned by integer column 'counterparties(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_leave_corrections_id_seq' as owned by integer column 'payroll_leave_corrections(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_vacation_calculations_id_seq' as owned by integer column 'payroll_vacation_calculations(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_periods_id_seq' as owned by integer column 'payroll_periods(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'purchase_return_vat_adjustment_events_id_seq' as owned by integer column 'purchase_return_vat_adjustment_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'opening_balances_id_seq' as owned by integer column 'opening_balances(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'sales_return_recognition_events_id_seq' as owned by integer column 'sales_return_recognition_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'cash_documents_id_seq' as owned by integer column 'cash_documents(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'tax_invoice_correction_registration_events_id_seq' as owned by integer column 'tax_invoice_correction_registration_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'idempotency_results_id_seq' as owned by integer column 'idempotency_results(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'warehouse_transfer_lines_id_seq' as owned by integer column 'warehouse_transfer_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'cash_desk_opening_reviews_id_seq' as owned by integer column 'cash_desk_opening_reviews(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_advances_id_seq' as owned by integer column 'payroll_advances(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_recipient_remittances_id_seq' as owned by integer column 'payroll_recipient_remittances(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'vat_declaration_export_artifacts_id_seq' as owned by integer column 'vat_declaration_export_artifacts(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'trade_document_lines_id_seq' as owned by integer column 'trade_document_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'stock_lots_id_seq' as owned by integer column 'stock_lots(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'product_prices_id_seq' as owned by integer column 'product_prices(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'bank_statements_id_seq' as owned by integer column 'bank_statements(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_sick_leave_calculation_sources_id_seq' as owned by integer column 'payroll_sick_leave_calculation_sources(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'fixed_asset_responsible_persons_id_seq' as owned by integer column 'fixed_asset_responsible_persons(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'users_id_seq' as owned by integer column 'users(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'product_tax_classifications_id_seq' as owned by integer column 'product_tax_classifications(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'purchase_landed_cost_capitalizations_id_seq' as owned by integer column 'purchase_landed_cost_capitalizations(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_d6_evidence_id_seq' as owned by integer column 'payroll_d6_evidence(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'employment_schedule_assignments_id_seq' as owned by integer column 'employment_schedule_assignments(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'accounting_periods_id_seq' as owned by integer column 'accounting_periods(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'vat_declaration_carry_forward_lines_id_seq' as owned by integer column 'vat_declaration_carry_forward_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'work_schedules_id_seq' as owned by integer column 'work_schedules(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'input_vat_fulfillment_bridge_events_id_seq' as owned by integer column 'input_vat_fulfillment_bridge_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'audit_logs_id_seq' as owned by integer column 'audit_logs(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_deduction_result_lines_id_seq' as owned by integer column 'payroll_deduction_result_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'sales_recognition_events_id_seq' as owned by integer column 'sales_recognition_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_leave_accruals_id_seq' as owned by integer column 'payroll_leave_accruals(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_deduction_results_id_seq' as owned by integer column 'payroll_deduction_results(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_opening_packages_id_seq' as owned by integer column 'payroll_opening_packages(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'document_lines_id_seq' as owned by integer column 'document_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'inventory_count_variance_events_id_seq' as owned by integer column 'inventory_count_variance_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'hr_changes_id_seq' as owned by integer column 'hr_changes(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_regulatory_report_rows_id_seq' as owned by integer column 'payroll_regulatory_report_rows(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'vat_declarations_id_seq' as owned by integer column 'vat_declarations(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'idempotency_records_id_seq' as owned by integer column 'idempotency_records(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_attendance_corrections_id_seq' as owned by integer column 'payroll_attendance_corrections(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'contracts_id_seq' as owned by integer column 'contracts(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'purchase_value_correction_fifo_impact_events_id_seq' as owned by integer column 'purchase_value_correction_fifo_impact_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'trade_fulfillment_lines_id_seq' as owned by integer column 'trade_fulfillment_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'counterparty_vat_registrations_id_seq' as owned by integer column 'counterparty_vat_registrations(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'invoice_fulfillment_allocations_id_seq' as owned by integer column 'invoice_fulfillment_allocations(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'input_vat_credit_claims_id_seq' as owned by integer column 'input_vat_credit_claims(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'inventory_count_events_id_seq' as owned by integer column 'inventory_count_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'purchase_landed_cost_allocation_events_id_seq' as owned by integer column 'purchase_landed_cost_allocation_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'fixed_asset_acquisition_costs_id_seq' as owned by integer column 'fixed_asset_acquisition_costs(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'customer_advance_clearing_events_id_seq' as owned by integer column 'customer_advance_clearing_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_opening_debts_id_seq' as owned by integer column 'payroll_opening_debts(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'permissions_id_seq' as owned by integer column 'permissions(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_income_date_approvals_id_seq' as owned by integer column 'payroll_income_date_approvals(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_deduction_beneficiaries_id_seq' as owned by integer column 'payroll_deduction_beneficiaries(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_regulatory_reports_id_seq' as owned by integer column 'payroll_regulatory_reports(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'documents_id_seq' as owned by integer column 'documents(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'vat_declaration_status_events_id_seq' as owned by integer column 'vat_declaration_status_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payment_settlement_allocations_id_seq' as owned by integer column 'payment_settlement_allocations(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'fixed_asset_commissionings_id_seq' as owned by integer column 'fixed_asset_commissionings(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_statutory_rates_id_seq' as owned by integer column 'payroll_statutory_rates(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'purchase_quotes_id_seq' as owned by integer column 'purchase_quotes(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_leave_balance_entries_id_seq' as owned by integer column 'payroll_leave_balance_entries(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'tax_invoice_corrections_id_seq' as owned by integer column 'tax_invoice_corrections(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_leave_compensation_extra_sources_id_seq' as owned by integer column 'payroll_leave_compensation_extra_sources(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'fixed_asset_card_history_id_seq' as owned by integer column 'fixed_asset_card_history(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'trade_documents_id_seq' as owned by integer column 'trade_documents(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_leave_openings_id_seq' as owned by integer column 'payroll_leave_openings(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payments_id_seq' as owned by integer column 'payments(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'warehouse_transfer_valuation_layers_id_seq' as owned by integer column 'warehouse_transfer_valuation_layers(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'bank_statement_reconciliations_id_seq' as owned by integer column 'bank_statement_reconciliations(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_leave_correction_requests_id_seq' as owned by integer column 'payroll_leave_correction_requests(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_bank_batches_id_seq' as owned by integer column 'payroll_bank_batches(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'tax_invoice_registration_events_id_seq' as owned by integer column 'tax_invoice_registration_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_sick_correction_applications_id_seq' as owned by integer column 'payroll_sick_correction_applications(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_disbursements_id_seq' as owned by integer column 'payroll_disbursements(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'journal_entry_lines_id_seq' as owned by integer column 'journal_entry_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_calculations_id_seq' as owned by integer column 'payroll_calculations(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'sales_return_cost_restoration_events_id_seq' as owned by integer column 'sales_return_cost_restoration_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_vacation_calculation_sources_id_seq' as owned by integer column 'payroll_vacation_calculation_sources(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'purchase_return_recognition_events_id_seq' as owned by integer column 'purchase_return_recognition_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_employee_tax_evidence_id_seq' as owned by integer column 'payroll_employee_tax_evidence(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'employees_id_seq' as owned by integer column 'employees(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'bank_statement_lines_id_seq' as owned by integer column 'bank_statement_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'warehouses_id_seq' as owned by integer column 'warehouses(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_input_salary_slices_id_seq' as owned by integer column 'payroll_input_salary_slices(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'moving_average_balances_id_seq' as owned by integer column 'moving_average_balances(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'stock_balances_id_seq' as owned by integer column 'stock_balances(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'trade_value_correction_events_id_seq' as owned by integer column 'trade_value_correction_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'products_id_seq' as owned by integer column 'products(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_d5_professional_evidence_id_seq' as owned by integer column 'payroll_d5_professional_evidence(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_leave_transfers_id_seq' as owned by integer column 'payroll_leave_transfers(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'outbox_events_id_seq' as owned by integer column 'outbox_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'accounts_id_seq' as owned by integer column 'accounts(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'purchase_value_correction_ma_replay_events_id_seq' as owned by integer column 'purchase_value_correction_ma_replay_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'fixed_asset_depreciations_id_seq' as owned by integer column 'fixed_asset_depreciations(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'fixed_assets_id_seq' as owned by integer column 'fixed_assets(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_statutory_result_lines_id_seq' as owned by integer column 'payroll_statutory_result_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'supplier_advance_clearing_events_id_seq' as owned by integer column 'supplier_advance_clearing_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'tax_calculations_id_seq' as owned by integer column 'tax_calculations(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_statutory_base_rules_id_seq' as owned by integer column 'payroll_statutory_base_rules(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'purchase_value_correction_input_vat_credit_correction_ev_id_seq' as owned by integer column 'purchase_value_correction_input_vat_credit_correction_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_insurance_funding_id_seq' as owned by integer column 'payroll_insurance_funding(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'cash_desk_opening_evidence_id_seq' as owned by integer column 'cash_desk_opening_evidence(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_cash_documents_id_seq' as owned by integer column 'payroll_cash_documents(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_paid_income_id_seq' as owned by integer column 'payroll_paid_income(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_supplements_id_seq' as owned by integer column 'payroll_supplements(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'purchase_value_correction_vat_adjustment_events_id_seq' as owned by integer column 'purchase_value_correction_vat_adjustment_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'sales_return_cost_restoration_fifo_slices_id_seq' as owned by integer column 'sales_return_cost_restoration_fifo_slices(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_tax_remittance_lines_id_seq' as owned by integer column 'payroll_tax_remittance_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'opening_balance_details_id_seq' as owned by integer column 'opening_balance_details(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'recalculation_requests_id_seq' as owned by integer column 'recalculation_requests(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_severance_statutory_snapshots_id_seq' as owned by integer column 'payroll_severance_statutory_snapshots(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'employment_contracts_id_seq' as owned by integer column 'employment_contracts(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'vat_declaration_source_lines_id_seq' as owned by integer column 'vat_declaration_source_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'vat_advance_bridge_events_id_seq' as owned by integer column 'vat_advance_bridge_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'accounting_rule_lines_id_seq' as owned by integer column 'accounting_rule_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_corrections_id_seq' as owned by integer column 'payroll_corrections(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_taxpayer_identity_reviews_id_seq' as owned by integer column 'payroll_taxpayer_identity_reviews(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'leave_requests_id_seq' as owned by integer column 'leave_requests(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_leave_compensation_lines_id_seq' as owned by integer column 'payroll_leave_compensation_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'tax_invoice_lines_id_seq' as owned by integer column 'tax_invoice_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_withholding_lines_id_seq' as owned by integer column 'payroll_withholding_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_income_date_requests_id_seq' as owned by integer column 'payroll_income_date_requests(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'company_vat_policies_id_seq' as owned by integer column 'company_vat_policies(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'roles_id_seq' as owned by integer column 'roles(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'fixed_asset_locations_id_seq' as owned by integer column 'fixed_asset_locations(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_deduction_remittance_plans_id_seq' as owned by integer column 'payroll_deduction_remittance_plans(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_deduction_assessments_id_seq' as owned by integer column 'payroll_deduction_assessments(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'order_vat_advance_lines_id_seq' as owned by integer column 'order_vat_advance_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_withholding_batches_id_seq' as owned by integer column 'payroll_withholding_batches(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'tax_invoices_id_seq' as owned by integer column 'tax_invoices(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'trade_fulfillments_id_seq' as owned by integer column 'trade_fulfillments(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_bank_batch_allocations_id_seq' as owned by integer column 'payroll_bank_batch_allocations(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_statutory_results_id_seq' as owned by integer column 'payroll_statutory_results(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_deduction_assessment_closures_id_seq' as owned by integer column 'payroll_deduction_assessment_closures(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_statutory_line_sources_id_seq' as owned by integer column 'payroll_statutory_line_sources(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'counterparty_open_items_id_seq' as owned by integer column 'counterparty_open_items(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'outbox_delivery_attempts_id_seq' as owned by integer column 'outbox_delivery_attempts(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'fixed_asset_repair_improvements_id_seq' as owned by integer column 'fixed_asset_repair_improvements(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_leave_compensation_reversals_id_seq' as owned by integer column 'payroll_leave_compensation_reversals(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'stock_lot_consumptions_id_seq' as owned by integer column 'stock_lot_consumptions(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'order_vat_advances_id_seq' as owned by integer column 'order_vat_advances(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_leave_compensations_id_seq' as owned by integer column 'payroll_leave_compensations(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'purchase_landed_cost_valuation_events_id_seq' as owned by integer column 'purchase_landed_cost_valuation_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_insurance_funding_lines_id_seq' as owned by integer column 'payroll_insurance_funding_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_hr_review_snapshots_id_seq' as owned by integer column 'payroll_hr_review_snapshots(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_attendance_correction_requests_id_seq' as owned by integer column 'payroll_attendance_correction_requests(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_recipient_remittance_lines_id_seq' as owned by integer column 'payroll_recipient_remittance_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_leave_accounts_id_seq' as owned by integer column 'payroll_leave_accounts(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'cash_desks_id_seq' as owned by integer column 'cash_desks(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'fixed_asset_groups_id_seq' as owned by integer column 'fixed_asset_groups(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_d6_evidence_reviews_id_seq' as owned by integer column 'payroll_d6_evidence_reviews(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_deduction_remittance_events_id_seq' as owned by integer column 'payroll_deduction_remittance_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'purchase_value_correction_allocation_events_id_seq' as owned by integer column 'purchase_value_correction_allocation_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_calculation_lines_id_seq' as owned by integer column 'payroll_calculation_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'companies_id_seq' as owned by integer column 'companies(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'positions_id_seq' as owned by integer column 'positions(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_sick_returns_id_seq' as owned by integer column 'payroll_sick_returns(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'employee_salary_rates_id_seq' as owned by integer column 'employee_salary_rates(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'price_types_id_seq' as owned by integer column 'price_types(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'bank_statement_reconciliation_active_links_id_seq' as owned by integer column 'bank_statement_reconciliation_active_links(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'work_schedule_days_id_seq' as owned by integer column 'work_schedule_days(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_tax_remittance_id_seq' as owned by integer column 'payroll_tax_remittance(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'bank_accounts_id_seq' as owned by integer column 'bank_accounts(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_payslips_id_seq' as owned by integer column 'payroll_payslips(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'journal_entries_id_seq' as owned by integer column 'journal_entries(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'tax_invoice_correction_lines_id_seq' as owned by integer column 'tax_invoice_correction_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_deduction_instructions_id_seq' as owned by integer column 'payroll_deduction_instructions(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'reservation_movements_id_seq' as owned by integer column 'reservation_movements(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_earnings_history_id_seq' as owned by integer column 'payroll_earnings_history(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'tax_recognition_events_id_seq' as owned by integer column 'tax_recognition_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_termination_severances_id_seq' as owned by integer column 'payroll_termination_severances(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'purchase_return_input_vat_credit_correction_events_id_seq' as owned by integer column 'purchase_return_input_vat_credit_correction_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_sick_leave_calculations_id_seq' as owned by integer column 'payroll_sick_leave_calculations(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_payslip_lines_id_seq' as owned by integer column 'payroll_payslip_lines(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_sick_payroll_revisions_id_seq' as owned by integer column 'payroll_sick_payroll_revisions(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'tax_credit_evidence_id_seq' as owned by integer column 'tax_credit_evidence(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'attendance_records_id_seq' as owned by integer column 'attendance_records(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'employment_events_id_seq' as owned by integer column 'employment_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_sick_corrections_id_seq' as owned by integer column 'payroll_sick_corrections(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'order_vat_advance_transfers_id_seq' as owned by integer column 'order_vat_advance_transfers(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'fixed_asset_disposals_id_seq' as owned by integer column 'fixed_asset_disposals(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'accounting_rules_id_seq' as owned by integer column 'accounting_rules(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_employee_tax_profiles_id_seq' as owned by integer column 'payroll_employee_tax_profiles(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'inventory_cost_entries_id_seq' as owned by integer column 'inventory_cost_entries(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'year_end_closings_id_seq' as owned by integer column 'year_end_closings(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_insurance_evidence_id_seq' as owned by integer column 'payroll_insurance_evidence(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'warehouse_transfer_events_id_seq' as owned by integer column 'warehouse_transfer_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'trade_return_events_id_seq' as owned by integer column 'trade_return_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'moving_average_movements_id_seq' as owned by integer column 'moving_average_movements(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'fixed_asset_opening_balances_id_seq' as owned by integer column 'fixed_asset_opening_balances(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_leave_day_corrections_id_seq' as owned by integer column 'payroll_leave_day_corrections(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'payroll_inputs_id_seq' as owned by integer column 'payroll_inputs(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'stock_ledger_id_seq' as owned by integer column 'stock_ledger(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'fixed_asset_revaluation_impairments_id_seq' as owned by integer column 'fixed_asset_revaluation_impairments(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'tax_invoice_credit_evidence_links_id_seq' as owned by integer column 'tax_invoice_credit_evidence_links(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'purchase_landed_cost_events_id_seq' as owned by integer column 'purchase_landed_cost_events(id)', assuming SERIAL and omitting
+INFO  [alembic.ddl.postgresql] Detected sequence named 'departments_id_seq' as owned by integer column 'departments(id)', assuming SERIAL and omitting
+No new upgrade operations detected.
+......................................                                   [100%]
+=============================== warnings summary ===============================
+tests/hr/test_payroll_paid_income_mixed_components_postgresql.py: 57 warnings
+tests/hr/test_payroll_regulatory_4df_real_split_payment_postgresql.py: 21 warnings
+tests/hr/test_payroll_regulatory_4df_split_writer_postgresql.py: 5 warnings
+  /Users/anastasia/Projects/erp_system/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+tests/hr/test_payroll_paid_income_mixed_components_postgresql.py: 15 warnings
+tests/hr/test_payroll_regulatory_4df_real_split_payment_postgresql.py: 7 warnings
+  /Users/anastasia/Projects/erp_system/app/services/accounting_posting.py:261: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    journal_entry.posted_at = datetime.utcnow()
+
+tests/hr/test_payroll_paid_income_mixed_components_postgresql.py::test_mixed_components_partial_full_reversal_and_repayment[payment_day0-2026-09]
+tests/hr/test_payroll_paid_income_mixed_components_postgresql.py::test_mixed_components_partial_full_reversal_and_repayment[payment_day1-None]
+tests/hr/test_payroll_paid_income_mixed_components_postgresql.py::test_mixed_components_partial_full_reversal_and_repayment[payment_day2-2026-11]
+  /Users/anastasia/Projects/erp_system/app/services/accounting_reversal.py:955: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    posted_at=datetime.utcnow(),
+
+tests/hr/test_payroll_paid_income_mixed_components_postgresql.py::test_mixed_components_partial_full_reversal_and_repayment[payment_day0-2026-09]
+tests/hr/test_payroll_paid_income_mixed_components_postgresql.py::test_mixed_components_partial_full_reversal_and_repayment[payment_day1-None]
+tests/hr/test_payroll_paid_income_mixed_components_postgresql.py::test_mixed_components_partial_full_reversal_and_repayment[payment_day2-2026-11]
+  /Users/anastasia/Projects/erp_system/app/services/accounting_reversal.py:977: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    original_entry.reversed_at = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+38 passed, 111 warnings in 11.73s
+ISOLATED PYTEST EXIT = 0
+SOURCE ALEMBIC REVISION UNCHANGED = PASS
+ISOLATED DATABASE REMOVED = PASS

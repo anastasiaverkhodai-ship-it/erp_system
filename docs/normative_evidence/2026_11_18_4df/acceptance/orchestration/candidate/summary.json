@@ -1,0 +1,30 @@
+{
+  "phase13": "OPEN",
+  "official_generation": "BLOCKED",
+  "base_head": "49f8e26d32930d5711e88d561657b7092cc62a0c",
+  "test_modules": [
+    "tests/hr/test_payroll_correction_multirevision_delta.py",
+    "tests/hr/test_payroll_correction_multirevision_snapshot.py",
+    "tests/hr/test_payroll_correction_multirevision_postgresql.py",
+    "tests/hr/test_payroll_paid_income_live_period_postgresql.py",
+    "tests/hr/test_payroll_paid_income_mixed_components_postgresql.py",
+    "tests/hr/test_payroll_correction_snapshot_concurrency_postgresql.py",
+    "tests/hr/test_payroll_paid_income_categories_postgresql.py"
+  ],
+  "status": "PASS",
+  "production_sha256_before": "3a37fbbac88d48308d0a9ea8944db632424bac483e9ec4f3faf8b5c2c9de429c",
+  "exit": 0,
+  "checks": {
+    "No new upgrade operations detected.": true,
+    "SOURCE ALEMBIC REVISION UNCHANGED = PASS": true,
+    "ISOLATED DATABASE REMOVED = PASS": true
+  },
+  "tests": 48,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "production_sha256_after": "3a37fbbac88d48308d0a9ea8944db632424bac483e9ec4f3faf8b5c2c9de429c",
+  "production_unchanged": true,
+  "changed_existing_files": [],
+  "source_scope_unchanged": true
+}

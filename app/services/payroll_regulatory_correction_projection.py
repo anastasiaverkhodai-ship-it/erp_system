@@ -140,6 +140,21 @@ def build_correction_projection(control, delta):
     ):
         raise FinancialReconciliationError("Unsafe revision partition")
 
+    # Multi-revision amounts are relative to the verified predecessor,
+    # while the sealed history retains every excluded revision.
+    baseline_fields = {}
+    if len(historical) > 1:
+        baseline = delta.get("baseline_calculation_ids")
+        if (not isinstance(baseline, list) or not baseline
+                or any(type(i) is not int or i not in historical for i in baseline)
+                or len(set(baseline)) != len(baseline)
+                or len(baseline) != len(active)):
+            raise FinancialReconciliationError("Unsafe correction baseline")
+        baseline_fields = {
+            "baseline_calculation_ids": sorted(baseline),
+            "baseline_semantics": "immediate_predecessor",
+        }
+
     rows = delta.get("components")
     if not isinstance(rows, list) or len(rows) != 3:
         raise FinancialReconciliationError("Incomplete tax components")
@@ -195,7 +210,9 @@ def build_correction_projection(control, delta):
     components.sort(key=lambda row: row["component"])
 
     return {
-        "schema": "payroll_internal_correction_projection_v1",
+        "schema": ("payroll_internal_correction_projection_v2"
+                   if baseline_fields else "payroll_internal_correction_projection_v1"),
+        **baseline_fields,
         "company_id": company,
         "payroll_period_id": period,
         "report_kind": report,

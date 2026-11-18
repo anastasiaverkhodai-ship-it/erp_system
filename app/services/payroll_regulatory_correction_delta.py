@@ -90,6 +90,28 @@ def reconcile_correction_delta(
             "Incomplete correction revision partition"
         )
 
+    # Revisions contain full recalculated amounts, not incremental postings.
+    # Only the predecessor of each current replacement is a delta baseline.
+    pairs = chain.get("immediate_predecessors")
+    if pairs is None and len(active) == len(historical) == 1:
+        pairs = [{"replacement_calculation_id": active[0],
+                  "original_calculation_id": historical[0]}]
+    if not isinstance(pairs, list):
+        raise FinancialReconciliationError("Missing immediate correction baseline")
+    predecessors = {}
+    for pair in pairs:
+        if not isinstance(pair, dict):
+            raise FinancialReconciliationError("Invalid correction baseline")
+        original = positive(pair.get("original_calculation_id"), "baseline")
+        replacement = positive(pair.get("replacement_calculation_id"), "replacement")
+        if (original not in historical or replacement not in active
+                or replacement in predecessors or original in predecessors.values()):
+            raise FinancialReconciliationError("Ambiguous correction baseline")
+        predecessors[replacement] = original
+    if set(predecessors) != set(active):
+        raise FinancialReconciliationError("Incomplete immediate correction baseline")
+    baseline = set(predecessors.values())
+
     expected_ids = set(active + historical)
     by_line = {}
     components = defaultdict(
@@ -100,6 +122,9 @@ def reconcile_correction_delta(
             "historical_tax": Decimal("0.00"),
             "active_sources": Decimal("0.00"),
             "historical_sources": Decimal("0.00"),
+            "excluded_base": Decimal("0.00"),
+            "excluded_tax": Decimal("0.00"),
+            "excluded_sources": Decimal("0.00"),
         }
     )
 
@@ -142,7 +167,8 @@ def reconcile_correction_delta(
 
         key = (component, currency)
         side = (
-            "active" if calculation_id in active else "historical"
+            "active" if calculation_id in active else
+            "historical" if calculation_id in baseline else "excluded"
         )
 
         components[key][side + "_base"] += amount(
@@ -277,7 +303,7 @@ def reconcile_correction_delta(
     historical_covered = {
         row["calculation_id"]
         for row in by_line.values()
-        if row["side"] == "historical"
+        if row["side"] != "active"
     }
 
     verified = (
@@ -300,6 +326,8 @@ def reconcile_correction_delta(
         "mismatched_source_line_ids": mismatched,
         "active_calculation_ids": sorted(active),
         "historical_calculation_ids": sorted(historical),
+        "baseline_calculation_ids": sorted(baseline),
+        "delta_basis": "IMMEDIATE_PREDECESSOR_FULL_AMOUNTS",
         "historical_double_count_in_active_totals": False,
         "correction_chain_provenance": "INPUT_CHAIN_ONLY",
         "persisted_correction_delta_verified": False,

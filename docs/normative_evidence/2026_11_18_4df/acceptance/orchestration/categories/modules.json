@@ -1,0 +1,8 @@
+[
+  [
+    "category_attribution",
+    [
+      "tests/hr/test_payroll_paid_income_categories_postgresql.py"
+    ]
+  ]
+]

@@ -1,0 +1,16 @@
+{
+  "classifier_unique_pairs_in_each_appendix": 9102,
+  "classifier_appendices_equal": true,
+  "amendment4_appendices_equal": true,
+  "amendment4_cancellations": 9,
+  "amendment4_replacements": 5,
+  "amendment4_additions": 12,
+  "amendment4_effective_date_status": "VERIFIED_FROM_ARCHIVED_OFFICIAL_ORDER",
+  "amendment4_effective_date": "2016-03-01",
+  "income_rows": 158,
+  "income_unique_codes": 112,
+  "income_overlaps_after_documented_resolutions": 0,
+  "malformed_codes_corroborated_in_official_workbook": 6,
+  "production_approved": false,
+  "scope": "Structural consistency and documented income-date conflicts only; not current classifier certification"
+}

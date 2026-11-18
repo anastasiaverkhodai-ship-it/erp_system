@@ -1,0 +1,14 @@
+{
+  "app/services/payroll_paid_income_service.py": "eee328c590c752566798484c0b49f376f8b5a1ebb9d2bfadc86a8e82467d9603",
+  "app/services/payroll_regulatory_correction_delta.py": "f9a3601738917f049dfed1893ec904637d934d0849177e623719ab59a504a198",
+  "app/services/payroll_regulatory_correction_projection.py": "54002ef045e749a3892bc643a806c8a833c68d1d995de22e29fc8bb1b58a7150",
+  "app/services/payroll_regulatory_correction_snapshot_store.py": "90417327127ff82e1d1116e4eea3da1a579f2e0a74af5e984b6768f1cb7b09d2",
+  "app/services/payroll_regulatory_revision_chain_review.py": "049106854808794f39ef5fb8fd3fef1598497f8d53d7ad8c7ddfed9d822ee3e8",
+  "tests/hr/test_payroll_correction_multirevision_delta.py": "68079453e27ae2daef34acb3e7213bd236f17fa6b8917b13f7a24595f8f67853",
+  "tests/hr/test_payroll_correction_multirevision_snapshot.py": "d3037c2f1718e1569ec65933f35cf04cc2e8e5dbf3a4c82d111a1445b43f1a7c",
+  "tests/hr/test_payroll_correction_multirevision_postgresql.py": "3f8d9fa85c7afd09460cc577ea39874f560e3b6f90d937dcd670e4bde97052cd",
+  "tests/hr/test_payroll_paid_income_live_period_postgresql.py": "3ce204b56b194c7acf0a4711446aa803c33766680083b7c1ec0f0750572535dc",
+  "tests/hr/test_payroll_paid_income_mixed_components_postgresql.py": "18414736fe440c4b80ccb015444a1edfb71af7cd52cda5341355d71db3814dd0",
+  "tests/hr/test_payroll_correction_snapshot_concurrency_postgresql.py": "f21897ceca3af34a5aebd842cab4dabec448e7d62b93f07167208c14a0dbace9",
+  "tests/hr/test_payroll_paid_income_categories_postgresql.py": "9987ca5ea53e94c8bf49a24fd35fe0c9d3b5ef0a7c175bbddad0e1397a31da8d"
+}

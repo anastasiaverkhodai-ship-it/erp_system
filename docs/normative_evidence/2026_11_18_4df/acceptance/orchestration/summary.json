@@ -1,0 +1,93 @@
+{
+  "phase13": "OPEN",
+  "official_generation": "BLOCKED",
+  "gates": [
+    {
+      "name": "snapshot_concurrency",
+      "exit": 0,
+      "checks": {
+        "No new upgrade operations detected.": true,
+        "SOURCE ALEMBIC REVISION UNCHANGED = PASS": true,
+        "ISOLATED DATABASE REMOVED = PASS": true
+      },
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mixed_attribution",
+      "exit": 0,
+      "checks": {
+        "No new upgrade operations detected.": true,
+        "SOURCE ALEMBIC REVISION UNCHANGED = PASS": true,
+        "ISOLATED DATABASE REMOVED = PASS": true
+      },
+      "tests": 38,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "multi_revision",
+      "exit": 0,
+      "checks": {
+        "No new upgrade operations detected.": true,
+        "SOURCE ALEMBIC REVISION UNCHANGED = PASS": true,
+        "ISOLATED DATABASE REMOVED = PASS": true
+      },
+      "tests": 82,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "live_period",
+      "exit": 0,
+      "checks": {
+        "No new upgrade operations detected.": true,
+        "SOURCE ALEMBIC REVISION UNCHANGED = PASS": true,
+        "ISOLATED DATABASE REMOVED = PASS": true
+      },
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "baseline",
+      "exit": 0,
+      "checks": {
+        "No new upgrade operations detected.": true,
+        "SOURCE ALEMBIC REVISION UNCHANGED = PASS": true,
+        "ISOLATED DATABASE REMOVED = PASS": true
+      },
+      "tests": 227,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "mixed_corrections",
+      "exit": 0,
+      "checks": {
+        "No new upgrade operations detected.": true,
+        "SOURCE ALEMBIC REVISION UNCHANGED = PASS": true,
+        "ISOLATED DATABASE REMOVED = PASS": true
+      },
+      "tests": 124,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "normative_audit_exit": 0,
+  "status": "PASS",
+  "production_sha256_before": "3a37fbbac88d48308d0a9ea8944db632424bac483e9ec4f3faf8b5c2c9de429c",
+  "production_sha256_after": "3a37fbbac88d48308d0a9ea8944db632424bac483e9ec4f3faf8b5c2c9de429c",
+  "production_unchanged": true,
+  "protected_files": 119,
+  "start_files_checked": 2636,
+  "changed_existing_files": [],
+  "unrelated_worktree_preserved": true
+}

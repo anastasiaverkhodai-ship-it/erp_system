@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 
 from sqlalchemy import text
+from app.services.payroll_mutation_guard import serialized_payroll_mutation
 
 from app.services.payroll_regulatory_correction_projection import (
     canonical_bytes,
@@ -25,6 +26,7 @@ class CorrectionSnapshotError(FinancialReconciliationError):
 
 
 SCHEMA = "payroll_internal_correction_projection_v1"
+MULTIREVISION_SCHEMA = "payroll_internal_correction_projection_v2"
 
 
 def validate_snapshot_envelope(
@@ -52,7 +54,7 @@ def validate_snapshot_envelope(
         payload.get("company_id") != company_id
         or payload.get("payroll_period_id") != payroll_period_id
         or payload.get("report_kind") != report_kind
-        or payload.get("schema") != SCHEMA
+        or payload.get("schema") not in (SCHEMA, MULTIREVISION_SCHEMA)
         or payload.get("source_provenance") != "PERSISTED_POSTGRESQL"
         or payload.get("official_form_fields_verified") is not False
         or payload.get("official_generation") != "BLOCKED"
@@ -65,6 +67,19 @@ def validate_snapshot_envelope(
         "excluded_historical_calculation_ids"
     )
     replacements = payload.get("active_calculation_ids")
+
+    if payload.get("schema") == MULTIREVISION_SCHEMA:
+        history = originals
+        originals = payload.get("baseline_calculation_ids")
+        if (payload.get("baseline_semantics") != "immediate_predecessor"
+                or not isinstance(history, list) or len(history) < 2
+                or any(type(i) is not int or i <= 0 for i in history)
+                or len(set(history)) != len(history)
+                or not isinstance(originals, list) or len(originals) != 1
+                or type(originals[0]) is not int or originals[0] not in history
+                or not isinstance(replacements, list)
+                or any(i in history for i in replacements)):
+            raise CorrectionSnapshotError("Invalid multi-revision baseline/history")
 
     if (
         not isinstance(originals, list)
@@ -95,12 +110,13 @@ def validate_snapshot_envelope(
         "report_kind": report_kind,
         "original_calculation_id": originals[0],
         "replacement_calculation_id": replacements[0],
-        "schema_version": SCHEMA,
+        "schema_version": payload["schema"],
         "projection_json": canonical_bytes(payload).decode("utf-8"),
         "projection_sha256": digest,
     }
 
 
+@serialized_payroll_mutation(CorrectionSnapshotError)
 async def persist_correction_snapshot(
     db,
     *,
@@ -198,7 +214,7 @@ async def persist_correction_snapshot(
         actual_digest != params["projection_sha256"]
         or existing["projection_sha256"]
         != params["projection_sha256"]
-        or existing["schema_version"] != SCHEMA
+        or existing["schema_version"] != params["schema_version"]
     ):
         raise CorrectionSnapshotError(
             "Conflicting immutable correction snapshot"
